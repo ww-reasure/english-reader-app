@@ -232,6 +232,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
   font-size: 18px; font-weight: 600; margin: 12px 0;
 }
 .flashcard-result-hint { color: var(--text-muted); font-size: 14px; }
+.flashcard-result-generate {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-top: 16px; text-align: center;
+}
+.flashcard-result-generate h3 { font-size: 16px; margin-bottom: 6px; }
 
 /* Empty State */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 14px; }

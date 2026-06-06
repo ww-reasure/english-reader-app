@@ -87,7 +87,7 @@ const Tooltip = {
     if (tooltip) tooltip.style.display = 'none';
   },
 
-  // Save word to vocabulary and auto-sync to learn words
+  // Save word to vocabulary and auto-sync to learn words (with SRS)
   async saveWord(word, translation, phonetic) {
     try {
       const articleId = Router.getArticleId();
@@ -99,9 +99,14 @@ const Tooltip = {
         contextSentence: ''
       });
 
-      // Auto-sync to learn words library
+      // Auto-sync to learn words library with translation
       try {
-        await DB.saveLearnWord({ word: word.toLowerCase(), createdAt: Date.now() });
+        await DB.saveLearnWord({
+          word: word.toLowerCase(),
+          translation: translation || '',
+          phonetic: phonetic || '',
+          createdAt: Date.now()
+        });
       } catch {
         // Duplicate word in learn library, ignore
       }
