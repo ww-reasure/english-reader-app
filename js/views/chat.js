@@ -500,17 +500,29 @@ const WordImport = {
       return;
     }
 
+    // Show progress
+    const status = document.createElement('div');
+    status.style.cssText = 'margin-top:8px;font-size:13px;color:var(--text-muted)';
+    document.getElementById('wordImportModal')?.querySelector('.modal-actions')?.before(status);
+
     let imported = 0;
     for (const word of words) {
       try {
-        await DB.saveLearnWord({ word, createdAt: Date.now() });
+        // Look up translation for each word
+        let translation = '';
+        try {
+          const dictResult = await Dictionary.lookup(word);
+          translation = dictResult.translation || '';
+        } catch {}
+        await DB.saveLearnWord({ word, translation, createdAt: Date.now() });
         imported++;
+        if (status) status.textContent = `正在导入... ${imported}/${words.length}`;
       } catch {
         // Duplicate word, skip
       }
     }
 
-    document.getElementById('wordImportModal').remove();
+    document.getElementById('wordImportModal')?.remove();
     ChatView.addMessage('system', `成功导入 ${imported} 个单词到学习词库`);
   }
 };

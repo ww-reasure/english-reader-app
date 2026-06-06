@@ -40,7 +40,7 @@ const FlashcardView = {
   },
 
   // Render a single flashcard
-  renderCard(container) {
+  async renderCard(container) {
     if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
@@ -49,6 +49,21 @@ const FlashcardView = {
     const word = this.words[this.currentIndex];
     const statusInfo = SpacedRepetition.getStatusDisplay(word);
     const progress = Math.round((this.currentIndex / this.words.length) * 100);
+
+    // Get translation and phonetic (from DB or dictionary lookup)
+    let translation = word.translation || '';
+    let phonetic = word.phonetic || '';
+    if (!translation) {
+      try {
+        const dictResult = await Dictionary.lookup(word.word);
+        translation = dictResult.translation || '暂无翻译';
+        phonetic = phonetic || dictResult.phonetic || '';
+        // Cache back to DB for next time
+        await DB.updateLearnWordSRS(word.id, { translation, phonetic });
+      } catch {
+        translation = '暂无翻译';
+      }
+    }
 
     container.innerHTML = `
       <div class="flashcard-container">
@@ -62,11 +77,11 @@ const FlashcardView = {
         <div class="flashcard" onclick="this.classList.toggle('flipped')">
           <div class="flashcard-front">
             <div class="flashcard-word">${esc(word.word)}</div>
-            ${word.phonetic ? `<div class="flashcard-phonetic">[${esc(word.phonetic)}]</div>` : ''}
+            ${phonetic ? `<div class="flashcard-phonetic">[${esc(phonetic)}]</div>` : ''}
             <div class="flashcard-hint">点击查看释义</div>
           </div>
           <div class="flashcard-back">
-            <div class="flashcard-translation">${esc(word.translation || '暂无翻译')}</div>
+            <div class="flashcard-translation">${esc(translation)}</div>
             ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
             <div class="flashcard-hint">根据记忆程度选择评分</div>
           </div>
