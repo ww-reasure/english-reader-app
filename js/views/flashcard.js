@@ -2,13 +2,24 @@
  * Flashcard View
  * Spaced repetition review mode using SM-2 algorithm
  * Uses learnWords table with SRS scheduling
+ *
+ * Flow:
+ *   Card front (word only)
+ *   ├── Click "认识" → next word (quality 5, knew without seeing translation)
+ *   ├── Click "模糊" → auto-flip → show "下一词" (quality 3)
+ *   ├── Click "忘了" → auto-flip → show "下一词" (quality 1)
+ *   └── Click card to flip → "认识" disabled → must pick 模糊/忘了
  */
 
 const FlashcardView = {
   words: [],
   currentIndex: 0,
   ratingCounts: { 1: 0, 3: 0, 5: 0 },
-  reviewedWords: [],  // Track words reviewed this session for article generation
+  reviewedWords: [],
+  isFlipped: false,        // Whether card is currently flipped
+  pendingQuality: null,    // Quality chosen before "下一词"
+  currentTranslation: '',  // Cached translation for current card
+  currentPhonetic: '',     // Cached phonetic for current card
 
   // Render flashcard view
   async render(container) {
@@ -48,6 +59,9 @@ const FlashcardView = {
       return;
     }
 
+    this.isFlipped = false;
+    this.pendingQuality = null;
+
     const word = this.words[this.currentIndex];
     const statusInfo = SpacedRepetition.getStatusDisplay(word);
     const progress = Math.round((this.currentIndex / this.words.length) * 100);
@@ -60,12 +74,13 @@ const FlashcardView = {
         const dictResult = await Dictionary.lookup(word.word);
         translation = dictResult.translation || '暂无翻译';
         phonetic = phonetic || dictResult.phonetic || '';
-        // Cache back to DB for next time
         await DB.updateLearnWordSRS(word.id, { translation, phonetic });
       } catch {
         translation = '暂无翻译';
       }
     }
+    this.currentTranslation = translation;
+    this.currentPhonetic = phonetic;
 
     container.innerHTML = `
       <div class="flashcard-container">
@@ -76,25 +91,34 @@ const FlashcardView = {
         <div class="flashcard-progress-bar">
           <div class="flashcard-progress-fill" style="width:${progress}%"></div>
         </div>
-        <div class="flashcard" onclick="this.classList.toggle('flipped')">
-          <div class="flashcard-front">
+        <div class="flashcard" id="flashcard" onclick="FlashcardView.flipCard()">
+          <div class="flashcard-front" id="flashcardFront">
             <div class="flashcard-word">${esc(word.word)}</div>
             ${phonetic ? `<div class="flashcard-phonetic">[${esc(phonetic)}]</div>` : ''}
             <div class="flashcard-hint">点击查看释义</div>
           </div>
-          <div class="flashcard-back">
+          <div class="flashcard-back" id="flashcardBack" style="display:none">
             <div class="flashcard-translation">${esc(translation)}</div>
             ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
-            <div class="flashcard-hint">根据记忆程度选择评分</div>
+            <div class="flashcard-hint" id="flashcardBackHint">根据记忆程度选择评分</div>
           </div>
         </div>
-        <div class="flashcard-actions">
-          ${SpacedRepetition.ratings.map(r => `
-            <button class="flashcard-rating-btn" style="border-color:${r.color};color:${r.color}"
-              onclick="FlashcardView.rate(${r.quality})" title="${r.desc}">
-              ${r.label}
-            </button>
-          `).join('')}
+        <div class="flashcard-actions" id="flashcardActions">
+          <button class="flashcard-rating-btn flashcard-btn-knew" id="btnKnew"
+            onclick="FlashcardView.rate(5)" title="没翻就知道意思">
+            认识
+          </button>
+          <button class="flashcard-rating-btn flashcard-btn-fuzzy"
+            onclick="FlashcardView.rateAndFlip(3)" title="想了一下">
+            模糊
+          </button>
+          <button class="flashcard-rating-btn flashcard-btn-forgot"
+            onclick="FlashcardView.rateAndFlip(1)" title="完全不认识">
+            忘了
+          </button>
+        </div>
+        <div id="flashcardNext" style="display:none" class="flashcard-next-container">
+          <button class="btn btn-primary" onclick="FlashcardView.goNext()">下一词</button>
         </div>
         <div class="flashcard-skip">
           <button class="btn btn-outline btn-sm" onclick="FlashcardView.skip()">跳过</button>
@@ -102,29 +126,81 @@ const FlashcardView = {
       </div>`;
   },
 
-  // Rate current word
+  // Flip card manually (by clicking the card)
+  flipCard() {
+    if (this.isFlipped) return;
+    this.isFlipped = true;
+
+    const card = document.getElementById('flashcard');
+    const front = document.getElementById('flashcardFront');
+    const back = document.getElementById('flashcardBack');
+    const btnKnew = document.getElementById('btnKnew');
+
+    if (card) card.classList.add('flipped');
+    if (front) front.style.display = 'none';
+    if (back) back.style.display = 'block';
+
+    // Disable "认识" — user flipped, so they didn't know immediately
+    if (btnKnew) {
+      btnKnew.disabled = true;
+      btnKnew.style.opacity = '0.3';
+      btnKnew.style.cursor = 'not-allowed';
+    }
+  },
+
+  // Rate as "认识" (5) — only works when NOT flipped
   async rate(quality) {
-    const word = this.words[this.currentIndex];
+    if (this.isFlipped) return; // Should not happen, but guard
 
-    // Calculate next review using SM-2
-    const srsData = SpacedRepetition.calculateNext(word, quality);
-
-    // Update in database
-    await DB.updateLearnWordSRS(word.id, srsData);
-
-    // Track rating
-    this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
-
-    // Track reviewed word for article generation
-    this.reviewedWords.push({
-      word: word.word,
-      translation: word.translation || '',
-      quality
-    });
-
-    // Next card
+    // Record and go next immediately
+    await this.recordRating(quality);
     this.currentIndex++;
     this.renderCard(document.getElementById('app'));
+  },
+
+  // Rate as 模糊(3) or 忘了(1) — auto flip, then show "下一词"
+  async rateAndFlip(quality) {
+    this.pendingQuality = quality;
+
+    // Auto flip if not already
+    if (!this.isFlipped) {
+      this.flipCard();
+    }
+
+    // Show "下一词" button, hide rating buttons
+    const actions = document.getElementById('flashcardActions');
+    const nextBtn = document.getElementById('flashcardNext');
+    const hint = document.getElementById('flashcardBackHint');
+
+    if (actions) actions.style.display = 'none';
+    if (nextBtn) nextBtn.style.display = 'block';
+    if (hint) {
+      const labels = { 1: '❌ 忘了', 3: '🔶 模糊' };
+      hint.textContent = labels[quality] + ' — 点击「下一词」继续';
+    }
+  },
+
+  // Go to next word (after rating 模糊/忘了)
+  async goNext() {
+    if (this.pendingQuality !== null) {
+      await this.recordRating(this.pendingQuality);
+    }
+    this.currentIndex++;
+    this.renderCard(document.getElementById('app'));
+  },
+
+  // Record a rating
+  async recordRating(quality) {
+    const word = this.words[this.currentIndex];
+    const srsData = SpacedRepetition.calculateNext(word, quality);
+    await DB.updateLearnWordSRS(word.id, srsData);
+
+    this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
+    this.reviewedWords.push({
+      word: word.word,
+      translation: word.translation || this.currentTranslation,
+      quality
+    });
   },
 
   // Skip current word (don't rate)
@@ -139,12 +215,8 @@ const FlashcardView = {
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
     const reviewedCount = this.reviewedWords.length;
 
-    // Categorize reviewed words
     const forgot = this.reviewedWords.filter(w => w.quality === 1).map(w => w.word);
     const fuzzy = this.reviewedWords.filter(w => w.quality === 3).map(w => w.word);
-    const knew = this.reviewedWords.filter(w => w.quality === 5).map(w => w.word);
-
-    // Words that need reinforcement (forgot + fuzzy)
     const reinforceWords = [...forgot, ...fuzzy];
     const canGenerate = reviewedCount >= 3;
 
@@ -207,10 +279,8 @@ const FlashcardView = {
 
     let words;
     if (mode === 'weak') {
-      // Only forgot + fuzzy words
       words = this.reviewedWords.filter(w => w.quality <= 3).map(w => w.word);
     } else {
-      // All reviewed words
       words = this.reviewedWords.map(w => w.word);
     }
 
@@ -219,37 +289,27 @@ const FlashcardView = {
       return;
     }
 
-    // Determine difficulty from exam level
     const difficulty = Config.get('exam_level') || 'cet4';
-    const level = Config.get('level') || 'easy';
-
-    // Smart split: if words are diverse, split into 2 short articles
     const shouldSplit = words.length > 8;
     const halfLen = Math.ceil(words.length / 2);
 
-    // Navigate to chat and generate
     location.hash = '#/chat';
-
-    // Wait for chat view to render
     await new Promise(r => setTimeout(r, 100));
 
     if (shouldSplit) {
-      // Generate 2 short articles
       const group1 = words.slice(0, halfLen).join(', ');
       const group2 = words.slice(halfLen).join(', ');
 
       ChatView.addMessage('system', `📝 使用今天复习的 ${words.length} 个词汇生成阅读（分两篇短文）`);
 
       try {
-        // Article 1
-        const prompt1 = `请生成一篇短文，自然融入以下词汇：${group1}。主题可以是日常生活、科技、教育、文化中选择。`;
-        const article1 = await API.generateArticle(prompt1, difficulty, '复习巩固', group1, 250);
+        const article1 = await API.generateArticle(
+          `请生成一篇短文，自然融入以下词汇：${group1}。`, difficulty, '复习巩固', group1, 250);
         const id1 = await DB.saveArticle(article1);
         ChatView.addArticleCard({ ...article1, id: id1 });
 
-        // Article 2
-        const prompt2 = `请生成一篇短文，自然融入以下词汇：${group2}。选择与上一篇不同的主题。`;
-        const article2 = await API.generateArticle(prompt2, difficulty, '复习巩固', group2, 250);
+        const article2 = await API.generateArticle(
+          `请生成一篇短文，自然融入以下词汇：${group2}。选择与上一篇不同的主题。`, difficulty, '复习巩固', group2, 250);
         const id2 = await DB.saveArticle(article2);
         ChatView.addArticleCard({ ...article2, id: id2 });
 
@@ -258,13 +318,12 @@ const FlashcardView = {
         ChatView.addMessage('error', `生成失败：${err.message}`);
       }
     } else {
-      // Generate 1 article
       const keywords = words.join(', ');
       ChatView.addMessage('system', `📝 使用今天复习的 ${words.length} 个词汇生成阅读`);
 
       try {
-        const prompt = `请生成一篇文章，自然融入以下词汇：${keywords}。这些词汇来自今天的复习，需要在语境中反复出现帮助巩固记忆。`;
-        const article = await API.generateArticle(prompt, difficulty, '复习巩固', keywords, 350);
+        const article = await API.generateArticle(
+          `请生成一篇文章，自然融入以下词汇：${keywords}。`, difficulty, '复习巩固', keywords, 350);
         const id = await DB.saveArticle(article);
         ChatView.addArticleCard({ ...article, id });
         ChatView.addMessage('system', '✅ 巩固阅读已生成，点击阅读全文');

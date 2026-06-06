@@ -175,11 +175,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 /* Vocabulary */
 .vocab-container { max-width: 100%; padding: 20px 16px; }
 .vocab-list { display: flex; flex-direction: column; gap: 8px; }
-.vocab-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
-.vocab-word { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.vocab-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+  display: flex; align-items: center; gap: 12px;
+}
+.vocab-card.manage-mode { border-color: var(--danger); background: #fff5f5; }
+[data-theme="dark"] .vocab-card.manage-mode { background: #3e1a1a; }
+.vocab-word { display: flex; align-items: baseline; gap: 8px; flex-shrink: 0; }
 .vocab-word .word { font-weight: 700; font-size: 15px; color: var(--primary); }
 .vocab-word .phonetic { color: var(--text-muted); font-size: 13px; }
-.vocab-translation { font-size: 14px; margin-bottom: 8px; }
+.vocab-translation { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Flashcard */
 .flashcard-container { max-width: 100%; padding: 20px 16px; display: flex; flex-direction: column; align-items: center; }
@@ -220,6 +226,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
   cursor: pointer; transition: all 0.2s; min-width: 80px;
 }
 .flashcard-rating-btn:active { transform: scale(0.95); }
+.flashcard-rating-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.flashcard-btn-knew { border-color: #27ae60; color: #27ae60; }
+.flashcard-btn-knew:active { background: #27ae60; color: #fff; }
+.flashcard-btn-fuzzy { border-color: #f39c12; color: #f39c12; }
+.flashcard-btn-fuzzy:active { background: #f39c12; color: #fff; }
+.flashcard-btn-forgot { border-color: #e74c3c; color: #e74c3c; }
+.flashcard-btn-forgot:active { background: #e74c3c; color: #fff; }
+.flashcard-next-container { text-align: center; margin-top: 16px; }
 .flashcard-skip { text-align: center; margin-top: 12px; }
 .flashcard-result-stats {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
