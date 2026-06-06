@@ -134,6 +134,33 @@ const SettingsView = {
               <input type="text" id="settingsModelInput" value="${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? esc(Config.get('model')) : ''}" placeholder="输入模型名称" style="display:${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? 'block' : 'none'}">
             </div>
           </div>
+          <div class="api-tutorial">
+            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
+              📖 如何获取 API Key？<span class="api-tutorial-arrow">▼</span>
+            </div>
+            <div class="api-tutorial-content">
+              <div class="api-tutorial-step">
+                <strong>1. 注册 DeepSeek 账号</strong>
+                <p>访问 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>，注册并登录</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>2. 充值余额</strong>
+                <p>进入「费用」页面，充值少量金额（几块钱即可，Flash 模型很便宜）</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>3. 创建 API Key</strong>
+                <p>进入「API Keys」页面，点击「创建 API Key」，复制生成的密钥</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>4. 粘贴到上方</strong>
+                <p>将复制的 Key 粘贴到上方「API Key」输入框，点击保存即可</p>
+              </div>
+              <div class="api-tutorial-note">
+                💡 DeepSeek V4 Flash 每篇文章约 ¥0.01，非常便宜。<br>
+                也支持其他兼容 OpenAI 协议的服务（如 OpenRouter、硅基流动等），修改 Base URL 和模型名称即可。
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="settings-actions">
