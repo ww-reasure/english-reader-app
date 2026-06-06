@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "skills": {
+    "best-practices-ecc": {
+      "name": "Best Practices",
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=best-practices-ecc",
+      "source": "community",
+      "version": "2.0.0",
+      "installedAt": "2026-06-06T13:00:59Z"
+    },
+    "self-improving-agent": {
+      "name": "Self-Improving Agent",
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=self-improving-agent",
+      "source": "community",
+      "version": "3.0.21",
+      "installedAt": "2026-06-06T13:01:20Z"
+    },
+    "github": {
+      "name": "Github",
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=github",
+      "source": "community",
+      "version": "1.0.0",
+      "installedAt": "2026-06-06T13:01:23Z"
+    }
+  }
+}
