@@ -4,8 +4,21 @@
  */
 
 const ReadingView = {
+  // Clean up event listeners
+  cleanup() {
+    if (this._globalClickHandler) {
+      document.removeEventListener('click', this._globalClickHandler);
+      this._globalClickHandler = null;
+    }
+    if (this._ttsClickHandler) {
+      document.removeEventListener('click', this._ttsClickHandler);
+      this._ttsClickHandler = null;
+    }
+  },
+
   // Render reading view for an article
   async render(container, articleId) {
+    this.cleanup();
     const article = await DB.getArticle(articleId);
 
     if (!article) {
@@ -55,17 +68,31 @@ const ReadingView = {
     const articleBody = document.getElementById('articleBody');
     if (!articleBody) return;
 
+    // Global click handler: dismiss tooltip when clicking outside
+    this._globalClickHandler = (e) => {
+      const tooltip = document.getElementById('wordTooltip');
+      if (!tooltip || tooltip.style.display === 'none') return;
+      if (tooltip.contains(e.target)) return;
+      Tooltip.hide();
+      AIAnalysis.hideButton();
+    };
+    document.addEventListener('click', this._globalClickHandler);
+
     // Click to lookup word
     articleBody.addEventListener('click', async (e) => {
       const tooltip = document.getElementById('wordTooltip');
       if (tooltip?.contains(e.target)) return;
       if (e.target.id === 'aiAnalyzeBtn') return;
 
-      Tooltip.hide();
-      AIAnalysis.hideButton();
-
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
+
+      // Stop propagation so global handler doesn't immediately hide the new tooltip
+      e.stopPropagation();
+
+      // Hide previous tooltip before showing new one
+      Tooltip.hide();
+      AIAnalysis.hideButton();
 
       Tooltip.showLoading(e.clientX, e.clientY);
 
@@ -78,12 +105,13 @@ const ReadingView = {
     });
 
     // TTS button click (event delegation)
-    document.addEventListener('click', (e) => {
+    this._ttsClickHandler = (e) => {
       if (e.target.classList.contains('btn-speak')) {
         const word = e.target.getAttribute('data-word');
         if (word) TTS.speak(word);
       }
-    });
+    };
+    document.addEventListener('click', this._ttsClickHandler);
 
     // AI analysis selection detection
     AIAnalysis.initSelectionDetection(articleBody);

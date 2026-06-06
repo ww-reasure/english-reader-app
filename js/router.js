@@ -32,6 +32,9 @@ const Router = {
       case hash === '#/settings':
         SettingsView.render(app);
         break;
+      case hash === '#/assessment':
+        AssessmentView.render(app);
+        break;
       default:
         ChatView.render(app);
     }

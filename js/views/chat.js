@@ -79,15 +79,18 @@ const ChatView = {
       `<option value="${t.value}">${t.label}</option>`
     ).join('');
 
+    // Get saved exam level from assessment or default
+    const savedExamLevel = Config.get('exam_level') || 'cet4';
+
     container.innerHTML = `
       <div class="chat-container">
         <div id="chatMessages" class="chat-messages"></div>
         <div class="chat-input-area">
           <div class="input-options">
             <select id="difficultySelect">
-              <option value="cet4" selected>四级</option>
-              <option value="cet6">六级</option>
-              <option value="graduate">考研</option>
+              <option value="cet4" ${savedExamLevel === 'cet4' ? 'selected' : ''}>四级</option>
+              <option value="cet6" ${savedExamLevel === 'cet6' ? 'selected' : ''}>六级</option>
+              <option value="graduate" ${savedExamLevel === 'graduate' ? 'selected' : ''}>考研</option>
             </select>
             <select id="topicSelect" class="topic-select">
               <option value="">选择话题</option>
@@ -122,8 +125,13 @@ const ChatView = {
   restoreHistory() {
     const history = ChatHistory.load();
     if (history.length === 0) {
-      // Show welcome message
-      this.addMessageToDOM('system', '欢迎！选择话题和难度，描述你想阅读的内容。<br>也可以导入单词，AI 会自动在文章中使用这些单词帮助你复习。');
+      // Show welcome message with assessment option for first-time users
+      const assessmentDone = Config.get('assessment_done') === 'true';
+      if (assessmentDone) {
+        this.addMessageToDOM('system', '欢迎回来！选择话题和难度，描述你想阅读的内容。');
+      } else {
+        this.addWelcomeWithAssessment();
+      }
       return;
     }
 
@@ -134,6 +142,33 @@ const ChatView = {
         this.addMessageToDOM(msg.type, msg.text);
       }
     });
+  },
+
+  // Show welcome message with assessment CTA
+  addWelcomeWithAssessment() {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+
+    const div = document.createElement('div');
+    div.className = 'message system-message';
+    div.innerHTML = `
+      <div class="welcome-box">
+        <h3>👋 欢迎使用英语阅读助手</h3>
+        <p>首次使用建议先进行<strong>阅读水平测评</strong>，系统会根据你的词汇量自动推荐最佳难度和生词比例。</p>
+        <div class="welcome-actions">
+          <a href="#/assessment" class="btn btn-primary btn-sm">📊 开始测评（3分钟）</a>
+          <button class="btn btn-outline btn-sm" onclick="ChatView.skipAssessment()">跳过，直接使用</button>
+        </div>
+      </div>`;
+    container.appendChild(div);
+  },
+
+  // Skip assessment
+  skipAssessment() {
+    Config.set('assessment_done', 'true');
+    const container = document.getElementById('chatMessages');
+    if (container) container.innerHTML = '';
+    this.addMessageToDOM('system', '已跳过测评。选择话题和难度，描述你想阅读的内容。<br>也可以导入单词，AI 会自动在文章中使用这些单词帮助你复习。<br>随时可以在「设置」页面进行测评。');
   },
 
   // Clear chat history

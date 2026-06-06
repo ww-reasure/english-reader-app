@@ -5,6 +5,8 @@
 
 const Dictionary = {
   data: null,
+  examWords: null,
+  examFreq: null,
   cache: new Map(),
 
   // Load local dictionary
@@ -15,6 +17,22 @@ const Dictionary = {
       this.data = await resp.json();
     } catch {
       this.data = {};
+    }
+  },
+
+  // Load exam words data
+  async loadExamData() {
+    if (this.examWords) return;
+    try {
+      const [wordsResp, freqResp] = await Promise.all([
+        fetch('data/exam-words.json'),
+        fetch('data/exam-frequency.json')
+      ]);
+      this.examWords = await wordsResp.json();
+      this.examFreq = await freqResp.json();
+    } catch {
+      this.examWords = {};
+      this.examFreq = {};
     }
   },
 
@@ -95,21 +113,28 @@ const Dictionary = {
     if (this.cache.has(key)) return this.cache.get(key);
 
     await this.load();
+    await this.loadExamData();
+
+    // Get exam data for this word
+    const examData = this.getExamData(key);
 
     // 1. Try local dictionary (with stemming)
     const forms = this.getStemForms(key);
     for (const form of forms) {
       if (this.data[form]) {
         const d = this.data[form];
+        // 生成 Free Dictionary API 音频 URL（已知格式）
+        const audioUrl = `https://api.dictionaryapi.dev/media/pronunciations/en/${key}-uk.mp3`;
         const result = {
           word: key,
           baseForm: form !== key ? form : undefined,
           phonetic: d.p || '',
           translation: d.t || key,
           pos: '',
-          audioUrl: '',
+          audioUrl,
           found: true,
-          source: 'local'
+          source: 'local',
+          ...examData
         };
         this.cache.set(key, result);
         return result;
@@ -147,7 +172,8 @@ const Dictionary = {
           pos: meanings[0]?.partOfSpeech || '',
           audioUrl,
           found: true,
-          source: 'api'
+          source: 'api',
+          ...examData
         };
         this.cache.set(key, result);
         return result;
@@ -163,9 +189,36 @@ const Dictionary = {
       pos: '',
       audioUrl: '',
       found: true,
-      source: 'ai'
+      source: 'ai',
+      ...examData
     };
     this.cache.set(key, result);
     return result;
+  },
+
+  // Get exam level and frequency data for a word
+  getExamData(word) {
+    const w = word.toLowerCase();
+    const levels = this.examWords?.[w] || [];
+
+    // 词频判断逻辑：
+    // 1. 在本地词典（高频5000词）中 → 高频
+    // 2. 在考试词表中 → 中频
+    // 3. 都不在 → 低频
+    const forms = this.getStemForms(w);
+    const inLocalDict = forms.some(f => this.data?.[f]);
+    const inExamList = levels.length > 0;
+
+    let freqLevel = 'low';
+    if (inLocalDict) {
+      freqLevel = 'high';  // 本地词典收录的都是高频词
+    } else if (inExamList) {
+      freqLevel = 'medium';  // 考试词表里的词是中频
+    }
+
+    return {
+      examLevels: levels,
+      freqLevel: freqLevel
+    };
   }
 };

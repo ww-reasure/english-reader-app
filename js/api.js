@@ -113,6 +113,10 @@ const API = {
     const rules = (this.difficultyRules[key] || this.difficultyRules['cet4_easy']) +
       `\n- 总字数控制在 ${wordCount} 词左右`;
 
+    // Get coverage settings
+    const coverage = Config.get('coverage') || '95';
+    const newWordPercent = Config.get('new_word_percent') || '5';
+
     return `你是一位专业的英语考试辅导教师，擅长编写符合真实考试标准的阅读材料。请严格按照难度要求生成文章。
 
 请以 JSON 格式回复，包含以下字段：
@@ -121,6 +125,11 @@ const API = {
 - "translation": 完整的中文翻译，段落结构与英文一一对应，段落之间用双换行分隔
 
 ${rules}
+
+生词比例控制：
+- 文章中约 ${coverage}% 的词汇应为常见高频词汇（读者大概率认识的词）
+- 新词（较难/生僻词）控制在约 ${newWordPercent}% 左右
+- 新词应在文章中自然重复出现 2-3 次，帮助读者通过上下文理解
 
 其他要求：
 - 自然地融入以下关键词：${keywords || '无'}

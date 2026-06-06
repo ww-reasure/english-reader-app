@@ -8,10 +8,32 @@ const SettingsView = {
   render(container) {
     const currentLevel = Config.get('level') || 'easy';
     const currentTheme = Config.get('theme') || 'light';
+    const currentCoverage = Config.get('coverage') || '95';
+    const currentNewWordPercent = Config.get('new_word_percent') || '5';
+    const assessmentDone = Config.get('assessment_done') === 'true';
+    const assessmentVocab = Config.get('assessment_vocab') || '';
+    const assessmentDate = Config.get('assessment_date') || '';
 
     container.innerHTML = `
       <div class="settings-container">
         <h1 class="page-title">设置</h1>
+
+        ${assessmentDone ? `
+        <div class="settings-section">
+          <h2 class="settings-section-title">📊 测评结果</h2>
+          <div class="assessment-result-card">
+            <div class="assessment-result-info">
+              <span>预估词汇量：<strong>${assessmentVocab} 词</strong></span>
+              <span class="text-muted">${assessmentDate ? '测评时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">重新测评</button>
+          </div>
+        </div>` : `
+        <div class="settings-section">
+          <h2 class="settings-section-title">📊 阅读水平测评</h2>
+          <p class="settings-desc">通过阅读测试评估你的词汇量，系统会自动推荐最佳难度和生词比例</p>
+          <button class="btn btn-primary" onclick="location.hash='#/assessment'">开始测评</button>
+        </div>`}
 
         <div class="settings-section">
           <h2 class="settings-section-title">难度模式</h2>
@@ -31,6 +53,45 @@ const SettingsView = {
                 <span class="settings-radio-desc">接近真题难度，适合冲刺备考</span>
               </span>
             </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h2 class="settings-section-title">生词比例控制</h2>
+          <p class="settings-desc">控制生成文章中已学词汇和新词的比例（基于 Nation 98% 覆盖率理论）</p>
+          <div class="coverage-control">
+            <div class="coverage-item">
+              <label>词汇覆盖率</label>
+              <div class="slider-container">
+                <input type="range" id="coverageSlider" min="80" max="99" value="${currentCoverage}"
+                  oninput="SettingsView.updateCoverageLabel(this.value)">
+                <div class="slider-labels">
+                  <span>80%</span>
+                  <span id="coverageValue" class="slider-current">${currentCoverage}%</span>
+                  <span>99%</span>
+                </div>
+              </div>
+              <p class="coverage-hint">每100个词中你认识的比例。98% 为舒适阅读阈值（Nation 研究）</p>
+            </div>
+            <div class="coverage-item">
+              <label>新词比例</label>
+              <div class="slider-container">
+                <input type="range" id="newWordSlider" min="1" max="20" value="${currentNewWordPercent}"
+                  oninput="SettingsView.updateNewWordLabel(this.value)">
+                <div class="slider-labels">
+                  <span>1%</span>
+                  <span id="newWordValue" class="slider-current">${currentNewWordPercent}%</span>
+                  <span>20%</span>
+                </div>
+              </div>
+              <p class="coverage-hint">文章中新词的占比。2-5% 适合舒适阅读，5-10% 适合有意挑战</p>
+            </div>
+            <div class="coverage-preset">
+              <span class="text-muted">快速预设：</span>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(98,2)">轻松阅读</button>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(95,5)">正常学习</button>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(90,10)">挑战模式</button>
+            </div>
           </div>
         </div>
 
@@ -101,6 +162,32 @@ const SettingsView = {
     document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
   },
 
+  // Update coverage slider label
+  updateCoverageLabel(value) {
+    const label = document.getElementById('coverageValue');
+    if (label) label.textContent = value + '%';
+  },
+
+  // Update new word slider label
+  updateNewWordLabel(value) {
+    const label = document.getElementById('newWordValue');
+    if (label) label.textContent = value + '%';
+  },
+
+  // Set preset values
+  setPreset(coverage, newWord) {
+    const coverageSlider = document.getElementById('coverageSlider');
+    const newWordSlider = document.getElementById('newWordSlider');
+    if (coverageSlider) {
+      coverageSlider.value = coverage;
+      this.updateCoverageLabel(coverage);
+    }
+    if (newWordSlider) {
+      newWordSlider.value = newWord;
+      this.updateNewWordLabel(newWord);
+    }
+  },
+
   // Save all settings
   save() {
     const apiKey = document.getElementById('settingsApiKey').value.trim();
@@ -117,6 +204,12 @@ const SettingsView = {
     Config.set('api_key', apiKey);
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
     Config.set('model', model || 'deepseek-v4-flash');
+
+    // Save coverage settings
+    const coverageSlider = document.getElementById('coverageSlider');
+    const newWordSlider = document.getElementById('newWordSlider');
+    if (coverageSlider) Config.set('coverage', coverageSlider.value);
+    if (newWordSlider) Config.set('new_word_percent', newWordSlider.value);
 
     alert('设置已保存');
   }

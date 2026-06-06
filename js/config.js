@@ -9,7 +9,12 @@ const Config = {
     api_key: '',
     base_url: 'https://api.deepseek.com/v1',
     model: 'deepseek-v4-flash',
-    theme: 'light'
+    theme: 'light',
+    exam_level: 'cet4',
+    level: 'easy',
+    coverage: '95',
+    new_word_percent: '5',
+    assessment_done: 'false'
   },
 
   // Get a setting value

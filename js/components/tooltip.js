@@ -38,6 +38,19 @@ const Tooltip = {
 
     html += `<div class="tooltip-translation">${esc(data.translation)}</div>`;
 
+    // Exam level tags
+    if (data.examLevels && data.examLevels.length > 0) {
+      const levelLabels = { cet4: '四级', cet6: '六级', graduate: '考研' };
+      const tags = data.examLevels.map(l => `<span class="exam-tag exam-${l}">${levelLabels[l] || l}</span>`).join('');
+      html += `<div class="tooltip-exam-tags">${tags}</div>`;
+    }
+
+    // Word frequency level
+    if (data.freqLevel) {
+      const freqLabels = { high: '高频', medium: '中频', low: '低频' };
+      html += `<div class="tooltip-freq"><span class="freq-badge freq-${data.freqLevel}">${freqLabels[data.freqLevel]}</span></div>`;
+    }
+
     if (data.found) {
       html += `<div class="tooltip-actions">
         <button class="btn-save-word" onclick="Tooltip.saveWord('${escJs(data.word)}', '${escJs(data.translation)}', '${escJs(data.phonetic || '')}')">+ 收藏</button>

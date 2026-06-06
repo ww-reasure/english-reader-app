@@ -1,8 +1,9 @@
 {
-  "version": "1.0.3",
-  "versionCode": 4,
-  "buildDate": "2026-05-30",
+  "version": "1.2.0",
+  "versionCode": 3,
+  "buildDate": "2026-06-06",
   "changes": [
-    "v1.0.3: Capacitor 原生 TTS 优先（系统引擎），加 Android 11+ TTS queries，修复发音"
+    "v1.2.0: 阅读水平测评、智能生词比例、首屏引导、Tooltip修复",
+    "v1.1.0: 真人发音、考试等级标签、词频等级、暗黑模式、复习卡片、句子分析"
   ]
 }
