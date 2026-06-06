@@ -156,7 +156,7 @@ const SettingsView = {
                 <p>将复制的 Key 粘贴到上方「API Key」输入框，点击保存即可</p>
               </div>
               <div class="api-tutorial-note">
-                💡 DeepSeek V4 Flash 每篇文章约 ¥0.01，非常便宜。<br>
+                💡 DeepSeek V4 Flash 每篇文章不到 ¥0.01，非常便宜。<br>
                 也支持其他兼容 OpenAI 协议的服务（如 OpenRouter、硅基流动等），修改 Base URL 和模型名称即可。
               </div>
             </div>
