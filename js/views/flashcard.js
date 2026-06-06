@@ -15,11 +15,41 @@ const FlashcardView = {
   words: [],
   currentIndex: 0,
   ratingCounts: { 1: 0, 3: 0, 5: 0 },
-  reviewedWords: [],
-  isFlipped: false,        // Whether card is currently flipped
-  pendingQuality: null,    // Quality chosen before "下一词"
-  currentTranslation: '',  // Cached translation for current card
-  currentPhonetic: '',     // Cached phonetic for current card
+  reviewedWords: [],       // Current session
+  isFlipped: false,
+  pendingQuality: null,
+  currentTranslation: '',
+  currentPhonetic: '',
+
+  // Today's reviewed words (persisted across sessions)
+  TODAY_KEY: 'todayReviewedWords',
+
+  getTodayKey() {
+    return new Date().toISOString().split('T')[0];
+  },
+
+  loadTodayWords() {
+    try {
+      const data = JSON.parse(localStorage.getItem(this.TODAY_KEY));
+      if (data && data.date === this.getTodayKey()) return data.words;
+    } catch {}
+    return [];
+  },
+
+  saveTodayWords(words) {
+    localStorage.setItem(this.TODAY_KEY, JSON.stringify({
+      date: this.getTodayKey(),
+      words
+    }));
+  },
+
+  addTodayWord(wordData) {
+    const today = this.loadTodayWords();
+    if (!today.some(w => w.word === wordData.word)) {
+      today.push(wordData);
+      this.saveTodayWords(today);
+    }
+  },
 
   // Render flashcard view
   async render(container) {
@@ -126,25 +156,35 @@ const FlashcardView = {
       </div>`;
   },
 
-  // Flip card manually (by clicking the card)
+  // Flip card (toggle between front and back)
   flipCard() {
-    if (this.isFlipped) return;
-    this.isFlipped = true;
-
     const card = document.getElementById('flashcard');
     const front = document.getElementById('flashcardFront');
     const back = document.getElementById('flashcardBack');
     const btnKnew = document.getElementById('btnKnew');
 
-    if (card) card.classList.add('flipped');
-    if (front) front.style.display = 'none';
-    if (back) back.style.display = 'block';
-
-    // Disable "认识" — user flipped, so they didn't know immediately
-    if (btnKnew) {
-      btnKnew.disabled = true;
-      btnKnew.style.opacity = '0.3';
-      btnKnew.style.cursor = 'not-allowed';
+    if (!this.isFlipped) {
+      // Flip to back
+      this.isFlipped = true;
+      if (front) front.style.display = 'none';
+      if (back) back.style.display = 'block';
+      // Disable "认识" — user flipped, so they didn't know immediately
+      if (btnKnew) {
+        btnKnew.disabled = true;
+        btnKnew.style.opacity = '0.3';
+        btnKnew.style.cursor = 'not-allowed';
+      }
+    } else {
+      // Flip back to front (to see the word again)
+      this.isFlipped = false;
+      if (front) front.style.display = 'block';
+      if (back) back.style.display = 'none';
+      // Re-enable "认识" only if no rating pending
+      if (btnKnew && this.pendingQuality === null) {
+        btnKnew.disabled = false;
+        btnKnew.style.opacity = '1';
+        btnKnew.style.cursor = 'pointer';
+      }
     }
   },
 
@@ -196,11 +236,16 @@ const FlashcardView = {
     await DB.updateLearnWordSRS(word.id, srsData);
 
     this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
-    this.reviewedWords.push({
+
+    const wordData = {
       word: word.word,
       translation: word.translation || this.currentTranslation,
       quality
-    });
+    };
+    this.reviewedWords.push(wordData);
+
+    // Persist to today's words
+    this.addTodayWord(wordData);
   },
 
   // Skip current word (don't rate)
@@ -213,12 +258,13 @@ const FlashcardView = {
   renderResult(container) {
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
-    const reviewedCount = this.reviewedWords.length;
-
-    const forgot = this.reviewedWords.filter(w => w.quality === 1).map(w => w.word);
-    const fuzzy = this.reviewedWords.filter(w => w.quality === 3).map(w => w.word);
-    const reinforceWords = [...forgot, ...fuzzy];
-    const canGenerate = reviewedCount >= 3;
+    // Today's accumulated words (across multiple review sessions)
+    const todayWords = this.loadTodayWords();
+    const todayTotal = todayWords.length;
+    const todayForgot = todayWords.filter(w => w.quality === 1).map(w => w.word);
+    const todayFuzzy = todayWords.filter(w => w.quality === 3).map(w => w.word);
+    const todayReinforce = [...todayForgot, ...todayFuzzy];
+    const canGenerate = todayTotal >= 3;
 
     container.innerHTML = `
       <div class="flashcard-container">
@@ -249,16 +295,24 @@ const FlashcardView = {
             ${accuracy >= 80 ? '💪 表现很好！继续保持。' : accuracy >= 50 ? '📖 还需要多复习，加油！' : '🔄 建议降低复习难度，循序渐进。'}
           </p>
 
+          ${todayTotal > this.reviewedWords.length ? `
+          <div class="flashcard-result-today">
+            📅 今日累计复习：<strong>${todayTotal}</strong> 个单词（本轮 ${this.reviewedWords.length} 个）
+          </div>` : ''}
+
           ${canGenerate ? `
           <div class="flashcard-result-generate">
             <h3>📝 巩固阅读</h3>
-            <p class="flashcard-result-hint">生成一篇使用今天复习词汇的阅读文章，在语境中巩固记忆${reinforceWords.length > 0 ? '（优先使用记不住的词）' : ''}</p>
+            <p class="flashcard-result-hint">使用今天复习的词汇生成阅读文章，在语境中巩固记忆${todayReinforce.length > 0 ? '（优先使用记不住的词）' : ''}</p>
             <div style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap">
-              <button class="btn btn-primary" onclick="FlashcardView.generateReviewArticle('all')">生成阅读（全部 ${reviewedCount} 词）</button>
-              ${reinforceWords.length > 0 && reinforceWords.length < reviewedCount ? `
-              <button class="btn btn-outline" onclick="FlashcardView.generateReviewArticle('weak')">重点巩固（${reinforceWords.length} 个薄弱词）</button>
+              <button class="btn btn-primary" onclick="FlashcardView.generateReviewArticle('all')">生成阅读（今日全部 ${todayTotal} 词）</button>
+              ${todayReinforce.length > 0 && todayReinforce.length < todayTotal ? `
+              <button class="btn btn-outline" onclick="FlashcardView.generateReviewArticle('weak')">重点巩固（${todayReinforce.length} 个薄弱词）</button>
               ` : ''}
             </div>
+          </div>` : todayTotal > 0 ? `
+          <div class="flashcard-result-generate">
+            <p class="flashcard-result-hint">今日已复习 ${todayTotal} 个词，再复习 ${3 - todayTotal} 个即可生成巩固阅读</p>
           </div>` : ''}
 
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
@@ -270,18 +324,21 @@ const FlashcardView = {
       </div>`;
   },
 
-  // Generate article using reviewed words
+  // Generate article using today's reviewed words
   async generateReviewArticle(mode) {
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
     }
 
+    // Use today's accumulated words (not just current session)
+    const todayWords = this.loadTodayWords();
+
     let words;
     if (mode === 'weak') {
-      words = this.reviewedWords.filter(w => w.quality <= 3).map(w => w.word);
+      words = todayWords.filter(w => w.quality <= 3).map(w => w.word);
     } else {
-      words = this.reviewedWords.map(w => w.word);
+      words = todayWords.map(w => w.word);
     }
 
     if (words.length < 2) {
