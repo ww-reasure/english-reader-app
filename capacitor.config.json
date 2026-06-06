@@ -1,0 +1,8 @@
+{
+  "appId": "com.englishreader.app",
+  "appName": "英语阅读助手",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

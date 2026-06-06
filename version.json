@@ -1,0 +1,8 @@
+{
+  "version": "1.0.3",
+  "versionCode": 4,
+  "buildDate": "2026-05-30",
+  "changes": [
+    "v1.0.3: Capacitor 原生 TTS 优先（系统引擎），加 Android 11+ TTS queries，修复发音"
+  ]
+}

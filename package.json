@@ -1,0 +1,37 @@
+{
+  "name": "english-reader-app",
+  "version": "1.0.0",
+  "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx cap serve",
+    "build": "npx cap sync android",
+    "android": "cd android && ./gradlew assembleDebug"
+  },
+  "keywords": [
+    "english",
+    "reading",
+    "learning",
+    "ai",
+    "deepseek",
+    "capacitor",
+    "android"
+  ],
+  "author": "Wang Xiaoming",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor-community/text-to-speech": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/english-reader-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/english-reader-app/issues"
+  },
+  "homepage": "https://github.com/yourusername/english-reader-app#readme"
+}

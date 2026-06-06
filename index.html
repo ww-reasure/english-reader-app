@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>英语阅读助手</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">英语阅读助手</div>
+    <div class="nav-links">
+      <a href="#/chat" class="nav-link">对话<span id="chatBadge" class="nav-badge" style="display:none">0</span></a>
+      <a href="#/history" class="nav-link">历史</a>
+      <a href="#/vocab" class="nav-link">生词本</a>
+    </div>
+    <div class="nav-actions">
+      <a href="#/settings" class="btn-icon" title="设置">&#9881;</a>
+    </div>
+  </nav>
+
+  <!-- API Settings Modal -->
+  <div id="apiKeyModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <h2>API 设置</h2>
+      <div class="form-group">
+        <label>API Key</label>
+        <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Base URL</label>
+        <input type="text" id="baseUrlInput" placeholder="https://api.deepseek.com/v1">
+      </div>
+      <div class="form-group">
+        <label>模型</label>
+        <div class="model-select">
+          <select id="modelPreset">
+            <option value="deepseek-v4-flash">DeepSeek V4 Flash（快速）</option>
+            <option value="deepseek-v4-pro">DeepSeek V4 Pro（高质量）</option>
+            <option value="custom">自定义模型</option>
+          </select>
+          <input type="text" id="modelInput" placeholder="输入模型名称" style="display:none">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="saveApiKey">保存</button>
+        <button class="btn" id="cancelApiKey">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Article Modal -->
+  <div id="importModal" class="modal-overlay" style="display:none">
+    <div class="modal modal-wide">
+      <h2>导入文章</h2>
+      <div class="form-group">
+        <label>文章标题</label>
+        <input type="text" id="importTitle" placeholder="输入文章标题">
+      </div>
+      <div class="form-group">
+        <label>难度等级</label>
+        <select id="importDifficulty">
+          <option value="cet4">四级</option>
+          <option value="cet6">六级</option>
+          <option value="graduate">考研</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>英文内容（粘贴到这里）</label>
+        <textarea id="importContent" rows="10" placeholder="粘贴英文文章内容..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>中文翻译（可选）</label>
+        <textarea id="importTranslation" rows="6" placeholder="粘贴中文翻译（可选，没有可留空）"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="importSubmit">导入</button>
+        <button class="btn" id="importCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main id="app" class="content"></main>
+
+  <!-- Scripts - Load in dependency order -->
+  <!-- Core utilities -->
+  <script src="js/helpers.js"></script>
+  <script src="js/config.js"></script>
+
+  <!-- Services -->
+  <script src="js/db.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/dictionary.js"></script>
+
+  <!-- Features -->
+  <script src="js/theme.js"></script>
+  <script src="js/tts.js"></script>
+
+  <!-- Components -->
+  <script src="js/components/modal.js"></script>
+  <script src="js/components/tooltip.js"></script>
+  <script src="js/components/ai-analysis.js"></script>
+
+  <!-- Views -->
+  <script src="js/views/chat.js"></script>
+  <script src="js/views/reading.js"></script>
+  <script src="js/views/history.js"></script>
+  <script src="js/views/vocabulary.js"></script>
+  <script src="js/views/flashcard.js"></script>
+  <script src="js/views/learn-words.js"></script>
+  <script src="js/views/settings.js"></script>
+
+  <!-- Router & App initialization -->
+  <script src="js/router.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">英语阅读助手</string>
+    <string name="title_activity_main">英语阅读助手</string>
+    <string name="package_name">com.example.englishreader</string>
+    <string name="custom_url_scheme">com.example.englishreader</string>
+</resources>
