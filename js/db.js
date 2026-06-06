@@ -5,7 +5,7 @@
 
 const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 2,  // Bumped for learnWords table
+  DB_VERSION: 3,  // Bumped for SRS fields in learnWords
 
   // Open database connection
   open() {
@@ -27,11 +27,20 @@ const DB = {
           store.createIndex('word', 'word');
         }
 
-        // Learn words table (imported words for review)
+        // Learn words table (imported words for review + SRS)
         if (!db.objectStoreNames.contains('learnWords')) {
           const store = db.createObjectStore('learnWords', { keyPath: 'id', autoIncrement: true });
           store.createIndex('word', 'word', { unique: true });
           store.createIndex('createdAt', 'createdAt');
+          store.createIndex('nextReview', 'nextReview');
+        }
+
+        // Upgrade: add SRS indexes to existing learnWords table
+        if (e.oldVersion < 3) {
+          const store = e.target.transaction.objectStore('learnWords');
+          if (!store.indexNames.contains('nextReview')) {
+            store.createIndex('nextReview', 'nextReview');
+          }
         }
       };
 
@@ -144,6 +153,25 @@ const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readwrite');
       tx.objectStore('learnWords').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  // Update SRS fields for a learn word
+  async updateLearnWordSRS(id, srsData) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readwrite');
+      const store = tx.objectStore('learnWords');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const word = getReq.result;
+        if (word) {
+          Object.assign(word, srsData);
+          store.put(word);
+        }
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

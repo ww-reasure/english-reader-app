@@ -74,7 +74,7 @@ const ChatView = {
   ],
 
   // Render chat view
-  render(container) {
+  async render(container) {
     const topicOptions = this.topics.map(t =>
       `<option value="${t.value}">${t.label}</option>`
     ).join('');
@@ -115,14 +115,14 @@ const ChatView = {
     this.bindEvents();
 
     // Restore chat history
-    this.restoreHistory();
+    await this.restoreHistory();
 
     // Show any pending articles from previous generation
     this.showPendingArticles();
   },
 
   // Restore chat history from localStorage
-  restoreHistory() {
+  async restoreHistory() {
     const history = ChatHistory.load();
     if (history.length === 0) {
       // Show welcome message with assessment option for first-time users
@@ -132,16 +132,40 @@ const ChatView = {
       } else {
         this.addWelcomeWithAssessment();
       }
-      return;
+    } else {
+      history.forEach(msg => {
+        if (msg.type === 'article') {
+          this.addArticleCardToDOM(msg.article);
+        } else {
+          this.addMessageToDOM(msg.type, msg.text);
+        }
+      });
     }
 
-    history.forEach(msg => {
-      if (msg.type === 'article') {
-        this.addArticleCardToDOM(msg.article);
-      } else {
-        this.addMessageToDOM(msg.type, msg.text);
+    // Check for due words and show reminder
+    await this.showDueReminder();
+  },
+
+  // Show due words reminder
+  async showDueReminder() {
+    try {
+      const allWords = await DB.getAllLearnWords();
+      const dueCount = SpacedRepetition.getDueCount(allWords);
+      if (dueCount > 0) {
+        const container = document.getElementById('chatMessages');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.className = 'message system-message';
+        div.innerHTML = `
+          <div class="due-reminder">
+            📢 你有 <strong>${dueCount}</strong> 个单词需要复习
+            <a href="#/flashcard" class="btn btn-primary btn-sm">开始复习</a>
+          </div>`;
+        container.insertBefore(div, container.firstChild);
       }
-    });
+    } catch {
+      // Ignore errors
+    }
   },
 
   // Show welcome message with assessment CTA
