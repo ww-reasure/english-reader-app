@@ -78,12 +78,9 @@ const AIAnalysis = {
     document.body.appendChild(overlay);
   },
 
-  // Format result with basic markdown support (XSS-safe)
+  // Format result with basic markdown support
   formatResult(text) {
-    // Escape HTML first, then convert markdown
-    const safe = esc(text);
-    // Only allow **bold** syntax — no other HTML injection possible
-    return safe
+    return esc(text)
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br>');
   },

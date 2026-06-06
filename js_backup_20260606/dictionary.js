@@ -8,7 +8,6 @@ const Dictionary = {
   examWords: null,
   examFreq: null,
   cache: new Map(),
-  CACHE_MAX: 500,
 
   // Load local dictionary
   async load() {
@@ -103,16 +102,6 @@ const Dictionary = {
     return [...new Set(forms)];
   },
 
-  // Set cache with LRU eviction
-  setCache(key, value) {
-    if (this.cache.size >= this.CACHE_MAX) {
-      // Delete oldest entry (first key in Map)
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-    this.cache.set(key, value);
-  },
-
   // Look up a word (tries local, online API, then AI)
   async lookup(word) {
     const key = word.toLowerCase().replace(/[^a-z\-']/g, '');
@@ -147,7 +136,7 @@ const Dictionary = {
           source: 'local',
           ...examData
         };
-        this.setCache(key, result);
+        this.cache.set(key, result);
         return result;
       }
     }
@@ -186,7 +175,7 @@ const Dictionary = {
           source: 'api',
           ...examData
         };
-        this.setCache(key, result);
+        this.cache.set(key, result);
         return result;
       }
     } catch {}

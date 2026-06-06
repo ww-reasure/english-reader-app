@@ -42,8 +42,8 @@ const TTS = {
   playAudio(url, word) {
     try {
       const audio = new Audio(url);
-      audio.onended = () => { audio.src = ''; };  // Release resource
       audio.play().catch(() => {
+        // If audio fails, fallback to Google TTS
         this.googleSpeak(word);
       });
     } catch {

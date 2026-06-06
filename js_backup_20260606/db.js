@@ -7,24 +7,27 @@ const DB = {
   DB_NAME: 'EnglishReader',
   DB_VERSION: 3,  // Bumped for SRS fields in learnWords
 
-  // Open database connection with retry
-  open(retries = 3) {
+  // Open database connection
+  open() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
 
+        // Articles table
         if (!db.objectStoreNames.contains('articles')) {
           const store = db.createObjectStore('articles', { keyPath: 'id', autoIncrement: true });
           store.createIndex('createdAt', 'createdAt');
         }
 
+        // Vocabulary table (words saved during reading)
         if (!db.objectStoreNames.contains('vocabulary')) {
           const store = db.createObjectStore('vocabulary', { keyPath: 'id', autoIncrement: true });
           store.createIndex('word', 'word');
         }
 
+        // Learn words table (imported words for review + SRS)
         if (!db.objectStoreNames.contains('learnWords')) {
           const store = db.createObjectStore('learnWords', { keyPath: 'id', autoIncrement: true });
           store.createIndex('word', 'word', { unique: true });
@@ -32,6 +35,7 @@ const DB = {
           store.createIndex('nextReview', 'nextReview');
         }
 
+        // Upgrade: add SRS indexes to existing learnWords table
         if (e.oldVersion < 3) {
           const store = e.target.transaction.objectStore('learnWords');
           if (!store.indexNames.contains('nextReview')) {
@@ -41,13 +45,7 @@ const DB = {
       };
 
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => {
-        if (retries > 1) {
-          setTimeout(() => this.open(retries - 1).then(resolve).catch(reject), 100);
-        } else {
-          reject(req.error);
-        }
-      };
+      req.onerror = () => reject(req.error);
     });
   },
 

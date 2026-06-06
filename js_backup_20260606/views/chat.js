@@ -10,20 +10,8 @@ const ChatHistory = {
 
   save(messages) {
     try {
-      const data = JSON.stringify(messages.slice(-this.MAX_MESSAGES));
-      // Check localStorage quota (~5MB typical)
-      if (data.length > 4 * 1024 * 1024) {
-        // Too large, keep only last 30 messages
-        localStorage.setItem(this.KEY, JSON.stringify(messages.slice(-30)));
-      } else {
-        localStorage.setItem(this.KEY, data);
-      }
-    } catch (err) {
-      // QuotaExceededError — clear old data
-      try {
-        localStorage.removeItem(this.KEY);
-      } catch {}
-    }
+      localStorage.setItem(this.KEY, JSON.stringify(messages.slice(-this.MAX_MESSAGES)));
+    } catch {}
   },
 
   load() {

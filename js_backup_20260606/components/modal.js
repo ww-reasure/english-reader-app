@@ -98,7 +98,7 @@ const Modal = {
 
     const id = await DB.saveArticle(article);
     this.hideImport();
-    ChatView.addArticleCard({ ...article, id });
-    ChatView.addMessage('system', `文章"${title}"已导入`);
+    Views.addArticleCard({ ...article, id });
+    Views.addChatMessage('system', `文章"${title}"已导入`);
   }
 };

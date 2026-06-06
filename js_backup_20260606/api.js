@@ -143,40 +143,27 @@ ${rules}
 - 段落之间用双换行分隔（与英文一致）`;
   },
 
-  // Make API request with timeout
-  async fetch(endpoint, body, timeoutMs = 60000) {
+  // Make API request
+  async fetch(endpoint, body) {
     const apiKey = Config.get('api_key');
     const baseUrl = Config.get('base_url');
     const model = Config.get('model');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(`${baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ model, ...body })
+    });
 
-    try {
-      const resp = await fetch(`${baseUrl}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({ model, ...body }),
-        signal: controller.signal
-      });
-
-      if (!resp.ok) {
-        const err = await resp.text();
-        throw new Error(`API error: ${resp.status} - ${err}`);
-      }
-
-      return resp.json();
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw new Error('请求超时，请检查网络连接');
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`API error: ${resp.status} - ${err}`);
     }
+
+    return resp.json();
   },
 
   // Generate an article

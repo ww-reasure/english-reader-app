@@ -1,39 +1,21 @@
 /**
  * Router Module
- * Handles SPA hash-based routing with cleanup on navigation
+ * Handles SPA hash-based routing
  */
 
 const Router = {
-  currentView: null,
-
-  // Views that have cleanup methods
-  viewsWithCleanup: ['ReadingView', 'AssessmentView'],
-
-  // Cleanup current view before navigation
-  cleanupCurrentView() {
-    for (const viewName of this.viewsWithCleanup) {
-      const view = window[viewName];
-      if (view && typeof view.cleanup === 'function') {
-        view.cleanup();
-      }
-    }
-  },
-
   // Route to the correct view based on hash
-  async navigate() {
+  navigate() {
     const hash = location.hash || '#/chat';
     const app = document.getElementById('app');
 
-    // Cleanup previous view's event listeners
-    this.cleanupCurrentView();
-
     switch (true) {
       case hash === '#/chat':
-        await ChatView.render(app);
+        ChatView.render(app);
         break;
       case hash.startsWith('#/reading/'):
         const articleId = parseInt(hash.split('/')[2]);
-        await ReadingView.render(app, articleId);
+        ReadingView.render(app, articleId);
         break;
       case hash === '#/history':
         HistoryView.render(app);
