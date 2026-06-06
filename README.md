@@ -45,7 +45,7 @@
 ### 方式二：源码运行
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/english-reader-app.git
+git clone https://github.com/ww-reasure/english-reader-app.git
 cd english-reader-app
 
 # 安装依赖

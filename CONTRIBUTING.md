@@ -6,7 +6,7 @@
 
 ### 报告问题
 
-1. 在 [Issues](https://github.com/a3284406930/english-reader-app/issues) 页面创建新 Issue
+1. 在 [Issues](https://github.com/ww-reasure/english-reader-app/issues) 页面创建新 Issue
 2. 使用 Bug 报告模板
 3. 尽可能详细地描述问题
 
@@ -15,7 +15,7 @@
 1. **Fork** 本仓库
 2. **克隆**你的 Fork：
    ```bash
-   git clone https://github.com/你的用户名/english-reader-app.git
+   git clone https://github.com/ww-reasure/english-reader-app.git
    ```
 3. **创建分支**：
    ```bash
@@ -64,7 +64,7 @@ docs: 更新 README 安装说明
 
 ```bash
 # 克隆仓库
-git clone https://github.com/a3284406930/english-reader-app.git
+git clone https://github.com/ww-reasure/english-reader-app.git
 cd english-reader-app
 
 # 安装依赖
