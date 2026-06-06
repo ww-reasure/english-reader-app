@@ -58,21 +58,8 @@ const SettingsView = {
 
         <div class="settings-section">
           <h2 class="settings-section-title">生词比例控制</h2>
-          <p class="settings-desc">控制生成文章中已学词汇和新词的比例（基于 Nation 98% 覆盖率理论）</p>
+          <p class="settings-desc">控制文章中新词的占比，已学词汇自动补足（基于 Nation 98% 覆盖率理论）</p>
           <div class="coverage-control">
-            <div class="coverage-item">
-              <label>词汇覆盖率</label>
-              <div class="slider-container">
-                <input type="range" id="coverageSlider" min="80" max="99" value="${currentCoverage}"
-                  oninput="SettingsView.updateCoverageLabel(this.value)">
-                <div class="slider-labels">
-                  <span>80%</span>
-                  <span id="coverageValue" class="slider-current">${currentCoverage}%</span>
-                  <span>99%</span>
-                </div>
-              </div>
-              <p class="coverage-hint">每100个词中你认识的比例。98% 为舒适阅读阈值（Nation 研究）</p>
-            </div>
             <div class="coverage-item">
               <label>新词比例</label>
               <div class="slider-container">
@@ -84,13 +71,16 @@ const SettingsView = {
                   <span>20%</span>
                 </div>
               </div>
-              <p class="coverage-hint">文章中新词的占比。2-5% 适合舒适阅读，5-10% 适合有意挑战</p>
+              <p class="coverage-hint">文章中新词占比，其余为已学词汇（覆盖率 = 100% - 新词比例）。2-5% 舒适阅读，5-10% 有意挑战</p>
+            </div>
+            <div class="coverage-info">
+              <span>当前覆盖率：<strong id="coverageDisplay">${100 - parseInt(currentNewWordPercent)}%</strong></span>
             </div>
             <div class="coverage-preset">
               <span class="text-muted">快速预设：</span>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(98,2)">轻松阅读</button>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(95,5)">正常学习</button>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(90,10)">挑战模式</button>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(2)">轻松阅读</button>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(5)">正常学习</button>
+              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(10)">挑战模式</button>
             </div>
           </div>
         </div>
@@ -189,26 +179,17 @@ const SettingsView = {
     document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
   },
 
-  // Update coverage slider label
-  updateCoverageLabel(value) {
-    const label = document.getElementById('coverageValue');
-    if (label) label.textContent = value + '%';
-  },
-
-  // Update new word slider label
+  // Update new word slider label and coverage display
   updateNewWordLabel(value) {
     const label = document.getElementById('newWordValue');
     if (label) label.textContent = value + '%';
+    const coverage = document.getElementById('coverageDisplay');
+    if (coverage) coverage.textContent = (100 - parseInt(value)) + '%';
   },
 
-  // Set preset values
-  setPreset(coverage, newWord) {
-    const coverageSlider = document.getElementById('coverageSlider');
+  // Set preset values (newWord only, coverage derived)
+  setPreset(newWord) {
     const newWordSlider = document.getElementById('newWordSlider');
-    if (coverageSlider) {
-      coverageSlider.value = coverage;
-      this.updateCoverageLabel(coverage);
-    }
     if (newWordSlider) {
       newWordSlider.value = newWord;
       this.updateNewWordLabel(newWord);
@@ -232,11 +213,12 @@ const SettingsView = {
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
     Config.set('model', model || 'deepseek-v4-flash');
 
-    // Save coverage settings
-    const coverageSlider = document.getElementById('coverageSlider');
+    // Save coverage settings (coverage derived from new_word_percent)
     const newWordSlider = document.getElementById('newWordSlider');
-    if (coverageSlider) Config.set('coverage', coverageSlider.value);
-    if (newWordSlider) Config.set('new_word_percent', newWordSlider.value);
+    if (newWordSlider) {
+      Config.set('new_word_percent', newWordSlider.value);
+      Config.set('coverage', String(100 - parseInt(newWordSlider.value)));
+    }
 
     alert('设置已保存');
   }

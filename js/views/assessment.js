@@ -657,12 +657,8 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
                 </span>
               </div>
               <div class="result-recommend-item">
-                <span class="result-recommend-label">词汇覆盖率</span>
-                <span class="result-recommend-value">${result.recommendedCoverage}%</span>
-              </div>
-              <div class="result-recommend-item">
                 <span class="result-recommend-label">新词比例</span>
-                <span class="result-recommend-value">${result.recommendedNewWordPercent}%（每100词约${result.recommendedNewWordPercent}个新词）</span>
+                <span class="result-recommend-value">${result.recommendedNewWordPercent}%（覆盖率 ${result.recommendedCoverage}%）</span>
               </div>
             </div>
           </div>
@@ -670,8 +666,8 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
           <div class="result-explain">
             <h3>📖 说明</h3>
             <ul>
-              <li><strong>词汇覆盖率 ${result.recommendedCoverage}%</strong>：每100个词中你认识约 ${result.recommendedCoverage} 个，符合 Krashen 的 i+1 理论</li>
-              <li><strong>新词比例 ${result.recommendedNewWordPercent}%</strong>：文章中约 ${result.recommendedNewWordPercent}% 的词是新词，其余为你已掌握的词汇</li>
+              <li><strong>新词比例 ${result.recommendedNewWordPercent}%</strong>：每100个词中约 ${result.recommendedNewWordPercent} 个是新词，其余 ${result.recommendedCoverage}% 为你已掌握的词汇</li>
+              <li>基于 Nation 的词汇覆盖率研究，${result.recommendedCoverage}% 覆盖率适合舒适阅读</li>
               <li>这些设置可以在「设置」页面随时手动调整</li>
             </ul>
           </div>
@@ -694,16 +690,15 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
     Config.set('assessment_vocab', result.estimatedVocab.toString());
     Config.set('assessment_date', new Date().toISOString());
 
-    // Apply recommended settings
+    // Apply recommended settings (coverage derived from new_word_percent)
     Config.set('exam_level', result.recommendedDifficulty);
     Config.set('level', result.recommendedLevel);
-    Config.set('coverage', result.recommendedCoverage.toString());
     Config.set('new_word_percent', result.recommendedNewWordPercent.toString());
+    Config.set('coverage', result.recommendedCoverage.toString());
 
     alert('设置已应用！\n\n' +
       `难度：${DIFFICULTY_LABELS[result.recommendedDifficulty]}（${result.recommendedLevel === 'easy' ? '易' : '难'}）\n` +
-      `覆盖率：${result.recommendedCoverage}%\n` +
-      `新词比例：${result.recommendedNewWordPercent}%\n\n` +
+      `新词比例：${result.recommendedNewWordPercent}%（覆盖率 ${result.recommendedCoverage}%）\n\n` +
       '可在「设置」页面随时调整。'
     );
 
