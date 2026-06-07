@@ -1,12 +1,13 @@
 /**
  * Reading View
- * Article reading with word lookup, timer, and completion summary
+ * Article reading with auto-timer, word lookup, and completion summary
  */
 
 const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],
+  MIN_READ_TIME: 15,
 
   cleanup() {
     if (this._globalClickHandler) {
@@ -16,6 +17,11 @@ const ReadingView = {
     if (this._audioClickHandler) {
       document.removeEventListener('click', this._audioClickHandler);
       this._audioClickHandler = null;
+    }
+    if (this._resumeHandler) {
+      document.removeEventListener('touchstart', this._resumeHandler);
+      document.removeEventListener('scroll', this._resumeHandler);
+      this._resumeHandler = null;
     }
     if (this.timer) { this.timer.stop(); this.timer = null; }
   },
@@ -57,7 +63,7 @@ const ReadingView = {
           <div class="reading-actions">
             <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()">显示翻译</button>
-            <a href="#/history" class="btn btn-outline">返回历史</a>
+            <a href="#/history" class="btn btn-outline">返回</a>
           </div>
           <div class="reading-timer-bar" id="timerBar">
             <span id="timerDisplay" class="timer-display">0:00</span>
@@ -65,18 +71,21 @@ const ReadingView = {
             <span id="timerWpm" class="timer-wpm"></span>
             <span id="timerStatus" class="timer-status"></span>
           </div>
-          <div class="reading-tools">
-            <span class="reading-hint">单击单词查词，长按句子问 AI</span>
-            <button class="btn btn-primary btn-sm" id="timerToggle" onclick="ReadingView.toggleTimer()">▶ 开始计时</button>
-          </div>
+          <div class="reading-hint">单击单词查词，长按句子问 AI</div>
         </div>
         <div id="articleBody" class="article-body">${parasHTML}</div>
+        <div class="reading-finish-bar">
+          <button class="btn btn-success btn-lg" onclick="ReadingView.finishReading()">✓ 阅读完成</button>
+        </div>
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
       <div id="readingSummary" class="modal-overlay" style="display:none"></div>`;
 
     this.initInteractions();
     AudioCache.preloadWords(article.content).catch(() => {});
+
+    // Auto-start timer
+    this.autoStartTimer();
   },
 
   initInteractions() {
@@ -108,7 +117,6 @@ const ReadingView = {
       try {
         const data = await Dictionary.lookup(word);
         Tooltip.show(e.clientX, e.clientY, data);
-        // Track clicked word
         const stem = getStemForm(word.toLowerCase());
         if (!this.clickedWords.some(w => w.stem === stem)) {
           this.clickedWords.push({ word: word.toLowerCase(), stem, freqLevel: data.freqLevel || 'unknown' });
@@ -130,56 +138,68 @@ const ReadingView = {
   },
 
   // ===== Timer =====
-  toggleTimer() {
-    const btn = document.getElementById('timerToggle');
-    if (!this.timer) {
-      // Start
-      const wordCount = this.articleData?.wordCount || 300;
-      this.timer = new ReadingTimer(wordCount);
-      this.timer.onTick = (elapsed, wpm) => {
-        const display = document.getElementById('timerDisplay');
-        const wpmEl = document.getElementById('timerWpm');
-        const statusEl = document.getElementById('timerStatus');
-        if (display) display.textContent = this.timer.getDisplay();
-        if (wpmEl) wpmEl.textContent = wpm + ' 词/分';
-        if (statusEl) statusEl.textContent = this.timer.isPaused ? '⏸ 已暂停（30秒无操作）' : '';
-      };
-      this.timer.start();
-      if (btn) { btn.textContent = '✓ 阅读完成'; btn.classList.remove('btn-primary'); btn.classList.add('btn-success'); }
-      // Resume on touch
-      this._resumeHandler = () => { if (this.timer?.isPaused) this.timer.resume(); };
-      document.addEventListener('touchstart', this._resumeHandler, { passive: true });
-      document.addEventListener('scroll', this._resumeHandler, { passive: true });
-    } else {
-      // Finish
-      this.timer.stop();
-      if (this._resumeHandler) {
-        document.removeEventListener('touchstart', this._resumeHandler);
-        document.removeEventListener('scroll', this._resumeHandler);
-      }
-      this.showSummary();
-    }
+  autoStartTimer() {
+    const wordCount = this.articleData?.wordCount || 300;
+    this.timer = new ReadingTimer(wordCount);
+
+    this.timer.onTick = (elapsed, wpm) => {
+      const display = document.getElementById('timerDisplay');
+      const wpmEl = document.getElementById('timerWpm');
+      const statusEl = document.getElementById('timerStatus');
+      if (display) display.textContent = this.timer.getDisplay();
+      if (wpmEl) wpmEl.textContent = wpm + ' 词/分';
+      if (statusEl) statusEl.textContent = this.timer.isPaused ? '⏸ 已暂停' : '';
+    };
+
+    this.timer.start();
+
+    // Resume on touch/scroll
+    this._resumeHandler = () => { if (this.timer?.isPaused) this.timer.resume(); };
+    document.addEventListener('touchstart', this._resumeHandler, { passive: true });
+    document.addEventListener('scroll', this._resumeHandler, { passive: true });
   },
 
-  // ===== Summary =====
-  async showSummary() {
+  // Finish reading
+  async finishReading() {
+    this.timer?.stop();
+
+    // Clean up listeners
+    if (this._resumeHandler) {
+      document.removeEventListener('touchstart', this._resumeHandler);
+      document.removeEventListener('scroll', this._resumeHandler);
+      this._resumeHandler = null;
+    }
+
     const elapsed = this.timer?.elapsed || 0;
-    const wpm = this.timer?.getWPM() || 0;
-    const wordCount = this.articleData?.wordCount || 0;
-    const clickCount = this.clickedWords.length;
-    const avgWpm = await DB.getAverageWPM();
-    const diff = avgWpm > 0 ? wpm - avgWpm : 0;
-    const diffPct = avgWpm > 0 ? Math.round(diff / avgWpm * 100) : 0;
+
+    // Check minimum time threshold
+    if (elapsed < this.MIN_READ_TIME) {
+      // Too short, don't count — just go back
+      history.back();
+      return;
+    }
 
     // Save reading stat
+    const wpm = this.timer?.getWPM() || 0;
+    const wordCount = this.articleData?.wordCount || 0;
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
       wordCount,
       elapsed,
       wpm,
-      clickCount,
+      clickCount: this.clickedWords.length,
       clickedWords: this.clickedWords.map(w => w.word)
     });
+
+    // Show summary popup
+    await this.showSummary(elapsed, wpm);
+  },
+
+  async showSummary(elapsed, wpm) {
+    const avgWpm = await DB.getAverageWPM();
+    const diff = avgWpm > 0 ? wpm - avgWpm : 0;
+    const diffPct = avgWpm > 0 ? Math.round(diff / avgWpm * 100) : 0;
+    const clickCount = this.clickedWords.length;
 
     const overlay = document.getElementById('readingSummary');
     overlay.innerHTML = `
@@ -196,15 +216,15 @@ const ReadingView = {
             <span class="summary-stat-num">${wpm}</span>
             <span class="summary-stat-label">词/分</span>
           </div>
+          ${avgWpm > 0 ? `
           <div class="summary-stat">
             <span class="summary-stat-icon">📈</span>
-            <span class="summary-stat-num">${avgWpm || '-'}</span>
+            <span class="summary-stat-num">${avgWpm}</span>
             <span class="summary-stat-label">历史平均</span>
           </div>
-          ${diff !== 0 ? `
           <div class="summary-stat">
-            <span class="summary-stat-icon">${diff > 0 ? '⬆️' : '⬇️'}</span>
-            <span class="summary-stat-num" style="color:${diff > 0 ? 'var(--success)' : 'var(--danger)'}">${diff > 0 ? '+' : ''}${diffPct}%</span>
+            <span class="summary-stat-icon">${diff >= 0 ? '⬆️' : '⬇️'}</span>
+            <span class="summary-stat-num" style="color:${diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${diff >= 0 ? '+' : ''}${diffPct}%</span>
             <span class="summary-stat-label">vs 平均</span>
           </div>` : ''}
           <div class="summary-stat">
@@ -222,9 +242,9 @@ const ReadingView = {
         </div>` : ''}
         <div class="modal-actions summary-actions">
           ${this.clickedWords.length > 0 ? `
-          <button class="btn btn-outline" onclick="ReadingView.addToReview()">加入词库复习</button>
+          <button class="btn btn-outline" onclick="ReadingView.addToReview()">加入词库</button>
           <button class="btn btn-primary" onclick="ReadingView.generateReview()">生成巩固阅读</button>` : ''}
-          <button class="btn" onclick="document.getElementById('readingSummary').style.display='none'">关闭</button>
+          <button class="btn" onclick="ReadingView.closeAndExit()">关闭</button>
         </div>
       </div>`;
     overlay.style.display = 'flex';
@@ -234,6 +254,12 @@ const ReadingView = {
     const min = Math.floor(seconds / 60);
     const sec = seconds % 60;
     return min > 0 ? `${min} 分 ${sec} 秒` : `${sec} 秒`;
+  },
+
+  // Close summary and exit article
+  closeAndExit() {
+    document.getElementById('readingSummary').style.display = 'none';
+    history.back();
   },
 
   // Add clicked words to review

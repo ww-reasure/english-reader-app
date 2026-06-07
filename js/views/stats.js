@@ -4,6 +4,8 @@
  */
 
 const StatsView = {
+  trendMode: 'week', // week | month
+
   async render(container) {
     const articles = await DB.getAllArticles();
     const learnWords = await DB.getAllLearnWords();
@@ -80,7 +82,12 @@ const StatsView = {
               <span class="stats-detail-value">${totalClicks} 个</span>
             </div>
           </div>
-          ${readingStats.length > 0 ? this.renderSpeedTrend(readingStats) : '<p class="text-muted" style="margin-top:12px">完成计时阅读后显示速度趋势</p>'}
+          ${readingStats.length > 0 ? `
+          <div class="trend-toggle">
+            <button class="trend-toggle-btn ${this.trendMode === 'week' ? 'active' : ''}" onclick="StatsView.setTrendMode('week')">近7天</button>
+            <button class="trend-toggle-btn ${this.trendMode === 'month' ? 'active' : ''}" onclick="StatsView.setTrendMode('month')">月度</button>
+          </div>
+          ${this.renderSpeedTrend(readingStats)}` : '<p class="text-muted" style="margin-top:12px">完成计时阅读后显示阅读趋势</p>'}
         </div>
 
         <div class="stats-section">
@@ -134,27 +141,119 @@ const StatsView = {
       </div>`;
   },
 
-  // Render speed trend chart (last 10 sessions)
-  renderSpeedTrend(stats) {
-    const recent = stats.slice(0, 10).reverse(); // oldest first
-    const maxWpm = Math.max(...recent.map(s => s.wpm), 100);
+  // Toggle trend mode
+  setTrendMode(mode) {
+    this.trendMode = mode;
+    this.render(document.getElementById('app'));
+  },
 
-    const bars = recent.map((s, i) => {
-      const pct = Math.round((s.wpm / maxWpm) * 100);
-      const date = new Date(s.createdAt);
-      const label = `${date.getMonth() + 1}/${date.getDate()}`;
+  // Render reading time trend chart — SVG area chart
+  renderSpeedTrend(stats) {
+    let groups;
+    if (this.trendMode === 'week') {
+      // Last 7 days
+      groups = this.groupByDay(stats, 7);
+    } else {
+      // Last 12 months
+      groups = this.groupByMonth(stats, 12);
+    }
+    if (groups.length < 2) return '<p class="text-muted" style="margin-top:12px">数据不足</p>';
+
+    const maxMin = Math.max(...groups.map(g => g.minutes), 1);
+    const W = 320, H = 100, PAD = 10;
+    const chartW = W - PAD * 2, chartH = H - PAD * 2;
+
+    const points = groups.map((g, i) => {
+      const x = PAD + (i / (groups.length - 1)) * chartW;
+      const y = PAD + chartH - (g.minutes / maxMin) * chartH;
+      return { x, y, ...g };
+    });
+
+    const linePath = points.map((p, i) => {
+      if (i === 0) return `M ${p.x} ${p.y}`;
+      const prev = points[i - 1];
+      const cpx = (prev.x + p.x) / 2;
+      return `C ${cpx} ${prev.y}, ${cpx} ${p.y}, ${p.x} ${p.y}`;
+    }).join(' ');
+
+    const areaPath = linePath + ` L ${points[points.length - 1].x} ${PAD + chartH} L ${points[0].x} ${PAD + chartH} Z`;
+
+    const dots = points.map((p) => {
+      const label = p.label;
+      const timeStr = p.minutes >= 60 ? `${Math.floor(p.minutes / 60)}h${p.minutes % 60}m` : `${p.minutes}m`;
       return `
-        <div class="trend-bar-col">
-          <div class="trend-bar-value">${s.wpm}</div>
-          <div class="trend-bar-track"><div class="trend-bar-fill" style="height:${pct}%"></div></div>
-          <div class="trend-bar-label">${label}</div>
-        </div>`;
+        <circle cx="${p.x}" cy="${p.y}" r="3.5" class="trend-dot" />
+        <text x="${p.x}" y="${PAD + chartH + 14}" class="trend-label">${label}</text>
+        <text x="${p.x}" y="${p.y - 8}" class="trend-value">${timeStr}</text>`;
     }).join('');
 
     return `
       <div class="speed-trend">
-        <div class="trend-chart">${bars}</div>
+        <svg viewBox="0 0 ${W} ${H + 20}" class="trend-svg">
+          <defs>
+            <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="var(--primary)" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          <path d="${areaPath}" fill="url(#trendGrad)" class="trend-area" />
+          <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round" class="trend-line" />
+          ${dots}
+        </svg>
       </div>`;
+  },
+
+  // Group reading stats by day (last N days)
+  groupByDay(stats, count) {
+    const now = new Date();
+    const days = [];
+
+    for (let i = count - 1; i >= 0; i--) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - i);
+      day.setHours(0, 0, 0, 0);
+      const nextDay = new Date(day);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const dayStats = stats.filter(s => {
+        const t = s.createdAt;
+        return t >= day.getTime() && t < nextDay.getTime();
+      });
+
+      const totalSeconds = dayStats.reduce((sum, s) => sum + (s.elapsed || 0), 0);
+      const minutes = Math.round(totalSeconds / 60);
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      const label = i === 0 ? '今天' : i === 1 ? '昨天' : `周${weekdays[day.getDay()]}`;
+
+      days.push({ label, minutes, count: dayStats.length });
+    }
+
+    return days;
+  },
+
+  // Group reading stats by month (last N months)
+  groupByMonth(stats, count) {
+    const now = new Date();
+    const months = [];
+
+    for (let i = count - 1; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+
+      const monthStats = stats.filter(s => {
+        const t = s.createdAt;
+        return t >= monthStart.getTime() && t < monthEnd.getTime();
+      });
+
+      const totalSeconds = monthStats.reduce((sum, s) => sum + (s.elapsed || 0), 0);
+      const minutes = Math.round(totalSeconds / 60);
+      const label = `${monthStart.getMonth() + 1}月`;
+
+      months.push({ label, minutes, count: monthStats.length });
+    }
+
+    return months;
   },
 
   formatDuration(seconds) {

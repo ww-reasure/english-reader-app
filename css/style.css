@@ -99,6 +99,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 .reading-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--text-muted); font-size: 13px; flex-wrap: wrap; }
 .reading-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .reading-hint { font-size: 12px; color: var(--text-muted); margin-top: 10px; font-style: italic; }
+.reading-finish-bar {
+  text-align: center; padding: 24px 0; margin-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.reading-finish-bar .btn-lg { padding: 14px 40px; font-size: 16px; }
 .article-body { font-family: Georgia, "Times New Roman", serif; font-size: 17px; line-height: 1.85; }
 .paragraph-pair { margin-bottom: 20px; position: relative; }
 .btn-paragraph-translate {
@@ -572,14 +577,54 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 }
 .recent-article a { color: var(--primary); text-decoration: none; flex: 1; }
 
-/* Speed Trend Chart */
-.speed-trend { margin-top: 16px; padding: 16px; background: var(--bg); border-radius: var(--radius); }
-.trend-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
-.trend-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
-.trend-bar-value { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
-.trend-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
-.trend-bar-fill { width: 100%; background: var(--primary); border-radius: 3px 3px 0 0; transition: height 0.3s; min-height: 2px; }
-.trend-bar-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+/* Speed Trend Chart — SVG Area */
+.speed-trend {
+  margin-top: 16px; padding: 16px 12px 8px;
+  background: var(--bg); border-radius: var(--radius);
+  overflow: hidden;
+}
+.trend-svg { width: 100%; height: auto; }
+.trend-line {
+  stroke-dasharray: 500;
+  stroke-dashoffset: 500;
+  animation: trendDraw 1.2s ease forwards;
+}
+.trend-area {
+  opacity: 0;
+  animation: trendFade 0.8s ease 0.8s forwards;
+}
+.trend-dot {
+  fill: var(--bg-card); stroke: var(--primary); stroke-width: 2;
+  opacity: 0;
+  animation: trendDot 0.3s ease forwards;
+}
+.trend-dot:nth-child(1) { animation-delay: 0.9s; }
+.trend-dot:nth-child(2) { animation-delay: 1.0s; }
+.trend-dot:nth-child(3) { animation-delay: 1.1s; }
+.trend-dot:nth-child(4) { animation-delay: 1.2s; }
+.trend-dot:nth-child(5) { animation-delay: 1.3s; }
+.trend-dot:nth-child(6) { animation-delay: 1.4s; }
+.trend-dot:nth-child(7) { animation-delay: 1.5s; }
+.trend-dot:nth-child(8) { animation-delay: 1.6s; }
+.trend-dot:nth-child(9) { animation-delay: 1.7s; }
+.trend-dot:nth-child(10) { animation-delay: 1.8s; }
+.trend-label { font-size: 9px; fill: var(--text-muted); text-anchor: middle; }
+.trend-value { font-size: 8px; fill: var(--text-muted); text-anchor: middle; font-weight: 600; }
+.trend-avg-label { font-size: 8px; fill: var(--text-muted); text-anchor: start; font-style: italic; }
+
+/* Trend Toggle */
+.trend-toggle { display: flex; gap: 0; margin-bottom: 12px; }
+.trend-toggle-btn {
+  flex: 1; padding: 6px 12px; background: var(--bg-card); border: 1px solid var(--border);
+  font-size: 12px; cursor: pointer; transition: all 0.2s; color: var(--text-muted);
+}
+.trend-toggle-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.trend-toggle-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
+.trend-toggle-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+@keyframes trendDraw { to { stroke-dashoffset: 0; } }
+@keyframes trendFade { to { opacity: 1; } }
+@keyframes trendDot { to { opacity: 1; } }
 
 /* History favorites filter */
 .history-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
