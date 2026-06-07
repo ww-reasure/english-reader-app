@@ -5,7 +5,7 @@
 
 const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 4,  // Bumped for favorite field in articles
+  DB_VERSION: 5,  // Bumped for readingStats table
 
   // Open database connection with retry
   open(retries = 3) {
@@ -47,6 +47,12 @@ const DB = {
               store.createIndex('favorite', 'favorite');
             }
           } catch {}
+        }
+
+        // v5: readingStats table
+        if (!db.objectStoreNames.contains('readingStats')) {
+          const store = db.createObjectStore('readingStats', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('createdAt', 'createdAt');
         }
       };
 
@@ -222,5 +228,33 @@ const DB = {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  },
+
+  // ===== Reading Stats =====
+
+  async saveReadingStat(stat) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('readingStats', 'readwrite');
+      const req = tx.objectStore('readingStats').add({ ...stat, createdAt: Date.now() });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getAllReadingStats() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('readingStats', 'readonly');
+      const req = tx.objectStore('readingStats').getAll();
+      req.onsuccess = () => resolve(req.result.reverse());
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getAverageWPM() {
+    const stats = await this.getAllReadingStats();
+    if (stats.length === 0) return 0;
+    return Math.round(stats.reduce((sum, s) => sum + s.wpm, 0) / stats.length);
   }
 };

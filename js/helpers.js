@@ -122,36 +122,32 @@ function getStemForm(word) {
 }
 
 /**
- * CountdownTimer - Reading speed timer with idle detection
+ * ReadingTimer - Stopwatch with idle detection for reading sessions
  */
-class CountdownTimer {
-  constructor(wordCount, wpm) {
+class ReadingTimer {
+  constructor(wordCount) {
     this.wordCount = wordCount;
-    this.wpm = wpm;
-    this.totalSeconds = Math.ceil(wordCount / wpm * 60);
-    this.remaining = this.totalSeconds;
-    this.elapsed = 0;
+    this.elapsed = 0;       // Active seconds
+    this.rawElapsed = 0;    // Total seconds including idle
     this.onTick = null;
-    this.onComplete = null;
     this.interval = null;
     this.isPaused = false;
+    this.isRunning = false;
     this.lastActive = Date.now();
     this.IDLE_THRESHOLD = 30000; // 30s idle
   }
 
   start() {
+    this.isRunning = true;
+    this.isPaused = false;
     this.lastActive = Date.now();
     this.interval = setInterval(() => {
+      this.rawElapsed++;
       if (!this.isPaused) {
-        this.remaining--;
         this.elapsed++;
-        if (this.onTick) this.onTick(this.remaining, this.elapsed);
-        if (this.remaining <= 0) {
-          this.stop();
-          if (this.onComplete) this.onComplete();
-        }
+        if (this.onTick) this.onTick(this.elapsed, this.getWPM());
       }
-      // Check idle
+      // Auto-pause on idle
       if (Date.now() - this.lastActive > this.IDLE_THRESHOLD) {
         this.isPaused = true;
       }
@@ -164,33 +160,25 @@ class CountdownTimer {
   }
 
   stop() {
+    this.isRunning = false;
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
     }
   }
 
-  isActive() {
-    return !this.isPaused && this.remaining > 0;
-  }
-
-  getDisplay() {
-    const min = Math.floor(Math.abs(this.remaining) / 60);
-    const sec = Math.abs(this.remaining) % 60;
-    const prefix = this.remaining < 0 ? '+' : '';
-    return `${prefix}${min}:${sec.toString().padStart(2, '0')}`;
-  }
-
-  getProgress() {
-    return Math.min(1, this.elapsed / this.totalSeconds);
-  }
-
-  isExpired() {
-    return this.remaining <= 0;
-  }
-
   getWPM() {
     if (this.elapsed === 0) return 0;
     return Math.round(this.wordCount / (this.elapsed / 60));
+  }
+
+  getDisplay() {
+    const min = Math.floor(this.elapsed / 60);
+    const sec = this.elapsed % 60;
+    return `${min}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  isActive() {
+    return this.isRunning && !this.isPaused;
   }
 }

@@ -1,10 +1,13 @@
 /**
  * Reading View
- * Handles article reading with word lookup and translation toggle
+ * Article reading with word lookup, timer, and completion summary
  */
 
 const ReadingView = {
-  // Clean up event listeners
+  timer: null,
+  articleData: null,
+  clickedWords: [],
+
   cleanup() {
     if (this._globalClickHandler) {
       document.removeEventListener('click', this._globalClickHandler);
@@ -14,17 +17,18 @@ const ReadingView = {
       document.removeEventListener('click', this._audioClickHandler);
       this._audioClickHandler = null;
     }
+    if (this.timer) { this.timer.stop(); this.timer = null; }
   },
 
-  // Render reading view for an article
   async render(container, articleId) {
     this.cleanup();
+    this.clickedWords = [];
     const article = await DB.getArticle(articleId);
-
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
       return;
     }
+    this.articleData = article;
 
     const enParas = article.content.split(/\n\n+/).filter(p => p.trim());
     const zhParas = (article.translation || '').split(/\n\n+/).filter(p => p.trim());
@@ -55,40 +59,30 @@ const ReadingView = {
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()">显示翻译</button>
             <a href="#/history" class="btn btn-outline">返回历史</a>
           </div>
-          <div class="reading-timer-bar" id="timerBar" style="display:none">
+          <div class="reading-timer-bar" id="timerBar">
             <span id="timerDisplay" class="timer-display">0:00</span>
             <div class="timer-progress"><div id="timerProgress" class="timer-progress-fill"></div></div>
+            <span id="timerWpm" class="timer-wpm"></span>
             <span id="timerStatus" class="timer-status"></span>
           </div>
           <div class="reading-tools">
             <span class="reading-hint">单击单词查词，长按句子问 AI</span>
-            <div class="timer-controls">
-              <select id="timerSpeed" onchange="ReadingView.setTimerSpeed()">
-                <option value="0">不限时</option>
-                <option value="150">150 词/分</option>
-                <option value="200">200 词/分</option>
-                <option value="250">250 词/分</option>
-              </select>
-              <button class="btn btn-sm btn-outline" id="timerToggle" onclick="ReadingView.toggleTimer()" style="display:none">▶ 开始</button>
-            </div>
+            <button class="btn btn-primary btn-sm" id="timerToggle" onclick="ReadingView.toggleTimer()">▶ 开始计时</button>
           </div>
         </div>
         <div id="articleBody" class="article-body">${parasHTML}</div>
       </div>
-      <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
+      <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
+      <div id="readingSummary" class="modal-overlay" style="display:none"></div>`;
 
     this.initInteractions();
-
-    // Preload audio for article words in background
     AudioCache.preloadWords(article.content).catch(() => {});
   },
 
-  // Initialize reading view interactions
   initInteractions() {
     const articleBody = document.getElementById('articleBody');
     if (!articleBody) return;
 
-    // Global click handler: dismiss tooltip when clicking outside
     this._globalClickHandler = (e) => {
       const tooltip = document.getElementById('wordTooltip');
       if (!tooltip || tooltip.style.display === 'none') return;
@@ -98,7 +92,6 @@ const ReadingView = {
     };
     document.addEventListener('click', this._globalClickHandler);
 
-    // Click to lookup word
     articleBody.addEventListener('click', async (e) => {
       const tooltip = document.getElementById('wordTooltip');
       if (tooltip?.contains(e.target)) return;
@@ -106,25 +99,25 @@ const ReadingView = {
 
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
-
-      // Stop propagation so global handler doesn't immediately hide the new tooltip
       e.stopPropagation();
 
-      // Hide previous tooltip before showing new one
       Tooltip.hide();
       AIAnalysis.hideButton();
-
       Tooltip.showLoading(e.clientX, e.clientY);
 
       try {
         const data = await Dictionary.lookup(word);
         Tooltip.show(e.clientX, e.clientY, data);
+        // Track clicked word
+        const stem = getStemForm(word.toLowerCase());
+        if (!this.clickedWords.some(w => w.stem === stem)) {
+          this.clickedWords.push({ word: word.toLowerCase(), stem, freqLevel: data.freqLevel || 'unknown' });
+        }
       } catch {
         Tooltip.hide();
       }
     });
 
-    // Audio button click (event delegation)
     this._audioClickHandler = (e) => {
       if (e.target.classList.contains('btn-speak')) {
         const word = e.target.getAttribute('data-word');
@@ -133,94 +126,172 @@ const ReadingView = {
     };
     document.addEventListener('click', this._audioClickHandler);
 
-    // AI analysis selection detection
     AIAnalysis.initSelectionDetection(articleBody);
   },
 
-  // Toggle all translations visibility
+  // ===== Timer =====
+  toggleTimer() {
+    const btn = document.getElementById('timerToggle');
+    if (!this.timer) {
+      // Start
+      const wordCount = this.articleData?.wordCount || 300;
+      this.timer = new ReadingTimer(wordCount);
+      this.timer.onTick = (elapsed, wpm) => {
+        const display = document.getElementById('timerDisplay');
+        const wpmEl = document.getElementById('timerWpm');
+        const statusEl = document.getElementById('timerStatus');
+        if (display) display.textContent = this.timer.getDisplay();
+        if (wpmEl) wpmEl.textContent = wpm + ' 词/分';
+        if (statusEl) statusEl.textContent = this.timer.isPaused ? '⏸ 已暂停（30秒无操作）' : '';
+      };
+      this.timer.start();
+      if (btn) { btn.textContent = '✓ 阅读完成'; btn.classList.remove('btn-primary'); btn.classList.add('btn-success'); }
+      // Resume on touch
+      this._resumeHandler = () => { if (this.timer?.isPaused) this.timer.resume(); };
+      document.addEventListener('touchstart', this._resumeHandler, { passive: true });
+      document.addEventListener('scroll', this._resumeHandler, { passive: true });
+    } else {
+      // Finish
+      this.timer.stop();
+      if (this._resumeHandler) {
+        document.removeEventListener('touchstart', this._resumeHandler);
+        document.removeEventListener('scroll', this._resumeHandler);
+      }
+      this.showSummary();
+    }
+  },
+
+  // ===== Summary =====
+  async showSummary() {
+    const elapsed = this.timer?.elapsed || 0;
+    const wpm = this.timer?.getWPM() || 0;
+    const wordCount = this.articleData?.wordCount || 0;
+    const clickCount = this.clickedWords.length;
+    const avgWpm = await DB.getAverageWPM();
+    const diff = avgWpm > 0 ? wpm - avgWpm : 0;
+    const diffPct = avgWpm > 0 ? Math.round(diff / avgWpm * 100) : 0;
+
+    // Save reading stat
+    await DB.saveReadingStat({
+      articleId: this.articleData?.id,
+      wordCount,
+      elapsed,
+      wpm,
+      clickCount,
+      clickedWords: this.clickedWords.map(w => w.word)
+    });
+
+    const overlay = document.getElementById('readingSummary');
+    overlay.innerHTML = `
+      <div class="modal modal-wide">
+        <h2>📊 阅读完成！</h2>
+        <div class="summary-stats">
+          <div class="summary-stat">
+            <span class="summary-stat-icon">⏱</span>
+            <span class="summary-stat-num">${this.formatTime(elapsed)}</span>
+            <span class="summary-stat-label">用时</span>
+          </div>
+          <div class="summary-stat">
+            <span class="summary-stat-icon">📖</span>
+            <span class="summary-stat-num">${wpm}</span>
+            <span class="summary-stat-label">词/分</span>
+          </div>
+          <div class="summary-stat">
+            <span class="summary-stat-icon">📈</span>
+            <span class="summary-stat-num">${avgWpm || '-'}</span>
+            <span class="summary-stat-label">历史平均</span>
+          </div>
+          ${diff !== 0 ? `
+          <div class="summary-stat">
+            <span class="summary-stat-icon">${diff > 0 ? '⬆️' : '⬇️'}</span>
+            <span class="summary-stat-num" style="color:${diff > 0 ? 'var(--success)' : 'var(--danger)'}">${diff > 0 ? '+' : ''}${diffPct}%</span>
+            <span class="summary-stat-label">vs 平均</span>
+          </div>` : ''}
+          <div class="summary-stat">
+            <span class="summary-stat-icon">🔍</span>
+            <span class="summary-stat-num">${clickCount}</span>
+            <span class="summary-stat-label">查词数</span>
+          </div>
+        </div>
+        ${this.clickedWords.length > 0 ? `
+        <div class="summary-words">
+          <h3>📝 本篇查词</h3>
+          <div class="summary-word-list">
+            ${this.clickedWords.map(w => `<span class="summary-word-chip">${esc(w.word)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+        <div class="modal-actions summary-actions">
+          ${this.clickedWords.length > 0 ? `
+          <button class="btn btn-outline" onclick="ReadingView.addToReview()">加入词库复习</button>
+          <button class="btn btn-primary" onclick="ReadingView.generateReview()">生成巩固阅读</button>` : ''}
+          <button class="btn" onclick="document.getElementById('readingSummary').style.display='none'">关闭</button>
+        </div>
+      </div>`;
+    overlay.style.display = 'flex';
+  },
+
+  formatTime(seconds) {
+    const min = Math.floor(seconds / 60);
+    const sec = seconds % 60;
+    return min > 0 ? `${min} 分 ${sec} 秒` : `${sec} 秒`;
+  },
+
+  // Add clicked words to review
+  async addToReview() {
+    let added = 0;
+    for (const w of this.clickedWords) {
+      try {
+        await DB.saveLearnWord({ word: w.word, createdAt: Date.now() });
+        added++;
+      } catch {}
+    }
+    alert(`已将 ${added} 个单词加入学习词库`);
+  },
+
+  // Generate review article from clicked words
+  async generateReview() {
+    if (!Config.hasApiKey()) { Modal.showApiSettings(); return; }
+    const words = this.clickedWords.map(w => w.word);
+    if (words.length < 2) { alert('查词太少，无法生成'); return; }
+
+    document.getElementById('readingSummary').style.display = 'none';
+    location.hash = '#/chat';
+    await new Promise(r => setTimeout(r, 100));
+
+    const keywords = words.join(', ');
+    const difficulty = this.articleData?.difficulty || 'cet4';
+    ChatView.addMessage('system', `📝 使用本篇查词生成巩固阅读（${words.length} 个词）`);
+    try {
+      const article = await API.generateArticle(
+        `请生成一篇文章，自然融入以下词汇：${keywords}。`, difficulty, '阅读巩固', keywords, 350);
+      const id = await DB.saveArticle(article);
+      ChatView.addArticleCard({ ...article, id });
+      ChatView.addMessage('system', '✅ 巩固阅读已生成');
+    } catch (err) {
+      ChatView.addMessage('error', `生成失败：${err.message}`);
+    }
+  },
+
+  // ===== Translation =====
   toggleTranslation() {
     const zhParas = document.querySelectorAll('.zh-paragraph');
     const showing = zhParas[0]?.style.display === 'none';
-
     zhParas.forEach(p => p.style.display = showing ? 'block' : 'none');
-
-    // Update all paragraph translate buttons
     document.querySelectorAll('.btn-paragraph-translate').forEach(btn => {
       btn.textContent = showing ? '隐' : '译';
       btn.classList.toggle('active', showing);
     });
-
     const toggleBtn = document.querySelector('.reading-actions .btn-outline');
     if (toggleBtn) toggleBtn.textContent = showing ? '隐藏全部翻译' : '显示全部翻译';
   },
 
-  // Toggle single paragraph translation
   toggleParagraph(btn) {
     const zhPara = btn.nextElementSibling;
     if (!zhPara || !zhPara.classList.contains('zh-paragraph')) return;
-
     const isVisible = zhPara.style.display !== 'none';
     zhPara.style.display = isVisible ? 'none' : 'block';
     btn.textContent = isVisible ? '译' : '隐';
     btn.classList.toggle('active', !isVisible);
-  },
-
-  // ===== Timer =====
-  timer: null,
-
-  setTimerSpeed() {
-    const wpm = parseInt(document.getElementById('timerSpeed')?.value || 0);
-    const toggleBtn = document.getElementById('timerToggle');
-    const timerBar = document.getElementById('timerBar');
-
-    if (wpm === 0) {
-      // Disable timer
-      if (this.timer) { this.timer.stop(); this.timer = null; }
-      if (toggleBtn) toggleBtn.style.display = 'none';
-      if (timerBar) timerBar.style.display = 'none';
-      return;
-    }
-
-    // Create new timer
-    const wordCount = document.querySelectorAll('.en-paragraph').length * 50; // rough estimate
-    const article = document.querySelector('.reading-meta .meta-item');
-    const actualWords = article ? parseInt(article.textContent) : wordCount;
-
-    if (this.timer) this.timer.stop();
-    this.timer = new CountdownTimer(actualWords, wpm);
-    this.timer.onTick = (remaining, elapsed) => {
-      const display = document.getElementById('timerDisplay');
-      const progress = document.getElementById('timerProgress');
-      const status = document.getElementById('timerStatus');
-      if (display) display.textContent = this.timer.getDisplay();
-      if (progress) progress.style.width = (this.timer.getProgress() * 100) + '%';
-      if (status) {
-        if (this.timer.isPaused) status.textContent = '⏸ 已暂停';
-        else if (this.timer.isExpired()) status.textContent = '⏱ 已超时';
-        else status.textContent = '';
-      }
-    };
-    this.timer.onComplete = () => {
-      const status = document.getElementById('timerStatus');
-      if (status) status.textContent = '⏱ 时间到！继续阅读即可';
-    };
-
-    if (toggleBtn) { toggleBtn.style.display = 'inline-block'; toggleBtn.textContent = '▶ 开始'; }
-    if (timerBar) timerBar.style.display = 'flex';
-    const display = document.getElementById('timerDisplay');
-    if (display) display.textContent = this.timer.getDisplay();
-  },
-
-  toggleTimer() {
-    if (!this.timer) return;
-    const btn = document.getElementById('timerToggle');
-    if (this.timer.isActive()) {
-      this.timer.stop();
-      if (btn) btn.textContent = '▶ 继续';
-    } else {
-      this.timer.start();
-      if (btn) btn.textContent = '⏸ 暂停';
-    }
   },
 
   // ===== Favorite =====
