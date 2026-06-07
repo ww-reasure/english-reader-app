@@ -12,8 +12,22 @@ const Tooltip = {
     tooltip.style.display = 'block';
   },
 
+  // Check if word is already in vocabulary
+  async isWordSaved(word) {
+    try {
+      const words = await DB.getAllWords();
+      const stem = getStemForm(word.toLowerCase());
+      return words.some(w => {
+        const wStem = getStemForm(w.word.toLowerCase());
+        return wStem === stem || w.word.toLowerCase() === word.toLowerCase();
+      });
+    } catch {
+      return false;
+    }
+  },
+
   // Show word data
-  show(x, y, data) {
+  async show(x, y, data) {
     const tooltip = document.getElementById('wordTooltip');
 
     // Save audio URL for TTS
@@ -52,9 +66,17 @@ const Tooltip = {
     }
 
     if (data.found) {
-      html += `<div class="tooltip-actions">
-        <button class="btn-save-word" onclick="Tooltip.saveWord('${escJs(data.word)}', '${escJs(data.translation)}', '${escJs(data.phonetic || '')}')">+ 收藏</button>
-      </div>`;
+      // Check if already saved
+      const isSaved = await this.isWordSaved(data.word);
+      if (isSaved) {
+        html += `<div class="tooltip-actions">
+          <span class="btn-saved-word">✅ 已收藏</span>
+        </div>`;
+      } else {
+        html += `<div class="tooltip-actions">
+          <button class="btn-save-word" onclick="Tooltip.saveWord('${escJs(data.word)}', '${escJs(data.translation)}', '${escJs(data.phonetic || '')}')">+ 收藏</button>
+        </div>`;
+      }
     }
 
     tooltip.innerHTML = html;
