@@ -7,17 +7,29 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <nav class="navbar">
-    <div class="nav-brand">英语阅读助手</div>
-    <div class="nav-links">
-      <a href="#/chat" class="nav-link">对话<span id="chatBadge" class="nav-badge" style="display:none">0</span></a>
-      <a href="#/history" class="nav-link">历史</a>
-      <a href="#/vocab" class="nav-link">生词本</a>
-      <a href="#/stats" class="nav-link">统计</a>
-    </div>
-    <div class="nav-actions">
-      <a href="#/settings" class="btn-icon" title="设置">&#9881;</a>
-    </div>
+  <!-- Bottom Tab Navigation -->
+  <nav class="tab-bar">
+    <a href="#/chat" class="tab-item" data-tab="chat">
+      <span class="tab-icon">💬</span>
+      <span class="tab-label">对话</span>
+      <span id="chatBadge" class="tab-badge" style="display:none">0</span>
+    </a>
+    <a href="#/history" class="tab-item" data-tab="history">
+      <span class="tab-icon">📚</span>
+      <span class="tab-label">历史</span>
+    </a>
+    <a href="#/vocab" class="tab-item" data-tab="vocab">
+      <span class="tab-icon">📖</span>
+      <span class="tab-label">词库</span>
+    </a>
+    <a href="#/stats" class="tab-item" data-tab="stats">
+      <span class="tab-icon">📊</span>
+      <span class="tab-label">统计</span>
+    </a>
+    <a href="#/settings" class="tab-item" data-tab="settings">
+      <span class="tab-icon">⚙️</span>
+      <span class="tab-label">设置</span>
+    </a>
   </nav>
 
   <!-- API Settings Modal -->

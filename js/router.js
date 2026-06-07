@@ -66,10 +66,11 @@ const Router = {
     this.updateNav(hash);
   },
 
-  // Update navigation link active state
+  // Update tab bar active state
   updateNav(hash) {
-    document.querySelectorAll('.nav-link').forEach(el => {
-      el.classList.toggle('active', el.getAttribute('href') === hash);
+    document.querySelectorAll('.tab-item').forEach(el => {
+      const href = el.getAttribute('href');
+      el.classList.toggle('active', hash === href || (href === '#/chat' && hash === '#/chat'));
     });
   },
 
