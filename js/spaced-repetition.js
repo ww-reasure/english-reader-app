@@ -55,8 +55,11 @@ const SpacedRepetition = {
     if (easeFactor < 1.3) easeFactor = 1.3;
     if (easeFactor > 3.0) easeFactor = 3.0;
 
-    const now = Date.now();
-    const nextReview = now + interval * 24 * 60 * 60 * 1000;
+    // Calculate next review at start of the day + interval days
+    // This means words refresh at midnight, not 24h after review
+    const now = new Date();
+    const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + interval);
+    const nextReview = nextDay.getTime();
 
     return {
       easeFactor: Math.round(easeFactor * 100) / 100,

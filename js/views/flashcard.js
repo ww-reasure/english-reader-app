@@ -25,7 +25,12 @@ const FlashcardView = {
   TODAY_KEY: 'todayReviewedWords',
 
   getTodayKey() {
-    return new Date().toISOString().split('T')[0];
+    // Use local timezone (not UTC) so day resets at midnight local time
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   },
 
   loadTodayWords() {
@@ -80,6 +85,12 @@ const FlashcardView = {
     this.reviewedWords = [];
 
     this.renderCard(container);
+  },
+
+  // Check how many words are due
+  async getDueCount() {
+    const allWords = await DB.getAllLearnWords();
+    return SpacedRepetition.getDueCount(allWords);
   },
 
   // Render a single flashcard
