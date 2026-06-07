@@ -141,6 +141,7 @@ const FlashcardView = {
           <div class="flashcard-back" id="flashcardBack" style="display:none">
             <div class="flashcard-translation">${esc(translation)}</div>
             ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
+            <div id="flashcardDetails" class="flashcard-details"></div>
             <div class="flashcard-hint" id="flashcardBackHint">根据记忆程度选择评分</div>
           </div>
         </div>
@@ -179,18 +180,85 @@ const FlashcardView = {
       this.isFlipped = true;
       if (front) front.style.display = 'none';
       if (back) back.style.display = 'block';
-      // Disable "认识" — user flipped, so they didn't know immediately
       if (btnKnew) {
         btnKnew.disabled = true;
         btnKnew.style.opacity = '0.3';
         btnKnew.style.cursor = 'not-allowed';
       }
+      // Load word details (examples + roots) async
+      this.loadWordDetails();
     } else {
-      // Flip back to front (to see the word again)
+      // Flip back to front
       this.isFlipped = false;
       if (front) front.style.display = 'block';
       if (back) back.style.display = 'none';
-      // Keep "认识" disabled — user already saw the translation once
+    }
+  },
+
+  // Load word details (examples + word root + memory tip) for current card
+  async loadWordDetails() {
+    const word = this.words[this.currentIndex];
+    const detailsEl = document.getElementById('flashcardDetails');
+    if (!detailsEl) return;
+
+    // Show loading
+    detailsEl.innerHTML = '<div class="details-loading">加载详情...</div>';
+
+    try {
+      // Load examples and root analysis in parallel
+      const [examples, rootAnalysis] = await Promise.all([
+        Examples.getExamples(word.word).catch(() => []),
+        Affixes.getAnalysis(word.word).catch(() => null)
+      ]);
+
+      let html = '';
+
+      // Word root analysis (AI-generated format)
+      if (rootAnalysis) {
+        html += '<div class="details-section">';
+
+        // Breakdown
+        if (rootAnalysis.breakdown) {
+          html += '<div class="details-label">🔤 词根拆解</div>';
+          html += `<div class="details-breakdown">${esc(rootAnalysis.breakdown)}</div>`;
+        }
+
+        // Origin
+        if (rootAnalysis.origin) {
+          html += `<div class="details-origin">词源：${esc(rootAnalysis.origin)}</div>`;
+        }
+
+        // Related words
+        if (rootAnalysis.relatedWords && rootAnalysis.relatedWords.length > 0) {
+          html += `<div class="details-related">🔗 同根词：${rootAnalysis.relatedWords.map(w => esc(w)).join(', ')}</div>`;
+        }
+
+        // Memory tip
+        if (rootAnalysis.memoryTip) {
+          html += `<div class="details-memory">💡 记忆法：${esc(rootAnalysis.memoryTip)}</div>`;
+        }
+
+        html += '</div>';
+      }
+
+      // Examples
+      if (examples.length > 0) {
+        html += '<div class="details-section">';
+        html += '<div class="details-label">📝 例句</div>';
+        html += '<div class="details-examples">';
+        examples.forEach(ex => {
+          html += `<div class="details-example">• ${esc(ex)}</div>`;
+        });
+        html += '</div></div>';
+      }
+
+      if (html) {
+        detailsEl.innerHTML = html;
+      } else {
+        detailsEl.innerHTML = '';
+      }
+    } catch {
+      detailsEl.innerHTML = '';
     }
   },
 

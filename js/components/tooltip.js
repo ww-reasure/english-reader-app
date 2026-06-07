@@ -128,6 +128,10 @@ const Tooltip = {
         // Duplicate word in learn library, ignore
       }
 
+      // Background: pre-analyze word root and examples for flashcard review
+      Affixes.preAnalyze(word);
+      Examples.preGenerate(word);
+
       const btn = document.querySelector('.btn-save-word');
       if (btn) {
         btn.textContent = '已收藏';
