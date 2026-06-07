@@ -5,7 +5,7 @@
 
 const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 3,  // Bumped for SRS fields in learnWords
+  DB_VERSION: 4,  // Bumped for favorite field in articles
 
   // Open database connection with retry
   open(retries = 3) {
@@ -37,6 +37,16 @@ const DB = {
           if (!store.indexNames.contains('nextReview')) {
             store.createIndex('nextReview', 'nextReview');
           }
+        }
+
+        // v4: add favorite index to articles
+        if (e.oldVersion < 4) {
+          try {
+            const store = e.target.transaction.objectStore('articles');
+            if (!store.indexNames.contains('favorite')) {
+              store.createIndex('favorite', 'favorite');
+            }
+          } catch {}
         }
       };
 
@@ -82,6 +92,31 @@ const DB = {
       req.onsuccess = () => resolve(req.result.reverse());
       req.onerror = () => reject(req.error);
     });
+  },
+
+  // Update article fields (e.g., favorite)
+  async updateArticle(id, fields) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('articles', 'readwrite');
+      const store = tx.objectStore('articles');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const article = getReq.result;
+        if (article) {
+          Object.assign(article, fields);
+          store.put(article);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  // Get favorite articles
+  async getFavoriteArticles() {
+    const articles = await this.getAllArticles();
+    return articles.filter(a => a.favorite);
   },
 
   async deleteArticle(id) {

@@ -51,10 +51,27 @@ const ReadingView = {
             <span class="meta-item">${esc(article.topic)}</span>
           </div>
           <div class="reading-actions">
+            <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()">显示翻译</button>
             <a href="#/history" class="btn btn-outline">返回历史</a>
           </div>
-          <div class="reading-hint">单击任意单词查看翻译，长按选中句子可问 AI</div>
+          <div class="reading-timer-bar" id="timerBar" style="display:none">
+            <span id="timerDisplay" class="timer-display">0:00</span>
+            <div class="timer-progress"><div id="timerProgress" class="timer-progress-fill"></div></div>
+            <span id="timerStatus" class="timer-status"></span>
+          </div>
+          <div class="reading-tools">
+            <span class="reading-hint">单击单词查词，长按句子问 AI</span>
+            <div class="timer-controls">
+              <select id="timerSpeed" onchange="ReadingView.setTimerSpeed()">
+                <option value="0">不限时</option>
+                <option value="150">150 词/分</option>
+                <option value="200">200 词/分</option>
+                <option value="250">250 词/分</option>
+              </select>
+              <button class="btn btn-sm btn-outline" id="timerToggle" onclick="ReadingView.toggleTimer()" style="display:none">▶ 开始</button>
+            </div>
+          </div>
         </div>
         <div id="articleBody" class="article-body">${parasHTML}</div>
       </div>
@@ -146,5 +163,73 @@ const ReadingView = {
     zhPara.style.display = isVisible ? 'none' : 'block';
     btn.textContent = isVisible ? '译' : '隐';
     btn.classList.toggle('active', !isVisible);
+  },
+
+  // ===== Timer =====
+  timer: null,
+
+  setTimerSpeed() {
+    const wpm = parseInt(document.getElementById('timerSpeed')?.value || 0);
+    const toggleBtn = document.getElementById('timerToggle');
+    const timerBar = document.getElementById('timerBar');
+
+    if (wpm === 0) {
+      // Disable timer
+      if (this.timer) { this.timer.stop(); this.timer = null; }
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      if (timerBar) timerBar.style.display = 'none';
+      return;
+    }
+
+    // Create new timer
+    const wordCount = document.querySelectorAll('.en-paragraph').length * 50; // rough estimate
+    const article = document.querySelector('.reading-meta .meta-item');
+    const actualWords = article ? parseInt(article.textContent) : wordCount;
+
+    if (this.timer) this.timer.stop();
+    this.timer = new CountdownTimer(actualWords, wpm);
+    this.timer.onTick = (remaining, elapsed) => {
+      const display = document.getElementById('timerDisplay');
+      const progress = document.getElementById('timerProgress');
+      const status = document.getElementById('timerStatus');
+      if (display) display.textContent = this.timer.getDisplay();
+      if (progress) progress.style.width = (this.timer.getProgress() * 100) + '%';
+      if (status) {
+        if (this.timer.isPaused) status.textContent = '⏸ 已暂停';
+        else if (this.timer.isExpired()) status.textContent = '⏱ 已超时';
+        else status.textContent = '';
+      }
+    };
+    this.timer.onComplete = () => {
+      const status = document.getElementById('timerStatus');
+      if (status) status.textContent = '⏱ 时间到！继续阅读即可';
+    };
+
+    if (toggleBtn) { toggleBtn.style.display = 'inline-block'; toggleBtn.textContent = '▶ 开始'; }
+    if (timerBar) timerBar.style.display = 'flex';
+    const display = document.getElementById('timerDisplay');
+    if (display) display.textContent = this.timer.getDisplay();
+  },
+
+  toggleTimer() {
+    if (!this.timer) return;
+    const btn = document.getElementById('timerToggle');
+    if (this.timer.isActive()) {
+      this.timer.stop();
+      if (btn) btn.textContent = '▶ 继续';
+    } else {
+      this.timer.start();
+      if (btn) btn.textContent = '⏸ 暂停';
+    }
+  },
+
+  // ===== Favorite =====
+  async toggleFavorite(articleId) {
+    const article = await DB.getArticle(articleId);
+    if (!article) return;
+    const newFav = article.favorite ? 0 : 1;
+    await DB.updateArticle(articleId, { favorite: newFav });
+    const btn = document.getElementById('favBtn');
+    if (btn) btn.textContent = newFav ? '⭐ 收藏' : '☆ 收藏';
   }
 };

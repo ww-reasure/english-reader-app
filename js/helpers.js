@@ -120,3 +120,77 @@ function getStemForm(word) {
 
   return w;
 }
+
+/**
+ * CountdownTimer - Reading speed timer with idle detection
+ */
+class CountdownTimer {
+  constructor(wordCount, wpm) {
+    this.wordCount = wordCount;
+    this.wpm = wpm;
+    this.totalSeconds = Math.ceil(wordCount / wpm * 60);
+    this.remaining = this.totalSeconds;
+    this.elapsed = 0;
+    this.onTick = null;
+    this.onComplete = null;
+    this.interval = null;
+    this.isPaused = false;
+    this.lastActive = Date.now();
+    this.IDLE_THRESHOLD = 30000; // 30s idle
+  }
+
+  start() {
+    this.lastActive = Date.now();
+    this.interval = setInterval(() => {
+      if (!this.isPaused) {
+        this.remaining--;
+        this.elapsed++;
+        if (this.onTick) this.onTick(this.remaining, this.elapsed);
+        if (this.remaining <= 0) {
+          this.stop();
+          if (this.onComplete) this.onComplete();
+        }
+      }
+      // Check idle
+      if (Date.now() - this.lastActive > this.IDLE_THRESHOLD) {
+        this.isPaused = true;
+      }
+    }, 1000);
+  }
+
+  resume() {
+    this.isPaused = false;
+    this.lastActive = Date.now();
+  }
+
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+
+  isActive() {
+    return !this.isPaused && this.remaining > 0;
+  }
+
+  getDisplay() {
+    const min = Math.floor(Math.abs(this.remaining) / 60);
+    const sec = Math.abs(this.remaining) % 60;
+    const prefix = this.remaining < 0 ? '+' : '';
+    return `${prefix}${min}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  getProgress() {
+    return Math.min(1, this.elapsed / this.totalSeconds);
+  }
+
+  isExpired() {
+    return this.remaining <= 0;
+  }
+
+  getWPM() {
+    if (this.elapsed === 0) return 0;
+    return Math.round(this.wordCount / (this.elapsed / 60));
+  }
+}

@@ -50,6 +50,9 @@ const Router = {
       case hash === '#/settings':
         SettingsView.render(app);
         break;
+      case hash === '#/stats':
+        StatsView.render(app);
+        break;
       case hash === '#/assessment':
         AssessmentView.render(app);
         break;
