@@ -136,6 +136,7 @@ const StatsView = {
 
         <div style="text-align:center;margin-top:24px">
           <a href="#/chat" class="btn btn-primary">去阅读</a>
+          <a href="#/report" class="btn btn-outline">📊 阅读报告</a>
           ${dueWords > 0 ? `<a href="#/flashcard" class="btn btn-outline">复习 ${dueWords} 个单词</a>` : ''}
         </div>
       </div>`;

@@ -643,6 +643,34 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 .trend-toggle-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
 .trend-toggle-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
+/* Report View */
+.report-container { max-width: 100%; padding: 20px 16px; }
+.report-date { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+.report-section { margin-bottom: 24px; }
+.report-section h2 { font-size: 16px; margin-bottom: 12px; }
+.report-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 10px; }
+.report-stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 8px; text-align: center; }
+.report-stat-num { display: block; font-size: 24px; font-weight: 700; color: var(--primary); }
+.report-stat-label { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.report-vocab-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--border); margin-bottom: 10px; }
+.report-vocab-mastered { background: #27ae60; }
+.report-vocab-learning { background: #f39c12; }
+.report-vocab-legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.report-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.report-dot-mastered { background: #27ae60; }
+.report-dot-learning { background: #f39c12; }
+.report-dot-new { background: var(--border); }
+.report-due { font-size: 13px; color: var(--primary); margin-top: 8px; }
+.report-streak { text-align: center; padding: 20px; }
+.report-streak-num { display: block; font-size: 48px; font-weight: 700; color: #e67e22; }
+.report-streak-label { font-size: 16px; color: var(--text-muted); }
+.report-achievements { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.report-achievement { display: flex; flex-direction: column; align-items: center; padding: 14px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; }
+.report-achievement.locked { opacity: 0.4; }
+.report-achievement-icon { font-size: 28px; margin-bottom: 4px; }
+.report-achievement-name { font-size: 13px; font-weight: 600; }
+.report-achievement-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
 @keyframes trendDraw { to { stroke-dashoffset: 0; } }
 @keyframes trendFade { to { opacity: 1; } }
 @keyframes trendDot { to { opacity: 1; } }
