@@ -190,12 +190,7 @@ const FlashcardView = {
       this.isFlipped = false;
       if (front) front.style.display = 'block';
       if (back) back.style.display = 'none';
-      // Re-enable "认识" only if no rating pending
-      if (btnKnew && this.pendingQuality === null) {
-        btnKnew.disabled = false;
-        btnKnew.style.opacity = '1';
-        btnKnew.style.cursor = 'pointer';
-      }
+      // Keep "认识" disabled — user already saw the translation once
     }
   },
 
