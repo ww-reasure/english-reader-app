@@ -153,6 +153,13 @@ const SettingsView = {
           </div>
         </div>
 
+        <div class="settings-section">
+          <h2 class="settings-section-title">🔊 发音缓存</h2>
+          <p class="settings-desc">文章生成后自动缓存单词发音，离线也能播放</p>
+          <div id="audioCacheInfo" class="audio-cache-info">加载中...</div>
+          <button class="btn btn-outline btn-sm" onclick="SettingsView.clearAudioCache()" style="margin-top:8px">清除缓存</button>
+        </div>
+
         <div class="settings-actions">
           <button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button>
           <a href="#/chat" class="btn btn-outline">返回对话</a>
@@ -171,6 +178,9 @@ const SettingsView = {
         Theme.apply(e.target.value);
       });
     });
+
+    // Load audio cache info
+    this.loadAudioCacheInfo();
   },
 
   // Handle model preset change
@@ -221,5 +231,29 @@ const SettingsView = {
     }
 
     alert('设置已保存');
+  },
+
+  // Load audio cache info
+  async loadAudioCacheInfo() {
+    const el = document.getElementById('audioCacheInfo');
+    if (!el) return;
+    try {
+      const info = await AudioCache.getCacheSize();
+      el.innerHTML = `已缓存 <strong>${info.count}</strong> 个单词发音（约 ${info.estimatedMB} MB）`;
+    } catch {
+      el.textContent = '无法获取缓存信息';
+    }
+  },
+
+  // Clear audio cache
+  async clearAudioCache() {
+    if (!confirm('确定要清除所有发音缓存吗？')) return;
+    const success = await AudioCache.clearCache();
+    if (success) {
+      this.loadAudioCacheInfo();
+      alert('缓存已清除');
+    } else {
+      alert('清除失败');
+    }
   }
 };

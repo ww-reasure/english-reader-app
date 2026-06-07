@@ -10,9 +10,9 @@ const ReadingView = {
       document.removeEventListener('click', this._globalClickHandler);
       this._globalClickHandler = null;
     }
-    if (this._ttsClickHandler) {
-      document.removeEventListener('click', this._ttsClickHandler);
-      this._ttsClickHandler = null;
+    if (this._audioClickHandler) {
+      document.removeEventListener('click', this._audioClickHandler);
+      this._audioClickHandler = null;
     }
   },
 
@@ -61,6 +61,9 @@ const ReadingView = {
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
 
     this.initInteractions();
+
+    // Preload audio for article words in background
+    AudioCache.preloadWords(article.content).catch(() => {});
   },
 
   // Initialize reading view interactions
@@ -104,14 +107,14 @@ const ReadingView = {
       }
     });
 
-    // TTS button click (event delegation)
-    this._ttsClickHandler = (e) => {
+    // Audio button click (event delegation)
+    this._audioClickHandler = (e) => {
       if (e.target.classList.contains('btn-speak')) {
         const word = e.target.getAttribute('data-word');
-        if (word) TTS.speak(word);
+        if (word) AudioCache.getAudio(word);
       }
     };
-    document.addEventListener('click', this._ttsClickHandler);
+    document.addEventListener('click', this._audioClickHandler);
 
     // AI analysis selection detection
     AIAnalysis.initSelectionDetection(articleBody);

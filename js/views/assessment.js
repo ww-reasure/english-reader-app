@@ -295,14 +295,14 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       }
     });
 
-    // TTS button click
-    this._ttsClickHandler = (e) => {
+    // Audio button click
+    this._audioClickHandler = (e) => {
       if (e.target.classList.contains('btn-speak')) {
         const word = e.target.getAttribute('data-word');
-        if (word) TTS.speak(word);
+        if (word) AudioCache.getAudio(word);
       }
     };
-    document.addEventListener('click', this._ttsClickHandler);
+    document.addEventListener('click', this._audioClickHandler);
   },
 
   // Clean up event listeners
@@ -311,9 +311,9 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       document.removeEventListener('click', this._globalClickHandler);
       this._globalClickHandler = null;
     }
-    if (this._ttsClickHandler) {
-      document.removeEventListener('click', this._ttsClickHandler);
-      this._ttsClickHandler = null;
+    if (this._audioClickHandler) {
+      document.removeEventListener('click', this._audioClickHandler);
+      this._audioClickHandler = null;
     }
   },
 

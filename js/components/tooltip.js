@@ -30,14 +30,9 @@ const Tooltip = {
   async show(x, y, data) {
     const tooltip = document.getElementById('wordTooltip');
 
-    // Save audio URL for TTS
-    if (data.audioUrl) {
-      TTS.setAudioUrl(data.word, data.audioUrl);
-    }
-
     let html = `<div class="tooltip-word">
       <span>${esc(data.word)}</span>
-      <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音">🔊</button>
+      <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音" onclick="AudioCache.getAudio('${escJs(data.word)}')">🔊</button>
     </div>`;
 
     if (data.baseForm) {

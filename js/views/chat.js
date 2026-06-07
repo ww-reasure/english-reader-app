@@ -339,13 +339,17 @@ const ChatView = {
     ChatHistory.save(history);
   },
 
-  // Add article card to chat (with history save)
+  // Add article card to chat (with history save + audio preload)
   addArticleCard(article) {
     this.addArticleCardToDOM(article);
     // Save to history
     const history = ChatHistory.load();
     history.push({ type: 'article', article: { id: article.id, title: article.title, difficulty: article.difficulty, wordCount: article.wordCount, content: article.content } });
     ChatHistory.save(history);
+    // Preload audio for article words in background
+    if (article.content) {
+      AudioCache.preloadWords(article.content).catch(() => {});
+    }
   },
 
   // Add message to DOM only (no history save)
