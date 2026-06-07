@@ -572,6 +572,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 }
 .recent-article a { color: var(--primary); text-decoration: none; flex: 1; }
 
+/* Speed Trend Chart */
+.speed-trend { margin-top: 16px; padding: 16px; background: var(--bg); border-radius: var(--radius); }
+.trend-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
+.trend-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.trend-bar-value { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
+.trend-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.trend-bar-fill { width: 100%; background: var(--primary); border-radius: 3px 3px 0 0; transition: height 0.3s; min-height: 2px; }
+.trend-bar-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
 /* History favorites filter */
 .history-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .history-filters select { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: var(--bg-card); color: var(--text); }
