@@ -251,7 +251,7 @@ body {
 
 /* History */
 .history-container { max-width: 100%; padding: 20px 16px; }
-.page-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+.page-title { font-size: 22px; font-weight: 700; margin-bottom: var(--space-5); letter-spacing: -0.02em; }
 .history-filters { margin-bottom: 16px; }
 .history-filters select { padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; background: var(--bg-card); color: var(--text); }
 .article-list { display: flex; flex-direction: column; gap: 10px; }
@@ -435,11 +435,16 @@ body {
 }
 
 /* Settings */
-.settings-container { max-width: 100%; padding: 20px 16px; }
-.settings-section { margin-bottom: 28px; }
-.settings-section-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-.settings-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
-.settings-options { display: flex; flex-direction: column; gap: 8px; }
+.settings-container { max-width: 100%; padding: var(--space-5) var(--space-4); }
+.settings-section {
+  margin-bottom: var(--space-5);
+  background: var(--bg-card); border: 1px solid var(--border-light);
+  border-radius: var(--radius); padding: var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+.settings-section-title { font-size: 15px; font-weight: 600; margin-bottom: var(--space-2); }
+.settings-desc { font-size: 13px; color: var(--text-muted); margin-bottom: var(--space-3); line-height: 1.5; }
+.settings-options { display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-radio {
   display: flex; align-items: flex-start; gap: var(--space-3);
   padding: var(--space-3) var(--space-4); background: var(--bg-card); border: 1px solid var(--border-light);
