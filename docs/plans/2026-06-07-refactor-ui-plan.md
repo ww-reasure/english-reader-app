@@ -6,462 +6,329 @@
 
 ---
 
-## 第一部分：布局优化
+## 使用的 Skill
 
-### 1. 导航栏：顶部 → 底部
+| Skill | 用途 | 触发时机 |
+|-------|------|---------|
+| **oiloil-ui-ux-guide** | UI/UX 指南 + review 模式 | Phase 1 审查现有 UI → 输出 P0/P1/P2 问题清单 |
+| **design-auditor** | 19 条规则审查 + 评分 | Phase 3 完成后审查 → 输出 100 分制评分 |
+| **frontend-design** | 设计感提升 | Phase 2 重写样式时参考 |
+| **web-design-guidelines** | 最佳实践审查 | Phase 3 完成后补充审查 |
+| **css-animations** | 动画模式参考 | Phase 3 微交互动效 |
+| **superpowers-cn** | 开发工作流 | 全程遵循（澄清→设计→执行→审核） |
 
-**当前问题：**
-- 顶部导航在大屏手机上手指够不到
-- 文字链接辨识度不高
+---
 
-**优化方案：底部 Tab 导航**
+## Phase 1：UI 审查（0.5 天）
+
+**调用 skill：oiloil-ui-ux-guide（review 模式）**
+
+对现有 UI 做一次全面审查，输出 P0/P1/P2 问题清单。
+
+**审查范围：**
+- 对话页面
+- 阅读页面
+- 复习卡片
+- 统计页面
+- 历史页面
+- 设置页面
+- 导航栏
+
+**输出：** `docs/ui-audit-report.md`
+
+---
+
+## Phase 2：CSS 变量系统重写（0.5 天）
+
+**调用 skill：frontend-design（设计方向）**
+
+重写 CSS 变量，建立统一的设计令牌系统。
+
+**设计方向：精致极简 (Refined Minimalism)**
+
+参考产品：Linear、Vercel、Notion
+
+```css
+:root {
+  /* 颜色 - 不用纯黑纯白 */
+  --bg: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --text: #0F172A;
+  --text-secondary: #64748B;
+  --text-muted: #94A3B8;
+  --border: #E2E8F0;
+  --primary: #3B82F6;
+  --primary-hover: #2563EB;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  
+  /* 间距 - 4px 网格 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  
+  /* 阴影 - 极淡 */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow: 0 4px 6px rgba(0,0,0,0.06);
+  
+  /* 动画 */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration: 200ms;
+}
+```
+
+**改动文件：** `css/style.css`（:root 部分）
+
+---
+
+## Phase 3：布局优化（2 天）
+
+**调用 skill：frontend-design + oiloil-ui-ux-guide**
+
+逐页面优化布局和组件。
+
+### 3.1 导航栏：顶部 → 底部 Tab
 
 ```
 ┌─────────────────────────┐
 │         页面内容          │
-│                          │
-│                          │
-│                          │
 ├──────────────────────────┤
 │ 💬对话  📚历史  📖词库  📊统计  ⚙设置 │
 └──────────────────────────┘
 ```
 
-**改进点：**
-- 底部 5 个 tab，图标+文字
-- 当前 tab 高亮（主色 + 图标填充）
-- 中间「词库」可加红点提示待复习数量
-- 顶部只保留页面标题 + 返回按钮
+**改动文件：** `index.html`, `css/style.css`, `js/router.js`
 
-### 2. 对话页面：输入区优化
-
-**当前问题：**
-- 输入区选项太多（难度+话题+输入框+按钮）
-- 显得拥挤
-
-**优化方案：精简输入区**
+### 3.2 对话页面：输入区精简
 
 ```
-┌─────────────────────────┐
-│         消息区域          │
-│                          │
-├──────────────────────────┤
-│ [四级▾] [选择话题▾]       │
-│ ┌──────────────────┐ [生成]│
-│ │ 描述你想要的文章... │     │
-│ └──────────────────┘     │
-│ [导入文章] [导入单词] [学习词库]│
-└──────────────────────────┘
+[四级▾] [话题▾]
+[输入框........................] [生成]
+[导入文章] [导入单词] [学习词库]
 ```
 
-**改进点：**
-- 难度和话题用更紧凑的选择器
-- 输入框和按钮同一行
-- 功能按钮用小图标代替文字
+**改动文件：** `js/views/chat.js`, `css/style.css`
 
-### 3. 阅读页面：工具栏精简
-
-**当前问题：**
-- 工具栏按钮太多（收藏+翻译+返回+计时）
-- 计时器和完成按钮分散
-
-**优化方案：折叠工具栏**
+### 3.3 阅读页面：工具栏整理
 
 ```
-┌─────────────────────────┐
-│ ← 返回        ⭐ ☆ 收藏  │
-│                          │
-│ 标题                      │
-│ 四级 · 300词 · 科技        │
-│ ─────────────────────── │
-│                          │
-│ 正文内容...               │
-│                          │
-│ [译] 中文翻译...           │
-│                          │
-│ ─────────────────────── │
-│ ⏱ 2:30 · 180词/分 · 3词   │
-│                          │
-│    [ ✓ 阅读完成 ]         │
-└──────────────────────────┘
+← 返回        ⭐ 收藏
+标题
+四级 · 300词 · 科技
+─────────────────────
+正文内容...
+─────────────────────
+⏱ 2:30 · 180词/分 · 查词 3
+    [ ✓ 阅读完成 ]
 ```
 
-**改进点：**
-- 顶部：返回 + 收藏（最常用）
-- 翻译按钮移到段落旁边（已实现）
-- 计时信息和完成按钮放底部（已实现）
-- 查词数实时显示在计时栏
+**改动文件：** `js/views/reading.js`, `css/style.css`
 
-### 4. 复习卡片：交互优化
+### 3.4 复习卡片：交互优化
 
-**当前问题：**
-- 评分按钮在卡片外面，需要移动手指
-- 卡片翻转后内容可能很长
+- 评分按钮始终在卡片下方
+- 翻转后评分按钮也在卡片内
+- 卡片可滚动（max-height: 70vh）
 
-**优化方案：卡片内操作**
+**改动文件：** `js/views/flashcard.js`, `css/style.css`
 
-```
-┌─────────────────────────┐
-│ 3/20  📖学习中            │
-│ ████████░░░░░░ 15%       │
-│                          │
-│ ┌──────────────────┐     │
-│ │   elaborate       │     │
-│ │   [ɪˈlæbərət]    │     │
-│ │                    │     │
-│ │   点击翻转          │     │
-│ └──────────────────┘     │
-│                          │
-│  [忘了]   [模糊]   [认识]  │
-│                          │
-│        [跳过]             │
-└──────────────────────────┘
-```
+### 3.5 统计页面：信息层次
 
-**翻转后：**
-```
-┌─────────────────────────┐
-│ ┌──────────────────┐     │
-│ │ 精心制作的；详尽的  │     │
-│ │                    │     │
-│ │ 🔤 e-(出)+labor   │     │
-│ │   (工作)+-ate      │     │
-│ │ 💡 记忆法...       │     │
-│ │ 📝 例句...         │     │
-│ │                    │     │
-│ │ [忘了] [模糊] [认识] │     │
-│ └──────────────────┘     │
-│                          │
-│        [下一词]           │
-└──────────────────────────┘
-```
-
-**改进点：**
-- 评分按钮始终在卡片下方（不用移动太多手指）
-- 翻转后评分按钮也显示在卡片内部
-- 「下一词」按钮更明显
-
-### 5. 统计页面：信息层次
-
-**当前问题：**
-- 所有信息平铺，缺乏层次
-- 数据卡片太小
-
-**优化方案：分区卡片**
-
-```
-┌─────────────────────────┐
-│ 📊 阅读统计               │
-│                          │
-│ ┌────────────────────┐   │
-│ │  45    12,000   7  │   │
-│ │ 文章   总词数   连续天│   │
-│ │       ⭐ 3 收藏    │   │
-│ └────────────────────┘   │
-│                          │
-│ ⏱ 阅读速度                │
-│ ┌────────────────────┐   │
-│ │ 平均 180词/分       │   │
-│ │ 总时间 2小时30分    │   │
-│ │ [近7天] [月度]      │   │
-│ │ ~~~~~趋势图~~~~~   │   │
-│ └────────────────────┘   │
-│                          │
-│ 📚 词汇                   │
-│ ┌────────────────────┐   │
-│ │ 已掌握 30 ✅        │   │
-│ │ 学习中 15           │   │
-│ │ 待复习 5 🔄         │   │
-│ │ ████████░░ 进度条   │   │
-│ └────────────────────┘   │
-│                          │
-│ [📊阅读报告] [去阅读]     │
-└─────────────────────────┘
-```
-
-**改进点：**
 - 相关数据合并到一个卡片
-- 数据用大数字突出
-- 趋势图和词汇进度条更醒目
+- 大数字突出
+- 趋势图和进度条更醒目
 
-### 6. 设置页面：分组优化
+**改动文件：** `js/views/stats.js`, `css/style.css`
 
-**当前问题：**
-- 所有设置平铺，太长
-- 部分设置不够直观
+### 3.6 设置页面：卡片分组
 
-**优化方案：卡片分组**
-
-```
-┌─────────────────────────┐
-│ ⚙ 设置                   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 📊 阅读水平测评      │   │
-│ │ 预估词汇量：4200词   │   │
-│ │ [重新测评]           │   │
-│ └────────────────────┘   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 📖 阅读设置          │   │
-│ │ 难度模式  [易] [难]  │   │
-│ │ 生词比例  ██████░ 5% │   │
-│ └────────────────────┘   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 🔊 发音缓存          │   │
-│ │ 已缓存 1200 词       │   │
-│ │ [清除缓存]           │   │
-│ └────────────────────┘   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 🔑 API 设置          │   │
-│ │ Key: sk-***        │   │
-│ │ 模型: DeepSeek Flash│   │
-│ │ [修改]              │   │
-│ └────────────────────┘   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 🎨 外观              │   │
-│ │ [亮色] [暗色]        │   │
-│ └────────────────────┘   │
-│                          │
-│ ┌────────────────────┐   │
-│ │ 📖 如何获取 API Key？│   │
-│ │ (折叠教程)           │   │
-│ └────────────────────┘   │
-└─────────────────────────┘
-```
-
-**改进点：**
 - 每组设置用卡片包裹
 - 标题用 emoji + 文字
 - 相关设置放在一起
 
----
+**改动文件：** `js/views/settings.js`, `css/style.css`
 
-## 第二部分：视觉精致化
+### 3.7 通用组件优化
 
-### 设计方向：精致极简 (Refined Minimalism)
+| 组件 | 优化 |
+|------|------|
+| 卡片 | 轻微阴影 + hover 微升 |
+| 按钮 | 三级（主要/次要/文字）+ 点击缩放 |
+| 弹窗 | 16px 圆角 + 模糊背景 |
+| 输入框 | 主色 focus 边框 + 微弱发光 |
+| 标签 | 胶囊形状 + 颜色变体 |
 
-**核心：** 简洁不等于简陋，每个细节都经过设计。
-
-### 1. 颜色系统
-
-```css
-:root {
-  /* 背景 - 不用纯白纯黑 */
-  --bg: #F8FAFC;          /* 微灰蓝 */
-  --bg-card: #FFFFFF;
-  --bg-elevated: #FFFFFF;
-  
-  /* 文字 - 不用纯黑 */
-  --text: #0F172A;         /* 主文字 */
-  --text-secondary: #64748B; /* 次要 */
-  --text-muted: #94A3B8;   /* 辅助 */
-  
-  /* 边框 - 极淡 */
-  --border: #E2E8F0;
-  --border-light: #F1F5F9;
-  
-  /* 主色 - 柔和蓝 */
-  --primary: #3B82F6;
-  --primary-hover: #2563EB;
-  --primary-light: #EFF6FF;
-  
-  /* 功能色 */
-  --success: #10B981;
-  --warning: #F59E0B;
-  --danger: #EF4444;
-}
-
-[data-theme="dark"] {
-  --bg: #0F172A;
-  --bg-card: #1E293B;
-  --text: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  --border: #334155;
-  --border-light: #1E293B;
-  --primary: #60A5FA;
-  --primary-hover: #3B82F6;
-  --primary-light: #1E3A5F;
-}
-```
-
-### 2. 间距系统（4px 网格）
-
-```css
---space-1: 4px;
---space-2: 8px;
---space-3: 12px;
---space-4: 16px;
---space-5: 20px;
---space-6: 24px;
---space-8: 32px;
-```
-
-### 3. 圆角系统
-
-```css
---radius-sm: 8px;    /* 小元素 */
---radius: 12px;      /* 常规 */
---radius-lg: 16px;   /* 大元素 */
---radius-xl: 20px;   /* 弹窗 */
---radius-full: 9999px; /* 胶囊 */
-```
-
-### 4. 阴影系统
-
-```css
---shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
---shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
---shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -2px rgba(0,0,0,0.04);
---shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.06), 0 4px 6px -4px rgba(0,0,0,0.04);
-```
-
-### 5. 动画系统
-
-```css
---ease-out: cubic-bezier(0.16, 1, 0.3, 1);    /* 出场 */
---ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);  /* 标准 */
---duration-fast: 150ms;
---duration: 200ms;
---duration-slow: 300ms;
-```
-
-### 6. 按钮样式
-
-```css
-/* 主要按钮 */
-.btn-primary {
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius);
-  height: 40px;
-  padding: 0 20px;
-  font-weight: 500;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-.btn-primary:active {
-  transform: scale(0.97);
-  background: var(--primary-hover);
-}
-
-/* 次要按钮 */
-.btn-outline {
-  background: transparent;
-  border: 1.5px solid var(--border);
-  color: var(--text);
-}
-.btn-outline:active {
-  background: var(--bg);
-}
-```
-
-### 7. 卡片样式
-
-```css
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-xs);
-  transition: box-shadow var(--duration) var(--ease-out);
-}
-.card:hover {
-  box-shadow: var(--shadow-sm);
-}
-```
+**改动文件：** `css/style.css`
 
 ---
 
-## 第三部分：模块化重构
+## Phase 4：微交动画效（0.5 天）
 
-### 引入 Vite
+**调用 skill：css-animations**
+
+| 交互 | 动效 |
+|------|------|
+| 按钮点击 | scale(0.97) + 150ms |
+| 卡片进入 | fadeIn + slideUp 250ms |
+| 弹窗打开 | scale(0.95→1) + fade 200ms |
+| 列表项删除 | slideOut + height 收缩 |
+| 收藏星星 | scale 弹跳 |
+| 页面切换 | opacity fade 150ms |
+
+**改动文件：** `css/style.css`
+
+---
+
+## Phase 5：引入 Vite（1 天）
+
+**参考 skill：capacitor-app-development（构建配置）**
+
+### 5.1 安装 Vite
+
+```bash
+npm install vite --save-dev
+```
+
+### 5.2 创建 vite.config.js
 
 ```javascript
-// vite.config.js
 import { defineConfig } from 'vite';
-
 export default defineConfig({
   root: '.',
-  build: {
-    outDir: 'www',
-    emptyOutDir: true
-  }
+  build: { outDir: 'www', emptyOutDir: true }
 });
 ```
 
-### 目录结构
+### 5.3 目录重组
 
 ```
 mobile/
 ├── src/
 │   ├── modules/          # 核心模块
-│   │   ├── config.js
-│   │   ├── db.js
-│   │   ├── api.js
-│   │   ├── dictionary.js
-│   │   ├── audio-cache.js
-│   │   ├── spaced-repetition.js
-│   │   ├── affixes.js
-│   │   └── examples.js
 │   ├── views/            # 页面
-│   │   ├── chat.js
-│   │   ├── reading.js
-│   │   ├── flashcard.js
-│   │   ├── history.js
-│   │   ├── vocabulary.js
-│   │   ├── learn-words.js
-│   │   ├── stats.js
-│   │   ├── report.js
-│   │   ├── settings.js
-│   │   └── assessment.js
 │   ├── components/       # 通用组件
-│   │   ├── tooltip.js
-│   │   ├── modal.js
-│   │   └── ai-analysis.js
 │   ├── styles/           # 样式
-│   │   ├── variables.css
-│   │   ├── base.css
-│   │   ├── components.css
-│   │   └── views.css
 │   ├── helpers.js
 │   ├── router.js
 │   └── app.js
-├── public/               # 静态资源
+├── public/
 │   ├── data/
 │   └── index.html
 ├── vite.config.js
 └── package.json
 ```
 
----
+### 5.4 更新 index.html
 
-## 第四部分：实施计划
+```html
+<script type="module" src="/src/app.js"></script>
+```
 
-| 阶段 | 内容 | 预计 | 风险 |
-|------|------|------|------|
-| 1 | CSS 变量重写 + 颜色/间距/圆角系统 | 0.5天 | 低 |
-| 2 | 导航栏改为底部 Tab | 0.5天 | 中 |
-| 3 | 各页面 UI 优化（卡片/按钮/布局） | 2天 | 低 |
-| 4 | 微交互动效 | 0.5天 | 低 |
-| 5 | 引入 Vite + 目录重构 | 1天 | 中 |
-| 6 | 模块化改造 | 2天 | 中 |
-| 7 | 测试 + 修复 | 1天 | - |
-
-**总计：约 7-8 天**
+**改动文件：** 新增 `vite.config.js`, 重组 `src/` 目录
 
 ---
 
-## 风险评估
+## Phase 6：模块化改造（2 天）
+
+**参考 skill：web-design-guidelines（代码质量）**
+
+### 6.1 每个文件改为 export
+
+```javascript
+// Before
+const Config = { ... };
+
+// After
+export const Config = { ... };
+```
+
+### 6.2 每个文件改为 import
+
+```javascript
+// Before
+// 依赖全局变量 Config, DB, API
+
+// After
+import { Config } from '../modules/config.js';
+import { DB } from '../modules/db.js';
+import { API } from '../modules/api.js';
+```
+
+### 6.3 更新 Capacitor 构建
+
+```json
+// package.json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "cap:sync": "vite build && npx cap sync"
+  }
+}
+```
+
+**改动文件：** 所有 `src/` 下的 JS 文件
+
+---
+
+## Phase 7：审查 + 测试（1 天）
+
+**调用 skill：design-auditor + web-design-guidelines**
+
+### 7.1 设计审查
+
+用 design-auditor 的 19 条规则审查 UI：
+- 排版、颜色对比、间距、一致性
+- 无障碍、状态覆盖、动效
+- 输出 100 分制评分
+
+### 7.2 最佳实践审查
+
+用 web-design-guidelines 审查代码：
+- 安全性、兼容性、性能
+- 事件监听器清理、错误处理
+
+### 7.3 功能测试
+
+- 所有页面功能正常
+- 暗黑模式正常
+- APK 打包正常
+
+---
+
+## 总览
+
+| Phase | 内容 | 时间 | Skill |
+|-------|------|------|-------|
+| 1 | UI 审查 | 0.5天 | oiloil-ui-ux-guide |
+| 2 | CSS 变量重写 | 0.5天 | frontend-design |
+| 3 | 布局优化 | 2天 | frontend-design + oiloil-ui-ux-guide |
+| 4 | 微交互动效 | 0.5天 | css-animations |
+| 5 | 引入 Vite | 1天 | capacitor-app-development |
+| 6 | 模块化改造 | 2天 | web-design-guidelines |
+| 7 | 审查测试 | 1天 | design-auditor + web-design-guidelines |
+| **总计** | | **7.5天** | |
+
+---
+
+## 风险
 
 | 风险 | 等级 | 应对 |
 |------|------|------|
 | 底部导航改变用户习惯 | 中 | 保持功能不变，只改位置 |
 | Vite 打包兼容 Capacitor | 中 | 先测试小模块再全量 |
-| CSS 变量覆盖不完整 | 低 | 逐页检查 |
 | 模块化循环依赖 | 低 | 依赖图分析 |
+| UI 改动导致功能异常 | 中 | 每改一页测试一次 |
