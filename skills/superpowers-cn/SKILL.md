@@ -1,4 +1,5 @@
 ---
+name: superpowers-cn
 description: 中文AI工作流框架 - 先理解需求再执行，让AI做事更有逻辑
 version: 1.0.0
 ---
