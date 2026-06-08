@@ -4,31 +4,31 @@
  */
 
 // HTML escape to prevent XSS
-function esc(str) {
+export function esc(str) {
   const d = document.createElement('div');
   d.textContent = str || '';
   return d.innerHTML;
 }
 
 // Escape string for use in JavaScript strings
-function escJs(str) {
+export function escJs(str) {
   return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
 // Difficulty level labels
-const DIFFICULTY_LABELS = {
+export const DIFFICULTY_LABELS = {
   cet4: '四级',
   cet6: '六级',
   graduate: '考研'
 };
 
 // Format timestamp to locale string
-function formatDate(timestamp) {
+export function formatDate(timestamp) {
   return new Date(timestamp).toLocaleString('zh-CN');
 }
 
 // Debounce function
-function debounce(fn, delay) {
+export function debounce(fn, delay) {
   let timer = null;
   return function(...args) {
     clearTimeout(timer);
@@ -37,7 +37,7 @@ function debounce(fn, delay) {
 }
 
 // Shuffle array (Fisher-Yates)
-function shuffleArray(arr) {
+export function shuffleArray(arr) {
   const shuffled = [...arr];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -47,7 +47,7 @@ function shuffleArray(arr) {
 }
 
 // Irregular verb/adjective mappings (high frequency)
-const IRREGULAR_MAP = {
+export const IRREGULAR_MAP = {
   'ran': 'run', 'been': 'be', 'was': 'be', 'were': 'be',
   'went': 'go', 'gone': 'go', 'came': 'come', 'became': 'become',
   'began': 'begin', 'broken': 'break', 'brought': 'bring',
@@ -73,7 +73,7 @@ const IRREGULAR_MAP = {
 };
 
 // Get stem/base form of a word for deduplication
-function getStemForm(word) {
+export function getStemForm(word) {
   const w = word.toLowerCase().trim();
 
   // Check irregular forms first
@@ -124,7 +124,7 @@ function getStemForm(word) {
 /**
  * ReadingTimer - Stopwatch with idle detection for reading sessions
  */
-class ReadingTimer {
+export class ReadingTimer {
   constructor(wordCount) {
     this.wordCount = wordCount;
     this.elapsed = 0;       // Active seconds
