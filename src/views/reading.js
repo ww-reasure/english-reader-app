@@ -76,11 +76,14 @@ export const ReadingView = {
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()">显示翻译</button>
             <a href="#/history" class="btn btn-outline">返回</a>
           </div>
-          <div class="reading-timer-bar" id="timerBar">
-            <span id="timerDisplay" class="timer-display">0:00</span>
-            <div class="timer-progress"><div id="timerProgress" class="timer-progress-fill"></div></div>
-            <span id="timerWpm" class="timer-wpm"></span>
-            <span id="timerStatus" class="timer-status"></span>
+          <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
+            <span class="timer-toggle" title="点击展开/折叠计时">⏱</span>
+            <div class="timer-expanded">
+              <span id="timerDisplay" class="timer-display">0:00</span>
+              <div class="timer-progress"><div id="timerProgress" class="timer-progress-fill"></div></div>
+              <span id="timerWpm" class="timer-wpm"></span>
+              <span id="timerStatus" class="timer-status"></span>
+            </div>
           </div>
           <div class="reading-hint">单击单词查词，长按句子问 AI</div>
         </div>

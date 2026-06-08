@@ -884,4 +884,16 @@ body {
 .example-translation {
   color: var(--text-muted); font-size: 13px; margin-top: 2px; padding-left: 12px;
 }
+
+/* Timer bar - collapsed by default */
+.reading-timer-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; cursor: pointer; user-select: none;
+  transition: all 0.2s;
+}
+.timer-toggle { font-size: 16px; opacity: 0.6; }
+.timer-expanded { display: flex; align-items: center; gap: 8px; flex: 1; }
+.reading-timer-bar.collapsed .timer-expanded { display: none; }
+.reading-timer-bar.collapsed { padding: 4px 12px; }
+.reading-timer-bar:not(.collapsed) .timer-toggle { opacity: 1; }
 .welcome-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
