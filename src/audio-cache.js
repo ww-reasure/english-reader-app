@@ -8,7 +8,9 @@
  *   3. preloadWords(text) → extract words → dedup → batch download → cache
  */
 
-const AudioCache = {
+import { getStemForm } from './helpers.js';
+
+export const AudioCache = {
   CACHE_NAME: 'english-reader-audio',
   CONCURRENCY: 5,
 
