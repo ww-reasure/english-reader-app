@@ -3,8 +3,17 @@
  * Handles article generation with preset topics and smart word integration
  */
 
+import { Config } from '../config.js';
+import { DIFFICULTY_LABELS, esc, shuffleArray } from '../helpers.js';
+import { DB } from '../db.js';
+import { API } from '../api.js';
+import { Modal } from '../components/modal.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
+import { AudioCache } from '../audio-cache.js';
+import { Dictionary } from '../dictionary.js';
+
 // Chat history persistence
-const ChatHistory = {
+export const ChatHistory = {
   KEY: 'chatHistory',
   MAX_MESSAGES: 100,
 
@@ -40,7 +49,7 @@ const ChatHistory = {
 };
 
 // Global pending articles queue (survives page navigation)
-const PendingArticles = {
+export const PendingArticles = {
   queue: [],
 
   add(article, reviewKeywords) {
@@ -68,7 +77,7 @@ const PendingArticles = {
   }
 };
 
-const ChatView = {
+export const ChatView = {
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -131,6 +140,18 @@ const ChatView = {
 
     // Show any pending articles from previous generation
     this.showPendingArticles();
+
+    // Listen for article-imported events from modal.js
+    this._bindImportEvent();
+  },
+
+  // Bind import event listener
+  _bindImportEvent() {
+    document.addEventListener('article-imported', (e) => {
+      const { article, title } = e.detail;
+      this.addMessage('article', article, title);
+      this.addArticleCard(article, title);
+    });
   },
 
   // Restore chat history from localStorage
@@ -393,7 +414,7 @@ const ChatView = {
  * Word Import Module
  * Handles importing words from PDF or manual input
  */
-const WordImport = {
+export const WordImport = {
   // Show import modal
   showModal() {
     const existing = document.getElementById('wordImportModal');
@@ -542,3 +563,8 @@ const WordImport = {
     ChatView.addMessage('system', `成功导入 ${imported} 个单词到学习词库`);
   }
 };
+
+window.ChatView = ChatView;
+window.WordImport = WordImport;
+window.ChatHistory = ChatHistory;
+window.PendingArticles = PendingArticles;
