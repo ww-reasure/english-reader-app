@@ -4,31 +4,31 @@
  */
 
 // HTML escape to prevent XSS
-export function esc(str) {
+function esc(str) {
   const d = document.createElement('div');
   d.textContent = str || '';
   return d.innerHTML;
 }
 
 // Escape string for use in JavaScript strings
-export function escJs(str) {
+function escJs(str) {
   return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
 // Difficulty level labels
-export const DIFFICULTY_LABELS = {
+const DIFFICULTY_LABELS = {
   cet4: '四级',
   cet6: '六级',
   graduate: '考研'
 };
 
 // Format timestamp to locale string
-export function formatDate(timestamp) {
+function formatDate(timestamp) {
   return new Date(timestamp).toLocaleString('zh-CN');
 }
 
 // Debounce function
-export function debounce(fn, delay) {
+function debounce(fn, delay) {
   let timer = null;
   return function(...args) {
     clearTimeout(timer);
@@ -37,7 +37,7 @@ export function debounce(fn, delay) {
 }
 
 // Shuffle array (Fisher-Yates)
-export function shuffleArray(arr) {
+function shuffleArray(arr) {
   const shuffled = [...arr];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -47,7 +47,7 @@ export function shuffleArray(arr) {
 }
 
 // Irregular verb/adjective mappings (high frequency)
-export const IRREGULAR_MAP = {
+const IRREGULAR_MAP = {
   'ran': 'run', 'been': 'be', 'was': 'be', 'were': 'be',
   'went': 'go', 'gone': 'go', 'came': 'come', 'became': 'become',
   'began': 'begin', 'broken': 'break', 'brought': 'bring',
@@ -73,33 +73,49 @@ export const IRREGULAR_MAP = {
 };
 
 // Get stem/base form of a word for deduplication
-export function getStemForm(word) {
+function getStemForm(word) {
   const w = word.toLowerCase().trim();
 
   // Check irregular forms first
   if (IRREGULAR_MAP[w]) return IRREGULAR_MAP[w];
 
   // Rule-based stemming
+  // Plural: -ies → -y
   if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
+  // Plural: -es → remove
   if (w.endsWith('es') && w.length > 3) return w.slice(0, -2);
+  // Plural: -s → remove
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 3) return w.slice(0, -1);
+  // Past: -ied → -y
   if (w.endsWith('ied') && w.length > 4) return w.slice(0, -3) + 'y';
+  // Past: -ed → remove
   if (w.endsWith('ed') && w.length > 4) return w.slice(0, -2);
+  // Progressive: -ying → -ie
   if (w.endsWith('ying') && w.length > 5) return w.slice(0, -4) + 'ie';
+  // Progressive: -ing → remove (handle double consonant)
   if (w.endsWith('ing') && w.length > 5) {
     const base = w.slice(0, -3);
+    // running → run (double consonant)
     if (base.length >= 2 && base[base.length - 1] === base[base.length - 2]) {
       return base.slice(0, -1);
     }
     return base;
   }
+  // Adverb: -ly → remove
   if (w.endsWith('ly') && w.length > 4) return w.slice(0, -2);
+  // Comparative: -er → remove
   if (w.endsWith('er') && w.length > 4) return w.slice(0, -2);
+  // Superlative: -est → remove
   if (w.endsWith('est') && w.length > 5) return w.slice(0, -3);
+  // Noun: -tion → -te
   if (w.endsWith('tion') && w.length > 5) return w.slice(0, -4) + 'te';
+  // Noun: -ment → remove
   if (w.endsWith('ment') && w.length > 5) return w.slice(0, -4);
+  // Noun: -ness → remove
   if (w.endsWith('ness') && w.length > 5) return w.slice(0, -4);
+  // Adjective: -able → remove
   if (w.endsWith('able') && w.length > 5) return w.slice(0, -4);
+  // Adjective: -ful → remove
   if (w.endsWith('ful') && w.length > 4) return w.slice(0, -3);
 
   return w;
@@ -108,17 +124,17 @@ export function getStemForm(word) {
 /**
  * ReadingTimer - Stopwatch with idle detection for reading sessions
  */
-export class ReadingTimer {
+class ReadingTimer {
   constructor(wordCount) {
     this.wordCount = wordCount;
-    this.elapsed = 0;
-    this.rawElapsed = 0;
+    this.elapsed = 0;       // Active seconds
+    this.rawElapsed = 0;    // Total seconds including idle
     this.onTick = null;
     this.interval = null;
     this.isPaused = false;
     this.isRunning = false;
     this.lastActive = Date.now();
-    this.IDLE_THRESHOLD = 30000;
+    this.IDLE_THRESHOLD = 30000; // 30s idle
   }
 
   start() {
@@ -131,6 +147,7 @@ export class ReadingTimer {
         this.elapsed++;
         if (this.onTick) this.onTick(this.elapsed, this.getWPM());
       }
+      // Auto-pause on idle
       if (Date.now() - this.lastActive > this.IDLE_THRESHOLD) {
         this.isPaused = true;
       }

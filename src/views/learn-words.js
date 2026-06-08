@@ -1,12 +1,9 @@
-import { DB } from "../db.js";
-import { SpacedRepetition } from "../spaced-repetition.js";
-import { esc } from "../helpers.js";
 /**
  * Learn Words View
  * Manages imported vocabulary with SRS status display
  */
 
-export const LearnWordsView = {
+const LearnWordsView = {
   manageMode: false,
   filterMode: 'all',  // all | new | learning | review | mastered
 

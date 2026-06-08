@@ -1,18 +1,10 @@
-import { Config } from "../config.js";
-import { DB } from "../db.js";
-import { API } from "../api.js";
-import { Dictionary } from "../dictionary.js";
-import { AudioCache } from "../audio-cache.js";
-import { SpacedRepetition } from "../spaced-repetition.js";
-import { Modal } from "../components/modal.js";
-import { esc, shuffleArray, DIFFICULTY_LABELS } from "../helpers.js";
 /**
  * Chat View
  * Handles article generation with preset topics and smart word integration
  */
 
 // Chat history persistence
-export const ChatHistory = {
+const ChatHistory = {
   KEY: 'chatHistory',
   MAX_MESSAGES: 100,
 
@@ -48,7 +40,7 @@ export const ChatHistory = {
 };
 
 // Global pending articles queue (survives page navigation)
-export const PendingArticles = {
+const PendingArticles = {
   queue: [],
 
   add(article, reviewKeywords) {
@@ -76,7 +68,7 @@ export const PendingArticles = {
   }
 };
 
-export const ChatView = {
+const ChatView = {
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -401,7 +393,7 @@ export const ChatView = {
  * Word Import Module
  * Handles importing words from PDF or manual input
  */
-export const WordImport = {
+const WordImport = {
   // Show import modal
   showModal() {
     const existing = document.getElementById('wordImportModal');

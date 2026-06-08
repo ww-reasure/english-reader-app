@@ -1,12 +1,10 @@
-import { Config } from "./config.js";
-import { API } from "./api.js";
 /**
  * Examples Module
  * AI-powered example sentences with caching
  * Auto-generates when word is saved to favorites
  */
 
-export const Examples = {
+const Examples = {
   // Get examples for a word (cache-first, then AI)
   async getExamples(word) {
     const key = word.toLowerCase();

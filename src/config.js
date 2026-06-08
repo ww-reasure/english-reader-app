@@ -3,7 +3,7 @@
  * Manages application settings using localStorage
  */
 
-export const Config = {
+const Config = {
   // Default values
   defaults: {
     api_key: '',

@@ -10,7 +10,7 @@
  * Intervals: 1d → 3d → 6d → then easeFactor * previous
  */
 
-export const SpacedRepetition = {
+const SpacedRepetition = {
   // Default SRS fields for a new word
   defaults: {
     easeFactor: 2.5,

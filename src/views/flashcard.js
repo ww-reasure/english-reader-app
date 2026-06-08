@@ -1,12 +1,3 @@
-import { Config } from "../config.js";
-import { DB } from "../db.js";
-import { API } from "../api.js";
-import { Dictionary } from "../dictionary.js";
-import { SpacedRepetition } from "../spaced-repetition.js";
-import { Affixes } from "../affixes.js";
-import { Examples } from "../examples.js";
-import { Modal } from "../components/modal.js";
-import { esc } from "../helpers.js";
 /**
  * Flashcard View
  * Spaced repetition review mode using SM-2 algorithm
@@ -20,7 +11,7 @@ import { esc } from "../helpers.js";
  *   └── Click card to flip → "认识" disabled → must pick 模糊/忘了
  */
 
-export const FlashcardView = {
+const FlashcardView = {
   words: [],
   currentIndex: 0,
   ratingCounts: { 1: 0, 3: 0, 5: 0 },

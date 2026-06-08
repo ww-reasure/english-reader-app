@@ -1,12 +1,9 @@
-import { DB } from "../db.js";
-import { SpacedRepetition } from "../spaced-repetition.js";
-import { esc } from "../helpers.js";
 /**
  * Report View
  * Weekly/Monthly reading report with achievements
  */
 
-export const ReportView = {
+const ReportView = {
   async render(container) {
     const articles = await DB.getAllArticles();
     const learnWords = await DB.getAllLearnWords();

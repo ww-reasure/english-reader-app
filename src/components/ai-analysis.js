@@ -1,12 +1,9 @@
-import { API } from "../api.js";
-import { Tooltip } from "./tooltip.js";
-import { debounce, esc } from "../helpers.js";
 /**
  * AI Analysis Component
  * Handles sentence analysis with AI, including long-press auto-select
  */
 
-export const AIAnalysis = {
+const AIAnalysis = {
   currentText: '',
   longPressTimer: null,
   isLongPress: false,

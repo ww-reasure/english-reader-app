@@ -1,10 +1,9 @@
-import { Config } from "./config.js";
 /**
  * Theme Module
  * Handles dark/light mode switching
  */
 
-export const Theme = {
+const Theme = {
   // Initialize theme from saved preference or system preference
   init() {
     const saved = Config.get('theme');

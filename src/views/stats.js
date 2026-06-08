@@ -1,12 +1,9 @@
-import { DB } from "../db.js";
-import { SpacedRepetition } from "../spaced-repetition.js";
-import { esc, formatDate, DIFFICULTY_LABELS } from "../helpers.js";
 /**
  * Stats View
  * Reading progress tracking and statistics
  */
 
-export const StatsView = {
+const StatsView = {
   trendMode: 'week', // week | month
 
   async render(container) {

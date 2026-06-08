@@ -1,11 +1,9 @@
-import { Config } from "./config.js";
-import { API } from "./api.js";
 /**
  * Dictionary Module
  * Handles word lookup with local dictionary, online API, and AI fallback
  */
 
-export const Dictionary = {
+const Dictionary = {
   data: null,
   examWords: null,
   examFreq: null,
