@@ -4,7 +4,9 @@
  * Auto-analyzes when word is saved to favorites
  */
 
-const Affixes = {
+import { API } from './api.js';
+
+export const Affixes = {
   // Get word analysis (cache-first, then AI)
   async getAnalysis(word) {
     const key = word.toLowerCase();
