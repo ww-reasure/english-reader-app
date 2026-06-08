@@ -3,7 +3,11 @@
  * Handles sentence analysis with AI, including long-press auto-select
  */
 
-const AIAnalysis = {
+import { Tooltip } from './tooltip.js';
+import { API } from '../api.js';
+import { esc, debounce } from '../helpers.js';
+
+export const AIAnalysis = {
   currentText: '',
   longPressTimer: null,
   isLongPress: false,
@@ -260,3 +264,5 @@ const AIAnalysis = {
     });
   }
 };
+
+window.AIAnalysis = AIAnalysis;
