@@ -3,7 +3,9 @@
  * Handles word lookup with local dictionary, online API, and AI fallback
  */
 
-const Dictionary = {
+import { API } from './api.js';
+
+export const Dictionary = {
   data: null,
   examWords: null,
   examFreq: null,
