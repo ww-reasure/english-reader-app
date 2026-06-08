@@ -3,7 +3,18 @@
  * Article reading with auto-timer, word lookup, and completion summary
  */
 
-const ReadingView = {
+import { DB } from '../db.js';
+import { DIFFICULTY_LABELS, esc, getStemForm, ReadingTimer } from '../helpers.js';
+import { Tooltip } from '../components/tooltip.js';
+import { AIAnalysis } from '../components/ai-analysis.js';
+import { Dictionary } from '../dictionary.js';
+import { AudioCache } from '../audio-cache.js';
+import { Config } from '../config.js';
+import { Modal } from '../components/modal.js';
+import { API } from '../api.js';
+import { ChatView } from './chat.js';
+
+export const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],
@@ -330,3 +341,5 @@ const ReadingView = {
     if (btn) btn.textContent = newFav ? '⭐ 收藏' : '☆ 收藏';
   }
 };
+
+window.ReadingView = ReadingView;
