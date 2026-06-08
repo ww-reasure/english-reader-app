@@ -1,9 +1,10 @@
+import { getStemForm } from "./helpers.js";
 /**
  * Database Module
  * Handles IndexedDB operations for articles, vocabulary, and learn words
  */
 
-const DB = {
+export const DB = {
   DB_NAME: 'EnglishReader',
   DB_VERSION: 5,  // Bumped for readingStats table
 

@@ -1,10 +1,18 @@
+import { Config } from "../config.js";
+import { DB } from "../db.js";
+import { API } from "../api.js";
+import { Dictionary } from "../dictionary.js";
+import { AudioCache } from "../audio-cache.js";
+import { Tooltip } from "../components/tooltip.js";
+import { Modal } from "../components/modal.js";
+import { esc, getStemForm, DIFFICULTY_LABELS } from "../helpers.js";
 /**
  * Assessment View
  * Vocabulary level test through reading + self-assessment
  * Based on Krashen's i+1 theory and Nation's 98% coverage threshold
  */
 
-const AssessmentView = {
+export const AssessmentView = {
   // Current assessment state
   state: {
     step: 'select',        // select | reading1 | reading2 | selfassess | result

@@ -1,9 +1,11 @@
+import { Config } from "../config.js";
+import { DB } from "../db.js";
 /**
  * Modal Component
  * Handles API settings modal and import article modal
  */
 
-const Modal = {
+export const Modal = {
   // Show API settings modal
   showApiSettings(required = false) {
     const modal = document.getElementById('apiKeyModal');

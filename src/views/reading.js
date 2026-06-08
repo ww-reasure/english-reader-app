@@ -1,9 +1,18 @@
+import { Config } from "../config.js";
+import { DB } from "../db.js";
+import { API } from "../api.js";
+import { Dictionary } from "../dictionary.js";
+import { AudioCache } from "../audio-cache.js";
+import { Tooltip } from "../components/tooltip.js";
+import { AIAnalysis } from "../components/ai-analysis.js";
+import { Modal } from "../components/modal.js";
+import { esc, DIFFICULTY_LABELS, getStemForm, ReadingTimer } from "../helpers.js";
 /**
  * Reading View
  * Article reading with auto-timer, word lookup, and completion summary
  */
 
-const ReadingView = {
+export const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],

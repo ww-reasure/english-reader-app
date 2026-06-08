@@ -123,42 +123,7 @@
   <!-- Main Content -->
   <main id="app" class="content"></main>
 
-  <!-- Scripts - Load in dependency order -->
-  <!-- Core utilities -->
-  <script src="src/helpers.js"></script>
-  <script src="src/config.js"></script>
-
-  <!-- Services -->
-  <script src="src/db.js"></script>
-  <script src="src/api.js"></script>
-  <script src="src/dictionary.js"></script>
-
-  <!-- Features -->
-  <script src="src/theme.js"></script>
-  <script src="src/audio-cache.js"></script>
-  <script src="src/spaced-repetition.js"></script>
-  <script src="src/affixes.js"></script>
-  <script src="src/examples.js"></script>
-
-  <!-- Components -->
-  <script src="src/components/modal.js"></script>
-  <script src="src/components/tooltip.js"></script>
-  <script src="src/components/ai-analysis.js"></script>
-
-  <!-- Views -->
-  <script src="src/views/chat.js"></script>
-  <script src="src/views/reading.js"></script>
-  <script src="src/views/history.js"></script>
-  <script src="src/views/vocabulary.js"></script>
-  <script src="src/views/flashcard.js"></script>
-  <script src="src/views/learn-words.js"></script>
-  <script src="src/views/settings.js"></script>
-  <script src="src/views/stats.js"></script>
-  <script src="src/views/report.js"></script>
-  <script src="src/views/assessment.js"></script>
-
-  <!-- Router & App initialization -->
-  <script src="src/router.js"></script>
-  <script src="src/app.js"></script>
+  <!-- ES Module entry point -->
+  <script type="module" src="src/app.js"></script>
 </body>
 </html>

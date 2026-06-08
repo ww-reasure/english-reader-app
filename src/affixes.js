@@ -1,10 +1,11 @@
+import { API } from "./api.js";
 /**
  * Affixes Module
  * AI-powered word root analysis with memory tips
  * Auto-analyzes when word is saved to favorites
  */
 
-const Affixes = {
+export const Affixes = {
   // Get word analysis (cache-first, then AI)
   async getAnalysis(word) {
     const key = word.toLowerCase();

@@ -1,9 +1,11 @@
+import { DB } from "../db.js";
+import { esc, formatDate, DIFFICULTY_LABELS } from "../helpers.js";
 /**
  * History View
  * Displays and manages saved articles with favorite filter
  */
 
-const HistoryView = {
+export const HistoryView = {
   filterMode: 'all', // all | favorites
 
   // Render history view

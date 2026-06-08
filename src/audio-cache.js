@@ -1,3 +1,4 @@
+import { getStemForm } from "./helpers.js";
 /**
  * Audio Cache Module
  * Cache API based audio caching for offline word pronunciation
@@ -8,7 +9,7 @@
  *   3. preloadWords(text) → extract words → dedup → batch download → cache
  */
 
-const AudioCache = {
+export const AudioCache = {
   CACHE_NAME: 'english-reader-audio',
   CONCURRENCY: 5,
 

@@ -1,9 +1,16 @@
+import { DB } from "../db.js";
+import { Dictionary } from "../dictionary.js";
+import { AudioCache } from "../audio-cache.js";
+import { Affixes } from "../affixes.js";
+import { Examples } from "../examples.js";
+import { esc, escJs, getStemForm } from "../helpers.js";
+import { Router } from "../router.js";
 /**
  * Tooltip Component
  * Shows word translation popup on click
  */
 
-const Tooltip = {
+export const Tooltip = {
   // Show loading state
   showLoading(x, y) {
     const tooltip = document.getElementById('wordTooltip');

@@ -1,9 +1,11 @@
+import { DB } from "../db.js";
+import { esc } from "../helpers.js";
 /**
  * Vocabulary View
  * Displays and manages saved words with manage mode
  */
 
-const VocabularyView = {
+export const VocabularyView = {
   manageMode: false,
 
   // Render vocabulary view

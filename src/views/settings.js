@@ -1,9 +1,13 @@
+import { Config } from "../config.js";
+import { AudioCache } from "../audio-cache.js";
+import { Theme } from "../theme.js";
+import { esc } from "../helpers.js";
 /**
  * Settings View
  * Manages app settings: difficulty level, API configuration
  */
 
-const SettingsView = {
+export const SettingsView = {
   // Render settings page
   render(container) {
     const currentLevel = Config.get('level') || 'easy';
