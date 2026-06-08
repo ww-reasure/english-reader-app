@@ -12,31 +12,42 @@ export const Dictionary = {
   cache: new Map(),
   CACHE_MAX: 500,
 
-  // Load local dictionary
+  // Load local dictionary (try multiple paths for Capacitor/browser compat)
   async load() {
     if (this.data) return;
-    try {
-      const resp = await fetch('data/dict-5000.json');
-      this.data = await resp.json();
-    } catch {
-      this.data = {};
+    const paths = ['data/dict-5000.json', 'public/data/dict-5000.json'];
+    for (const path of paths) {
+      try {
+        const resp = await fetch(path);
+        if (resp.ok) {
+          this.data = await resp.json();
+          return;
+        }
+      } catch {}
     }
+    console.warn('Dictionary: all load paths failed');
+    this.data = {};
   },
 
   // Load exam words data
   async loadExamData() {
     if (this.examWords) return;
-    try {
-      const [wordsResp, freqResp] = await Promise.all([
-        fetch('data/exam-words.json'),
-        fetch('data/exam-frequency.json')
-      ]);
-      this.examWords = await wordsResp.json();
-      this.examFreq = await freqResp.json();
-    } catch {
-      this.examWords = {};
-      this.examFreq = {};
+    const bases = ['data', 'public/data'];
+    for (const base of bases) {
+      try {
+        const [wordsResp, freqResp] = await Promise.all([
+          fetch(`${base}/exam-words.json`),
+          fetch(`${base}/exam-frequency.json`)
+        ]);
+        if (wordsResp.ok && freqResp.ok) {
+          this.examWords = await wordsResp.json();
+          this.examFreq = await freqResp.json();
+          return;
+        }
+      } catch {}
     }
+    this.examWords = {};
+    this.examFreq = {};
   },
 
   // Get stem forms of a word (simple stemming)

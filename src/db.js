@@ -183,6 +183,18 @@ export const DB = {
     });
   },
 
+  // Check if a word already exists in learnWords
+  async findLearnWord(word) {
+    const stemWord = getStemForm(word);
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readonly');
+      const req = tx.objectStore('learnWords').index('word').get(stemWord);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
   async getAllLearnWords() {
     const db = await this.open();
     return new Promise((resolve, reject) => {

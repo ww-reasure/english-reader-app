@@ -276,13 +276,22 @@ export const ReadingView = {
   // Add clicked words to review
   async addToReview() {
     let added = 0;
+    let skipped = 0;
     for (const w of this.clickedWords) {
       try {
+        const existing = await DB.findLearnWord(w.word);
+        if (existing) {
+          skipped++;
+          continue;
+        }
         await DB.saveLearnWord({ word: w.word, createdAt: Date.now() });
         added++;
       } catch {}
     }
-    alert(`已将 ${added} 个单词加入学习词库`);
+    const msg = added > 0
+      ? `已将 ${added} 个单词加入学习词库${skipped > 0 ? `（${skipped} 个已存在，已跳过）` : ''}`
+      : `所有 ${skipped} 个单词已在学习词库中`;
+    alert(msg);
   },
 
   // Generate review article from clicked words
