@@ -3,7 +3,23 @@
  * Handles SPA hash-based routing with cleanup on navigation
  */
 
-const Router = {
+import { ChatView } from './views/chat.js';
+import { ReadingView } from './views/reading.js';
+import { HistoryView } from './views/history.js';
+import { VocabularyView } from './views/vocabulary.js';
+import { FlashcardView } from './views/flashcard.js';
+import { LearnWordsView } from './views/learn-words.js';
+import { SettingsView } from './views/settings.js';
+import { StatsView } from './views/stats.js';
+import { ReportView } from './views/report.js';
+import { AssessmentView } from './views/assessment.js';
+
+const views = {
+  ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
+  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView
+};
+
+export const Router = {
   currentView: null,
 
   // Views that have cleanup methods
@@ -12,7 +28,7 @@ const Router = {
   // Cleanup current view before navigation
   cleanupCurrentView() {
     for (const viewName of this.viewsWithCleanup) {
-      const view = window[viewName];
+      const view = views[viewName];
       if (view && typeof view.cleanup === 'function') {
         view.cleanup();
       }
