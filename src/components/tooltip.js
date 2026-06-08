@@ -83,6 +83,19 @@ export const Tooltip = {
     tooltip.innerHTML = html;
     this.position(tooltip, x, y);
     tooltip.style.display = 'block';
+
+    // Bind audio button click directly (more reliable than event delegation)
+    const speakBtn = tooltip.querySelector('.btn-speak');
+    if (speakBtn) {
+      speakBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const word = speakBtn.getAttribute('data-word');
+        if (word && window.AudioCache) {
+          window.AudioCache.getAudio(word).catch(err => console.warn('Audio failed:', err));
+        }
+      });
+    }
   },
 
   // Position tooltip relative to click, avoiding viewport edges

@@ -137,14 +137,15 @@ export const ReadingView = {
       }
     });
 
+    // Audio button click (direct binding in tooltip.js, this is backup)
     this._audioClickHandler = (e) => {
       const btn = e.target.closest('.btn-speak');
       if (btn) {
         e.preventDefault();
         e.stopPropagation();
         const word = btn.getAttribute('data-word');
-        if (word) {
-          AudioCache.getAudio(word).catch(err => console.warn('Audio play failed:', err));
+        if (word && window.AudioCache) {
+          window.AudioCache.getAudio(word).catch(err => console.warn('Audio play failed:', err));
         }
       }
     };

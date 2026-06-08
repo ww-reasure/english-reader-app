@@ -19,9 +19,27 @@ export const AudioCache = {
     return await caches.open(this.CACHE_NAME);
   },
 
-  // Get audio URL for a word (Free Dictionary API format)
-  getAudioUrl(word) {
-    return `https://api.dictionaryapi.dev/media/pronunciations/en/${word.toLowerCase()}-uk.mp3`;
+  // Get audio URL variants for a word (Free Dictionary API has multiple formats)
+  getAudioUrls(word) {
+    const w = word.toLowerCase();
+    return [
+      `https://api.dictionaryapi.dev/media/pronunciations/en/${w}-uk.mp3`,
+      `https://api.dictionaryapi.dev/media/pronunciations/en/${w}-us.mp3`,
+      `https://api.dictionaryapi.dev/media/pronunciations/en/${w}-au.mp3`,
+      `https://api.dictionaryapi.dev/media/pronunciations/en/${w}.mp3`,
+    ];
+  },
+
+  // Get first working audio URL
+  async findAudioUrl(word) {
+    const urls = this.getAudioUrls(word);
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url, { method: 'HEAD' });
+        if (resp.ok) return url;
+      } catch {}
+    }
+    return null;
   },
 
   // Play audio from blob/url
@@ -35,37 +53,68 @@ export const AudioCache = {
     }
   },
 
-  // Get and play audio (cache-first)
+  // Get and play audio (try multiple URL formats + cache)
   async getAudio(word) {
     const key = word.toLowerCase().replace(/[^a-z\-']/g, '');
     if (!key || key.length < 2) return false;
 
+    // 1. Check cache first (try all URL variants)
     try {
-      const cache = await this.getCache();
-      const url = this.getAudioUrl(key);
-
-      // 1. Check cache first
-      const cached = await cache.match(url);
-      if (cached) {
-        const blob = await cached.blob();
-        this.play(URL.createObjectURL(blob));
-        return true;
+      if (typeof caches !== 'undefined') {
+        const cache = await this.getCache();
+        for (const url of this.getAudioUrls(key)) {
+          const cached = await cache.match(url);
+          if (cached) {
+            const blob = await cached.blob();
+            const audio = new Audio(URL.createObjectURL(blob));
+            await audio.play();
+            return true;
+          }
+        }
       }
+    } catch {}
 
-      // 2. Fetch from network
-      const response = await fetch(url);
-      if (response.ok) {
-        // Cache the response
-        await cache.put(url, response.clone());
-        const blob = await response.blob();
-        this.play(URL.createObjectURL(blob));
-        return true;
-      }
-
-      return false;
-    } catch {
+    // 2. Find a working URL from network
+    const url = await this.findAudioUrl(key);
+    if (!url) {
+      this._showToast(`"${word}" 暂无发音`);
       return false;
     }
+
+    // 3. Play and cache
+    try {
+      const audio = new Audio(url);
+      await audio.play();
+      // Cache for next time
+      try {
+        if (typeof caches !== 'undefined') {
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const cache = await this.getCache();
+            await cache.put(url, resp);
+          }
+        }
+      } catch {}
+      return true;
+    } catch (e) {
+      console.warn('Audio play failed:', e);
+      return false;
+    }
+  },
+
+  // Simple toast notification
+  _showToast(msg) {
+    let toast = document.getElementById('audioToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'audioToast';
+      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;z-index:10000;transition:opacity 0.3s';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
   },
 
   // Preload audio for words in a text (batch, dedup, progress)
@@ -86,15 +135,17 @@ export const AudioCache = {
       }
     }
 
-    // Filter already cached
+    // Filter already cached (check all URL variants)
     const cache = await this.getCache();
     const toFetch = [];
     for (const word of unique) {
-      const url = this.getAudioUrl(word);
-      const cached = await cache.match(url);
-      if (!cached) {
-        toFetch.push(word);
+      const urls = this.getAudioUrls(word);
+      let found = false;
+      for (const url of urls) {
+        const cached = await cache.match(url);
+        if (cached) { found = true; break; }
       }
+      if (!found) toFetch.push(word);
     }
 
     if (toFetch.length === 0) return 0;
@@ -107,7 +158,8 @@ export const AudioCache = {
       const batch = toFetch.slice(i, i + this.CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map(async word => {
-          const url = this.getAudioUrl(word);
+          const url = await this.findAudioUrl(word);
+          if (!url) return false;
           const response = await fetch(url);
           if (response.ok) {
             await cache.put(url, response);
@@ -157,9 +209,11 @@ export const AudioCache = {
   async isCached(word) {
     try {
       const cache = await this.getCache();
-      const url = this.getAudioUrl(word.toLowerCase());
-      const cached = await cache.match(url);
-      return !!cached;
+      for (const url of this.getAudioUrls(word)) {
+        const cached = await cache.match(url);
+        if (cached) return true;
+      }
+      return false;
     } catch {
       return false;
     }
