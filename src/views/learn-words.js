@@ -3,7 +3,11 @@
  * Manages imported vocabulary with SRS status display
  */
 
-const LearnWordsView = {
+import { DB } from '../db.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
+import { esc } from '../helpers.js';
+
+export const LearnWordsView = {
   manageMode: false,
   filterMode: 'all',  // all | new | learning | review | mastered
 
@@ -126,3 +130,5 @@ const LearnWordsView = {
     this.render(document.getElementById('app'));
   }
 };
+
+window.LearnWordsView = LearnWordsView;
