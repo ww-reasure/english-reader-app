@@ -4,7 +4,9 @@
  * Auto-generates when word is saved to favorites
  */
 
-const Examples = {
+import { API } from './api.js';
+
+export const Examples = {
   // Get examples for a word (cache-first, then AI)
   async getExamples(word) {
     const key = word.toLowerCase();
