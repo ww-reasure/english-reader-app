@@ -165,3 +165,5 @@ export const AudioCache = {
     }
   }
 };
+
+window.AudioCache = AudioCache;
