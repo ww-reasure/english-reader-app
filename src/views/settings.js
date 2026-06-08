@@ -3,7 +3,12 @@
  * Manages app settings: difficulty level, API configuration
  */
 
-const SettingsView = {
+import { Config } from '../config.js';
+import { Theme } from '../theme.js';
+import { AudioCache } from '../audio-cache.js';
+import { esc } from '../helpers.js';
+
+export const SettingsView = {
   // Render settings page
   render(container) {
     const currentLevel = Config.get('level') || 'easy';
@@ -257,3 +262,5 @@ const SettingsView = {
     }
   }
 };
+
+window.SettingsView = SettingsView;
