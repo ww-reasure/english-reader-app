@@ -107,7 +107,9 @@ const Tooltip = {
   // Save word to vocabulary and auto-sync to learn words (with SRS)
   async saveWord(word, translation, phonetic) {
     try {
-      const articleId = Router.getArticleId();
+      const hash = location.hash;
+      const match = hash.match(/#\/read\/(\d+)/);
+      const articleId = match ? parseInt(match[1]) : null;
       await DB.saveWord({
         articleId,
         word,
