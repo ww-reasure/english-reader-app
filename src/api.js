@@ -3,7 +3,9 @@
  * Handles all AI API calls (DeepSeek)
  */
 
-const API = {
+import { Config } from './config.js';
+
+export const API = {
   // 6-level difficulty rules (difficulty + level combination)
   difficultyRules: {
     'cet4_easy': `四级（易）难度要求：
