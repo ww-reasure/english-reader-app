@@ -3,7 +3,12 @@
  * Weekly/Monthly reading report with achievements
  */
 
-const ReportView = {
+import { DB } from '../db.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
+import { StatsView } from './stats.js';
+import { esc } from '../helpers.js';
+
+export const ReportView = {
   async render(container) {
     const articles = await DB.getAllArticles();
     const learnWords = await DB.getAllLearnWords();
@@ -199,3 +204,5 @@ const ReportView = {
     ];
   }
 };
+
+window.ReportView = ReportView;
