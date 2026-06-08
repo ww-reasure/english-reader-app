@@ -106,8 +106,13 @@ export const ChatView = {
     container.innerHTML = `
       <div class="chat-container">
         <div class="chat-header">
-          <span></span>
-          <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话">🧹</button>
+          <div class="chat-header-left">
+            <span class="chat-header-title">📖 英语阅读助手</span>
+          </div>
+          <div class="chat-header-right">
+            <a href="#/settings" class="btn-icon" title="设置">⚙️</a>
+            <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话">🧹</button>
+          </div>
         </div>
         <div id="chatMessages" class="chat-messages"></div>
         <div class="chat-input-area">

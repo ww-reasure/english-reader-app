@@ -850,12 +850,19 @@ body {
 
 /* Chat Header */
 .chat-header {
-  display: flex; justify-content: flex-end; align-items: center;
-  padding: 4px 12px; min-height: 36px;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 16px; min-height: 44px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-card);
 }
+.chat-header-left { display: flex; align-items: center; gap: 6px; }
+.chat-header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.chat-header-right { display: flex; align-items: center; gap: 4px; }
 .btn-icon {
-  background: none; border: none; font-size: 18px; cursor: pointer;
-  padding: 4px 8px; border-radius: 6px; opacity: 0.6; transition: opacity 0.2s;
+  background: none; border: none; font-size: 16px; cursor: pointer;
+  padding: 6px 8px; border-radius: 8px; opacity: 0.5;
+  transition: all 0.2s; text-decoration: none; color: var(--text);
+  display: flex; align-items: center; justify-content: center;
 }
 .btn-icon:hover { opacity: 1; background: var(--bg); }
 
