@@ -3,7 +3,11 @@
  * Reading progress tracking and statistics
  */
 
-const StatsView = {
+import { DB } from '../db.js';
+import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
+
+export const StatsView = {
   trendMode: 'week', // week | month
 
   async render(container) {
@@ -312,3 +316,5 @@ const StatsView = {
     }).join('');
   }
 };
+
+window.StatsView = StatsView;
