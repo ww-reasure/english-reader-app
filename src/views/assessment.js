@@ -305,9 +305,14 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
     // Audio button click
     this._audioClickHandler = (e) => {
-      if (e.target.classList.contains('btn-speak')) {
-        const word = e.target.getAttribute('data-word');
-        if (word) AudioCache.getAudio(word);
+      const btn = e.target.closest('.btn-speak');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const word = btn.getAttribute('data-word');
+        if (word) {
+          AudioCache.getAudio(word).catch(err => console.warn('Audio play failed:', err));
+        }
       }
     };
     document.addEventListener('click', this._audioClickHandler);

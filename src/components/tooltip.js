@@ -38,7 +38,7 @@ export const Tooltip = {
 
     let html = `<div class="tooltip-word">
       <span>${esc(data.word)}</span>
-      <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音" onclick="AudioCache.getAudio('${escJs(data.word)}')">🔊</button>
+      <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音">🔊</button>
     </div>`;
 
     if (data.baseForm) {
