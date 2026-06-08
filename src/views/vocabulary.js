@@ -3,7 +3,10 @@
  * Displays and manages saved words with manage mode
  */
 
-const VocabularyView = {
+import { DB } from '../db.js';
+import { esc } from '../helpers.js';
+
+export const VocabularyView = {
   manageMode: false,
 
   // Render vocabulary view
@@ -84,3 +87,5 @@ const VocabularyView = {
     this.render(document.getElementById('app'));
   }
 };
+
+window.VocabularyView = VocabularyView;
