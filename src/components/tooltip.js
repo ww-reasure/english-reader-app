@@ -3,7 +3,13 @@
  * Shows word translation popup on click
  */
 
-const Tooltip = {
+import { DB } from '../db.js';
+import { getStemForm, esc, escJs } from '../helpers.js';
+import { Affixes } from '../affixes.js';
+import { Examples } from '../examples.js';
+import { AudioCache } from '../audio-cache.js';
+
+export const Tooltip = {
   // Show loading state
   showLoading(x, y) {
     const tooltip = document.getElementById('wordTooltip');
@@ -175,3 +181,5 @@ const Tooltip = {
     return word.length >= 2 ? word : null;
   }
 };
+
+window.Tooltip = Tooltip;
