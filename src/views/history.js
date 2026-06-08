@@ -3,7 +3,10 @@
  * Displays and manages saved articles with favorite filter
  */
 
-const HistoryView = {
+import { DB } from '../db.js';
+import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
+
+export const HistoryView = {
   filterMode: 'all', // all | favorites
 
   // Render history view
@@ -97,3 +100,5 @@ const HistoryView = {
     btn.closest('.article-card-history').remove();
   }
 };
+
+window.HistoryView = HistoryView;
