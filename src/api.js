@@ -254,5 +254,21 @@ ${rules}
     });
 
     return data.choices[0].message.content;
+  },
+
+  // Translate a sentence to Chinese
+  async translateSentence(sentence) {
+    try {
+      const data = await this.fetch('/chat/completions', {
+        messages: [
+          { role: 'system', content: '你是翻译助手。只返回中文翻译，不要解释。' },
+          { role: 'user', content: `翻译：${sentence}` }
+        ],
+        temperature: 0.3
+      });
+      return data.choices[0].message.content.trim();
+    } catch {
+      return '';
+    }
   }
 };

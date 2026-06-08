@@ -105,6 +105,10 @@ export const ChatView = {
 
     container.innerHTML = `
       <div class="chat-container">
+        <div class="chat-header">
+          <span></span>
+          <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话">🧹</button>
+        </div>
         <div id="chatMessages" class="chat-messages"></div>
         <div class="chat-input-area">
           <div class="input-options">
@@ -121,14 +125,18 @@ export const ChatView = {
             <input type="text" id="topicInput" placeholder="自定义话题" class="input-small" style="display:none">
           </div>
           <div class="input-row">
-            <textarea id="promptInput" placeholder="描述你想要的文章..." rows="2"></textarea>
+            <textarea id="promptInput" placeholder="描述你想要的文章（留空则随机生成）..." rows="2"></textarea>
             <button id="generateBtn" class="btn btn-primary">生成</button>
           </div>
           <div class="input-actions">
-            <button class="btn btn-outline btn-sm" onclick="Modal.showImport()">导入文章</button>
-            <button class="btn btn-outline btn-sm" onclick="WordImport.showModal()">导入单词</button>
+            <div class="import-menu-wrapper">
+              <button class="btn btn-outline btn-sm" onclick="document.getElementById('importDropdown').classList.toggle('show')">📥 导入</button>
+              <div id="importDropdown" class="import-dropdown">
+                <button onclick="document.getElementById('importDropdown').classList.remove('show'); Modal.showImport()">📄 导入文章</button>
+                <button onclick="document.getElementById('importDropdown').classList.remove('show'); WordImport.showModal()">📝 导入单词</button>
+              </div>
+            </div>
             <a href="#/learn-words" class="btn btn-outline btn-sm">学习词库</a>
-            <button class="btn btn-outline btn-sm" onclick="ChatView.clearHistory()">清空对话</button>
           </div>
         </div>
       </div>`;
@@ -292,11 +300,12 @@ export const ChatView = {
     }
 
     const prompt = document.getElementById('promptInput').value.trim();
-    if (!prompt) return;
-
     const difficulty = document.getElementById('difficultySelect').value;
     const topic = this.getTopic();
     const userKeywords = document.getElementById('topicInput').value.trim();
+
+    // Empty prompt = random generation
+    const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[difficulty]}难度的英语阅读文章。`;
 
     // Get words from learn library for review
     const learnWords = await DB.getAllLearnWords();
@@ -309,7 +318,9 @@ export const ChatView = {
     // Combine user keywords with review words
     const allKeywords = [userKeywords, reviewKeywords].filter(Boolean).join(', ');
 
-    this.addMessage('user', `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n${prompt}`);
+    this.addMessage('user', prompt
+      ? `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n${prompt}`
+      : `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n🎲 随机生成`);
 
     const btn = document.getElementById('generateBtn');
     if (btn) {
@@ -322,7 +333,7 @@ export const ChatView = {
     if (promptInput) promptInput.value = '';
 
     try {
-      const article = await API.generateArticle(prompt, difficulty, topic, allKeywords);
+      const article = await API.generateArticle(effectivePrompt, difficulty, topic, allKeywords);
       const id = await DB.saveArticle(article);
       const articleWithId = { ...article, id };
 

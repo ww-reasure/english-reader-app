@@ -221,6 +221,7 @@ export const FlashcardView = {
         Examples.getExamples(word.word).catch(() => []),
         Affixes.getAnalysis(word.word).catch(() => null)
       ]);
+      this._currentExamples = examples;
 
       let html = '';
 
@@ -257,8 +258,8 @@ export const FlashcardView = {
         html += '<div class="details-section">';
         html += '<div class="details-label">📝 例句</div>';
         html += '<div class="details-examples">';
-        examples.forEach(ex => {
-          html += `<div class="details-example">• ${esc(ex)}</div>`;
+        examples.forEach((ex, i) => {
+          html += `<div class="details-example">• ${esc(ex)} <button class="example-translate-btn" onclick="FlashcardView.translateExample(${i}, this)" title="翻译">译</button><div class="example-translation" id="exTrans${i}"></div></div>`;
         });
         html += '</div></div>';
       }
@@ -407,6 +408,31 @@ export const FlashcardView = {
           </div>
         </div>
       </div>`;
+  },
+
+  // Translate an example sentence
+  async translateExample(index, btn) {
+    const transEl = document.getElementById(`exTrans${index}`);
+    if (!transEl) return;
+
+    // Toggle if already translated
+    if (transEl.textContent) {
+      transEl.textContent = '';
+      btn.textContent = '译';
+      return;
+    }
+
+    btn.textContent = '...';
+    const examples = this._currentExamples;
+    if (!examples || !examples[index]) return;
+
+    try {
+      const translation = await API.translateSentence(examples[index]);
+      transEl.textContent = translation;
+      btn.textContent = '收';
+    } catch {
+      btn.textContent = '译';
+    }
   },
 
   // Generate article using today's reviewed words
