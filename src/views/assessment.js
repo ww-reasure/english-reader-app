@@ -4,7 +4,15 @@
  * Based on Krashen's i+1 theory and Nation's 98% coverage threshold
  */
 
-const AssessmentView = {
+import { Config } from '../config.js';
+import { DIFFICULTY_LABELS, esc, getStemForm } from '../helpers.js';
+import { API } from '../api.js';
+import { Tooltip } from '../components/tooltip.js';
+import { Dictionary } from '../dictionary.js';
+import { AudioCache } from '../audio-cache.js';
+import { Modal } from '../components/modal.js';
+
+export const AssessmentView = {
   // Current assessment state
   state: {
     step: 'select',        // select | reading1 | reading2 | selfassess | result
@@ -705,3 +713,5 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
     location.hash = '#/chat';
   }
 };
+
+window.AssessmentView = AssessmentView;
