@@ -105,6 +105,31 @@ export const Tooltip = {
         }
       });
     }
+
+    // Bind review rating buttons
+    const ratingBtns = tooltip.querySelectorAll('.review-rating-btn');
+    ratingBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const quality = parseInt(btn.dataset.quality);
+        const stem = btn.dataset.stem;
+
+        // Dispatch custom event for reading view to handle
+        document.dispatchEvent(new CustomEvent('review-rated', {
+          detail: { quality, stem }
+        }));
+
+        // Visual feedback: briefly highlight selected button
+        btn.style.background = quality === 1 ? '#e74c3c' : '#f39c12';
+        btn.style.color = '#fff';
+
+        // Close tooltip after short delay for feedback
+        setTimeout(() => {
+          this.hide();
+        }, 200);
+      });
+    });
   },
 
   // Position tooltip relative to click, avoiding viewport edges

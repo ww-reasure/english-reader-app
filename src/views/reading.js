@@ -32,6 +32,10 @@ export const ReadingView = {
       document.removeEventListener('click', this._audioClickHandler);
       this._audioClickHandler = null;
     }
+    if (this._reviewRatedHandler) {
+      document.removeEventListener('review-rated', this._reviewRatedHandler);
+      this._reviewRatedHandler = null;
+    }
     if (this._resumeHandler) {
       document.removeEventListener('touchstart', this._resumeHandler);
       document.removeEventListener('scroll', this._resumeHandler);
@@ -130,22 +134,20 @@ export const ReadingView = {
     };
     document.addEventListener('click', this._globalClickHandler);
 
+    // Listen for review rating events from tooltip
+    this._reviewRatedHandler = (e) => {
+      const { quality, stem } = e.detail;
+      const existing = this.clickedWords.find(w => w.stem === stem);
+      if (existing) {
+        existing.quality = quality;
+      }
+    };
+    document.addEventListener('review-rated', this._reviewRatedHandler);
+
     articleBody.addEventListener('click', async (e) => {
       const tooltip = document.getElementById('wordTooltip');
       if (tooltip?.contains(e.target)) return;
       if (e.target.id === 'aiAnalyzeBtn') return;
-
-      // Handle review mode rating button clicks
-      if (this.reviewMode && e.target.classList.contains('review-rating-btn')) {
-        const quality = parseInt(e.target.dataset.quality);
-        const stem = e.target.dataset.stem;
-        const existing = this.clickedWords.find(w => w.stem === stem);
-        if (existing) {
-          existing.quality = quality;
-        }
-        Tooltip.hide();
-        return;
-      }
 
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
@@ -168,7 +170,7 @@ export const ReadingView = {
             stem,
             freqLevel: data.freqLevel || 'unknown',
             isReviewWord,
-            quality: isReviewWord ? 3 : null // Default to "模糊" for review words
+            quality: isReviewWord ? 3 : null // Default to 模糊 for review words
           });
         }
       } catch {
