@@ -903,4 +903,31 @@ body {
 .reading-timer-bar.collapsed .timer-expanded { display: none; }
 .reading-timer-bar.collapsed { padding: 4px 12px; }
 .reading-timer-bar:not(.collapsed) .timer-toggle { opacity: 1; }
+
+/* Review mode word highlighting */
+.review-word {
+  border-radius: 2px; padding: 0 1px; cursor: pointer;
+}
+.review-word.review-new {
+  background: rgba(59, 130, 246, 0.12);
+}
+.review-word.review-learning {
+  background: rgba(243, 156, 18, 0.12);
+}
+
+/* Review rating buttons in tooltip */
+.tooltip-rating-btns {
+  display: flex; gap: 8px; margin-top: 8px;
+}
+.tooltip-rating-btns button {
+  flex: 1; padding: 6px 0; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg);
+  font-size: 13px; cursor: pointer; font-weight: 500;
+}
+.tooltip-rating-btns button:active { transform: scale(0.95); }
+
+/* Review badge */
+.badge-review {
+  background: #8b5cf6; color: #fff;
+}
 .welcome-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }

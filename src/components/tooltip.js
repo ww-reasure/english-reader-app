@@ -33,7 +33,7 @@ export const Tooltip = {
   },
 
   // Show word data
-  async show(x, y, data) {
+  async show(x, y, data, reviewMode) {
     const tooltip = document.getElementById('wordTooltip');
 
     let html = `<div class="tooltip-word">
@@ -66,7 +66,16 @@ export const Tooltip = {
       html += `<div class="tooltip-freq"><span class="freq-badge freq-${data.freqLevel}">${freqLabels[data.freqLevel]}</span></div>`;
     }
 
-    if (data.found) {
+    // Review mode rating buttons
+    if (reviewMode) {
+      const stem = data.word ? data.word.toLowerCase().replace(/[^a-z]/g, '') : '';
+      html += `<div class="tooltip-rating-btns">
+        <button class="review-rating-btn" data-quality="3" data-stem="${esc(stem)}" style="color:#f39c12">不熟</button>
+        <button class="review-rating-btn" data-quality="1" data-stem="${esc(stem)}" style="color:#e74c3c">不认识</button>
+      </div>`;
+    }
+
+    if (data.found && !reviewMode) {
       // Check if already saved
       const isSaved = await this.isWordSaved(data.word);
       if (isSaved) {

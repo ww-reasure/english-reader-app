@@ -141,6 +141,7 @@ export const ChatView = {
                 <button onclick="document.getElementById('importDropdown').classList.remove('show'); WordImport.showModal()">📝 导入单词</button>
               </div>
             </div>
+            <button class="btn btn-outline btn-sm" id="reviewReadBtn" onclick="ChatView.handleReviewGenerate()">🔄 复习阅读</button>
             <a href="#/learn-words" class="btn btn-outline btn-sm">学习词库</a>
           </div>
         </div>
@@ -367,6 +368,71 @@ export const ChatView = {
     }
   },
 
+  // Handle review reading generation
+  async handleReviewGenerate() {
+    if (!Config.hasApiKey()) {
+      Modal.showApiSettings();
+      return;
+    }
+
+    // Collect review words: due words + non-mastered learn words
+    const allLearnWords = await DB.getAllLearnWords();
+    const dueWords = SpacedRepetition.getDueWords(allLearnWords);
+    const nonMastered = allLearnWords.filter(w => SpacedRepetition.getStatus(w) !== 'mastered');
+
+    // Merge and dedup
+    const wordSet = new Set();
+    const reviewWords = [];
+    [...dueWords, ...nonMastered].forEach(w => {
+      if (!wordSet.has(w.word)) {
+        wordSet.add(w.word);
+        reviewWords.push(w.word);
+      }
+    });
+
+    if (reviewWords.length === 0) {
+      this.addMessage('system', '没有待复习的单词。先导入单词或在阅读中收藏单词。');
+      return;
+    }
+
+    const difficulty = document.getElementById('difficultySelect').value;
+    const topic = this.getTopic();
+
+    this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词`);
+
+    const btn = document.getElementById('reviewReadBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '生成中...';
+    }
+
+    try {
+      const article = await API.generateReviewArticle(reviewWords, difficulty, topic);
+      const id = await DB.saveArticle({ ...article, reviewMode: true });
+      const articleWithId = { ...article, id, reviewMode: true };
+
+      const chatMessages = document.getElementById('chatMessages');
+      if (chatMessages) {
+        this.addArticleCard(articleWithId);
+        const usedCount = article.usedWords?.length || 0;
+        this.addMessage('system', `📝 已从 ${reviewWords.length} 个待复习词中挑选 ${usedCount} 个融入文章，点击阅读开始复习`);
+      } else {
+        PendingArticles.add(articleWithId);
+      }
+    } catch (err) {
+      const chatMessages = document.getElementById('chatMessages');
+      if (chatMessages) {
+        this.addMessage('error', `错误：${err.message}`);
+      }
+    } finally {
+      const btn = document.getElementById('reviewReadBtn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 复习阅读';
+      }
+    }
+  },
+
   // Add a chat message (with history save)
   addMessage(type, text) {
     this.addMessageToDOM(type, text);
@@ -414,11 +480,12 @@ export const ChatView = {
       <div class="article-card">
         <div class="article-card-header">
           <span class="article-title">${esc(article.title)}</span>
+          ${article.reviewMode ? '<span class="badge badge-review">🔄 复习</span>' : ''}
           <span class="badge badge-${article.difficulty}">${difficultyLabel}</span>
           <span class="word-count">${article.wordCount} 词</span>
         </div>
         <div class="article-preview">${esc(preview)}</div>
-        <a href="#/reading/${article.id}" class="btn btn-primary btn-sm">阅读全文</a>
+        <a href="#/reading/${article.id}" class="btn btn-primary btn-sm">${article.reviewMode ? '开始复习阅读' : '阅读全文'}</a>
       </div>`;
 
     container.appendChild(div);

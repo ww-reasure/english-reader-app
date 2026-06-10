@@ -270,5 +270,49 @@ ${rules}
     } catch {
       return '';
     }
+  },
+
+  // Generate review article that incorporates vocabulary words
+  async generateReviewArticle(words, difficulty, topic) {
+    const wordList = words.join(', ');
+    const level = Config.get('level') || 'easy';
+    const key = `${difficulty}_${level}`;
+    const rules = this.difficultyRules[key] || this.difficultyRules['cet4_easy'];
+
+    const prompt = `你是一位专业的英语教师。请从以下词汇中挑选能自然融入文章的词，生成一篇英语阅读文章。
+
+词汇列表：${wordList}
+
+要求：
+- 挑选你能自然使用的词（不必全部使用，尽量多用）
+- 被选中的词要在文章中自然重复出现 2-3 次
+- 文章要像真实的考试阅读材料，有深度、有逻辑
+- ${rules}
+
+请以 JSON 格式回复：
+- "title": 英文文章标题
+- "content": 完整英文文章，段落之间用双换行分隔
+- "translation": 完整中文翻译，段落结构对应
+- "usedWords": 你实际使用的词汇数组（从提供的列表中）`;
+
+    const data = await this.fetch('/chat/completions', {
+      messages: [
+        { role: 'system', content: '你是英语阅读材料编写专家。只返回JSON，不要解释。' },
+        { role: 'user', content: `话题：${topic || '综合'}\n\n${prompt}` }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7
+    });
+
+    const result = JSON.parse(data.choices[0].message.content);
+    return {
+      title: result.title || 'Untitled',
+      content: result.content || '',
+      translation: result.translation || '',
+      difficulty,
+      topic: topic || '复习',
+      wordCount: (result.content || '').split(/\s+/).length,
+      usedWords: result.usedWords || []
+    };
   }
 };

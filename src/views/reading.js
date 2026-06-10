@@ -13,12 +13,15 @@ import { Config } from '../config.js';
 import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
 import { ChatView } from './chat.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
 
 export const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],
   MIN_READ_TIME: 15,
+  reviewMode: false,
+  reviewWordsMap: new Map(), // stem -> word data
 
   cleanup() {
     if (this._globalClickHandler) {
@@ -40,12 +43,23 @@ export const ReadingView = {
   async render(container, articleId) {
     this.cleanup();
     this.clickedWords = [];
+    this.reviewWordsMap = new Map();
     const article = await DB.getArticle(articleId);
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
       return;
     }
     this.articleData = article;
+    this.reviewMode = !!article.reviewMode;
+
+    // Load review words if in review mode
+    if (this.reviewMode) {
+      const learnWords = await DB.getAllLearnWords();
+      learnWords.forEach(w => {
+        const stem = getStemForm(w.word.toLowerCase());
+        this.reviewWordsMap.set(stem, w);
+      });
+    }
 
     const enParas = article.content.split(/\n\n+/).filter(p => p.trim());
     const zhParas = (article.translation || '').split(/\n\n+/).filter(p => p.trim());
@@ -54,9 +68,10 @@ export const ReadingView = {
     let parasHTML = '';
     enParas.forEach((p, i) => {
       const hasTranslation = zhParas[i] && zhParas[i].trim();
+      const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : esc(p.trim());
       parasHTML += `
         <div class="paragraph-pair">
-          <p class="en-paragraph">${esc(p.trim())}</p>
+          <p class="en-paragraph">${paraHTML}</p>
           ${hasTranslation ? `<button class="btn-paragraph-translate" onclick="ReadingView.toggleParagraph(this)">译</button>` : ''}
           ${hasTranslation ? `<p class="zh-paragraph" style="display:none">${esc(zhParas[i].trim())}</p>` : ''}
         </div>`;
@@ -85,7 +100,7 @@ export const ReadingView = {
               <span id="timerStatus" class="timer-status"></span>
             </div>
           </div>
-          <div class="reading-hint">单击单词查词，长按句子问 AI</div>
+          <div class="reading-hint">${this.reviewMode ? '🔄 复习模式：高亮词为待复习词汇，点击可标记认识程度' : '单击单词查词，长按句子问 AI'}</div>
         </div>
         <div id="articleBody" class="article-body">${parasHTML}</div>
         <div class="reading-finish-bar">
@@ -120,6 +135,18 @@ export const ReadingView = {
       if (tooltip?.contains(e.target)) return;
       if (e.target.id === 'aiAnalyzeBtn') return;
 
+      // Handle review mode rating button clicks
+      if (this.reviewMode && e.target.classList.contains('review-rating-btn')) {
+        const quality = parseInt(e.target.dataset.quality);
+        const stem = e.target.dataset.stem;
+        const existing = this.clickedWords.find(w => w.stem === stem);
+        if (existing) {
+          existing.quality = quality;
+        }
+        Tooltip.hide();
+        return;
+      }
+
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
       e.stopPropagation();
@@ -130,10 +157,19 @@ export const ReadingView = {
 
       try {
         const data = await Dictionary.lookup(word);
-        Tooltip.show(e.clientX, e.clientY, data);
         const stem = getStemForm(word.toLowerCase());
+        const isReviewWord = this.reviewMode && this.reviewWordsMap.has(stem);
+
+        Tooltip.show(e.clientX, e.clientY, data, isReviewWord);
+
         if (!this.clickedWords.some(w => w.stem === stem)) {
-          this.clickedWords.push({ word: word.toLowerCase(), stem, freqLevel: data.freqLevel || 'unknown' });
+          this.clickedWords.push({
+            word: word.toLowerCase(),
+            stem,
+            freqLevel: data.freqLevel || 'unknown',
+            isReviewWord,
+            quality: isReviewWord ? 3 : null // Default to "模糊" for review words
+          });
         }
       } catch {
         Tooltip.hide();
@@ -155,6 +191,49 @@ export const ReadingView = {
     document.addEventListener('click', this._audioClickHandler);
 
     AIAnalysis.initSelectionDetection(articleBody);
+  },
+
+  // Highlight review words in text
+  _highlightReviewWords(text) {
+    if (!this.reviewWordsMap.size) return esc(text);
+
+    // Build regex from review word stems
+    const stems = Array.from(this.reviewWordsMap.keys());
+    const pattern = new RegExp('\\b(' + stems.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\w*\\b', 'gi');
+
+    return esc(text).replace(pattern, (match) => {
+      const stem = getStemForm(match.toLowerCase());
+      const wordData = this.reviewWordsMap.get(stem);
+      if (!wordData) return match;
+      const status = SpacedRepetition.getStatus(wordData);
+      const cssClass = status === 'new' ? 'review-new' : status === 'mastered' ? '' : 'review-learning';
+      if (!cssClass) return match; // Don't highlight mastered words
+      return `<mark class="review-word ${cssClass}" data-stem="${esc(stem)}">${match}</mark>`;
+    });
+  },
+
+  // Update SRS ratings after review reading
+  async _updateReviewSRS() {
+    const learnWords = await DB.getAllLearnWords();
+    const clickedStems = new Set(this.clickedWords.filter(w => w.isReviewWord).map(w => w.stem));
+
+    for (const word of learnWords) {
+      const stem = getStemForm(word.word.toLowerCase());
+      if (!this.reviewWordsMap.has(stem)) continue;
+
+      let quality;
+      if (clickedStems.has(stem)) {
+        // User clicked this word - use their rating
+        const clicked = this.clickedWords.find(w => w.stem === stem);
+        quality = clicked?.quality || 3; // Default to 模糊
+      } else {
+        // User didn't click - they recognized it
+        quality = 5;
+      }
+
+      const srsData = SpacedRepetition.calculateNext(word, quality);
+      await DB.updateLearnWordSRS(word.id, srsData);
+    }
   },
 
   // ===== Timer =====
@@ -211,6 +290,11 @@ export const ReadingView = {
       clickedWords: this.clickedWords.map(w => w.word)
     });
 
+    // Update SRS for review mode
+    if (this.reviewMode) {
+      await this._updateReviewSRS();
+    }
+
     // Show summary popup
     await this.showSummary(elapsed, wpm);
   },
@@ -221,10 +305,16 @@ export const ReadingView = {
     const diffPct = avgWpm > 0 ? Math.round(diff / avgWpm * 100) : 0;
     const clickCount = this.clickedWords.length;
 
+    // Review mode statistics
+    const reviewClicked = this.clickedWords.filter(w => w.isReviewWord);
+    const reviewClickedCount = reviewClicked.length;
+    const reviewTotal = this.reviewWordsMap.size;
+    const reviewRecognized = reviewTotal - reviewClickedCount;
+
     const overlay = document.getElementById('readingSummary');
     overlay.innerHTML = `
       <div class="modal modal-wide">
-        <h2>📊 阅读完成！</h2>
+        <h2>${this.reviewMode ? '🔄 复习阅读完成！' : '📊 阅读完成！'}</h2>
         <div class="summary-stats">
           <div class="summary-stat">
             <span class="summary-stat-icon">⏱</span>
@@ -253,15 +343,33 @@ export const ReadingView = {
             <span class="summary-stat-label">查词数</span>
           </div>
         </div>
-        ${this.clickedWords.length > 0 ? `
+        ${this.reviewMode ? `
+        <div class="summary-stats" style="margin-top:12px">
+          <div class="summary-stat">
+            <span class="summary-stat-icon">📝</span>
+            <span class="summary-stat-num">${reviewTotal}</span>
+            <span class="summary-stat-label">标记词数</span>
+          </div>
+          <div class="summary-stat">
+            <span class="summary-stat-icon">✅</span>
+            <span class="summary-stat-num" style="color:var(--success)">${reviewRecognized}</span>
+            <span class="summary-stat-label">认识</span>
+          </div>
+          <div class="summary-stat">
+            <span class="summary-stat-icon">❌</span>
+            <span class="summary-stat-num" style="color:var(--danger)">${reviewClickedCount}</span>
+            <span class="summary-stat-label">不熟/不认识</span>
+          </div>
+        </div>` : ''}
+        ${reviewClickedCount > 0 ? `
         <div class="summary-words">
-          <h3>📝 本篇查词</h3>
+          <h3>${this.reviewMode ? '❌ 不熟/不认识的词' : '📝 本篇查词'}</h3>
           <div class="summary-word-list">
-            ${this.clickedWords.map(w => `<span class="summary-word-chip">${esc(w.word)}</span>`).join('')}
+            ${reviewClicked.map(w => `<span class="summary-word-chip">${esc(w.word)}</span>`).join('')}
           </div>
         </div>` : ''}
         <div class="modal-actions summary-actions">
-          ${this.clickedWords.length > 0 ? `
+          ${!this.reviewMode && this.clickedWords.length > 0 ? `
           <button class="btn btn-outline" onclick="ReadingView.addToReview()">加入词库</button>
           <button class="btn btn-primary" onclick="ReadingView.generateReview()">生成巩固阅读</button>` : ''}
           <button class="btn" onclick="ReadingView.closeAndExit()">关闭</button>
