@@ -182,9 +182,16 @@ export const ReadingView = {
     document.addEventListener('review-rated', this._reviewRatedHandler);
 
     articleBody.addEventListener('click', async (e) => {
+      // Long press 的 synthetic click 不能触发查词或关闭刚出现的“问 AI”按钮
+      if (AIAnalysis.ignoreNextArticleClick) {
+        AIAnalysis.ignoreNextArticleClick = false;
+        e.stopPropagation();
+        return;
+      }
       const tooltip = document.getElementById('wordTooltip');
       if (tooltip?.contains(e.target)) return;
-      if (e.target.id === 'aiAnalyzeBtn') return;
+      // 阅读控件本身不应触发基于 caret 的查词
+      if (e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
 
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;

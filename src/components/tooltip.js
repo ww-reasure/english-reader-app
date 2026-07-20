@@ -225,7 +225,17 @@ export const Tooltip = {
     while (end < text.length && /[a-zA-Z\-']/.test(text[end])) end++;
 
     const word = text.substring(start, end).replace(/^[^a-zA-Z]+|[^a-zA-Z]+$/g, '');
-    return word.length >= 2 ? word : null;
+    if (word.length < 2) return null;
+
+    // caretRangeFromPoint 会把段间/词间空白吸附到最近文字；确认点击确实落在该词字形内
+    const wordRange = document.createRange();
+    wordRange.setStart(node, start);
+    wordRange.setEnd(node, end);
+    const hitWord = Array.from(wordRange.getClientRects()).some(rect =>
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top && e.clientY <= rect.bottom
+    );
+    return hitWord ? word : null;
   }
 };
 

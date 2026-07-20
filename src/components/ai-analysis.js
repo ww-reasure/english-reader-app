@@ -11,6 +11,7 @@ export const AIAnalysis = {
   currentText: '',
   longPressTimer: null,
   isLongPress: false,
+  ignoreNextArticleClick: false,
 
   // Show "Ask AI" button at position
   showButton(x, y, text) {
@@ -206,6 +207,7 @@ export const AIAnalysis = {
     }
 
     this.isLongPress = true;
+    this.ignoreNextArticleClick = true;
   },
 
   // Initialize long-press and selection detection for reading view
@@ -227,7 +229,8 @@ export const AIAnalysis = {
     articleBody.addEventListener('touchend', (e) => {
       clearTimeout(this.longPressTimer);
 
-      // If it was a long press, prevent the click event
+      // If it was a long press, prevent the click event. 保留一次性 guard，
+      // 由阅读页 click handler 消费，避免 synthetic click 立即隐藏“问 AI”按钮。
       if (this.isLongPress) {
         e.preventDefault();
         this.isLongPress = false;
