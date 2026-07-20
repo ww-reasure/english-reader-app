@@ -21,7 +21,11 @@ export const SettingsView = {
 
     container.innerHTML = `
       <div class="settings-container">
-        <h1 class="page-title">设置</h1>
+        <header class="page-heading">
+          <p class="page-eyebrow">05 / WORKSPACE</p>
+          <h1 class="page-title">设置</h1>
+          <p class="page-desc">调整你的阅读节奏、主题与生成方式。</p>
+        </header>
 
         ${assessmentDone ? `
         <div class="settings-section">
@@ -159,6 +163,13 @@ export const SettingsView = {
         </div>
 
         <div class="settings-section">
+          <h2 class="settings-section-title">🗂 标题翻译缓存</h2>
+          <p class="settings-desc">阅读列表的中文标题会保存在本机；最多保留 300 条。</p>
+          <div id="titleTranslationCacheInfo" class="audio-cache-info">加载中...</div>
+          <button class="btn btn-outline btn-sm" onclick="SettingsView.clearTitleTranslationCache()" style="margin-top:8px">清除缓存</button>
+        </div>
+
+        <div class="settings-section">
           <h2 class="settings-section-title">🔊 发音缓存</h2>
           <p class="settings-desc">文章生成后自动缓存单词发音，离线也能播放</p>
           <div id="audioCacheInfo" class="audio-cache-info">加载中...</div>
@@ -184,7 +195,8 @@ export const SettingsView = {
       });
     });
 
-    // Load audio cache info
+    // Load cache info
+    this.loadTitleTranslationCacheInfo();
     this.loadAudioCacheInfo();
   },
 
@@ -236,6 +248,26 @@ export const SettingsView = {
     }
 
     alert('设置已保存');
+  },
+
+  // Load title translation cache info
+  loadTitleTranslationCacheInfo() {
+    const el = document.getElementById('titleTranslationCacheInfo');
+    if (!el) return;
+    try {
+      const entries = JSON.parse(localStorage.getItem('readingListTranslations') || '{}');
+      el.innerHTML = `已缓存 <strong>${Object.keys(entries).length}</strong> 条标题翻译`;
+    } catch {
+      el.textContent = '缓存数据异常';
+    }
+  },
+
+  // Clear title translation cache
+  clearTitleTranslationCache() {
+    if (!confirm('确定要清除所有标题翻译缓存吗？')) return;
+    localStorage.removeItem('readingListTranslations');
+    this.loadTitleTranslationCacheInfo();
+    alert('标题翻译缓存已清除');
   },
 
   // Load audio cache info

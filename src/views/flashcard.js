@@ -61,10 +61,14 @@ export const FlashcardView = {
 
   addTodayWord(wordData) {
     const today = this.loadTodayWords();
-    if (!today.some(w => w.word === wordData.word)) {
+    const idx = today.findIndex(w => w.word === wordData.word);
+    if (idx === -1) {
       today.push(wordData);
-      this.saveTodayWords(today);
+    } else {
+      // 同词再次评分: 用最新 quality 覆盖(否则巩固词集会用陈旧评分)
+      today[idx] = { ...today[idx], ...wordData };
     }
+    this.saveTodayWords(today);
   },
 
   // Render flashcard view
@@ -137,7 +141,8 @@ export const FlashcardView = {
     container.innerHTML = `
       <div class="flashcard-container">
         <div class="flashcard-progress">
-          ${this.currentIndex + 1} / ${this.words.length}
+          <span class="page-eyebrow">03 / RECALL</span>
+          <span>${this.currentIndex + 1} / ${this.words.length}</span>
           <span class="flashcard-status-badge" style="background:${statusInfo.color}">${statusInfo.icon} ${statusInfo.label}</span>
         </div>
         <div class="flashcard-progress-bar">

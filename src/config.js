@@ -3,6 +3,8 @@
  * Manages application settings using localStorage
  */
 
+export const ARTICLE_SERVER_URL = 'https://ww-d3g9m97i69d544809.service.tcloudbase.com';
+
 export const Config = {
   // Default values
   defaults: {

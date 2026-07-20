@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">service.tcloudbase.com</domain>
+        <domain includeSubdomains="true">tencentscf.com</domain>
+        <domain includeSubdomains="true">deepseek.com</domain>
+        <domain includeSubdomains="true">api.dictionaryapi.dev</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

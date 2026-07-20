@@ -107,31 +107,31 @@ export const ChatView = {
       <div class="chat-container">
         <div class="chat-header">
           <div class="chat-header-left">
-            <span class="chat-header-title">📖 英语阅读助手</span>
+            <span class="chat-header-title">今日阅读</span>
           </div>
           <div class="chat-header-right">
-            <a href="#/settings" class="btn-icon" title="设置">⚙️</a>
-            <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话">🧹</button>
+            <a href="#/settings" class="btn-icon" title="打开设置" aria-label="打开设置">⚙</a>
+            <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话记录" aria-label="清空对话记录">🗑</button>
           </div>
         </div>
         <div id="chatMessages" class="chat-messages"></div>
         <div class="chat-input-area">
-          <div class="input-options">
-            <select id="difficultySelect">
+          <div class="input-options" aria-label="生成文章设置">
+            <select id="difficultySelect" name="difficulty" aria-label="文章难度">
               <option value="cet4" ${savedExamLevel === 'cet4' ? 'selected' : ''}>四级</option>
               <option value="cet6" ${savedExamLevel === 'cet6' ? 'selected' : ''}>六级</option>
               <option value="graduate" ${savedExamLevel === 'graduate' ? 'selected' : ''}>考研</option>
             </select>
-            <select id="topicSelect" class="topic-select">
+            <select id="topicSelect" class="topic-select" name="topic" aria-label="文章话题">
               <option value="">选择话题</option>
               ${topicOptions}
               <option value="custom">自定义...</option>
             </select>
-            <input type="text" id="topicInput" placeholder="自定义话题" class="input-small" style="display:none">
+            <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
           </div>
           <div class="input-row">
-            <textarea id="promptInput" placeholder="描述你想要的文章（留空则随机生成）..." rows="2"></textarea>
-            <button id="generateBtn" class="btn btn-primary">生成</button>
+            <textarea id="promptInput" name="readingBrief" placeholder="想读什么主题、词汇或场景？留空则随机挑选…" aria-label="阅读需求" rows="2"></textarea>
+            <button id="generateBtn" class="btn btn-primary">开始生成</button>
           </div>
           <div class="input-actions">
             <div class="import-menu-wrapper">
@@ -159,13 +159,17 @@ export const ChatView = {
     this._bindImportEvent();
   },
 
-  // Bind import event listener
+  // Bind import event listener (先移除旧监听, 避免多次进出 chat 页导致监听累积、导入一次插多条)
   _bindImportEvent() {
-    document.addEventListener('article-imported', (e) => {
+    if (this._importHandler) {
+      document.removeEventListener('article-imported', this._importHandler);
+    }
+    this._importHandler = (e) => {
       const { article, title } = e.detail;
       this.addMessage('article', article, title);
       this.addArticleCard(article, title);
-    });
+    };
+    document.addEventListener('article-imported', this._importHandler);
   },
 
   // Restore chat history from localStorage

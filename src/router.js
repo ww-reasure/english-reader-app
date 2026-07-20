@@ -13,17 +13,18 @@ import { SettingsView } from './views/settings.js';
 import { StatsView } from './views/stats.js';
 import { ReportView } from './views/report.js';
 import { AssessmentView } from './views/assessment.js';
+import { ReadingListView } from './views/reading-list.js';
 
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
-  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView
+  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, ReadingListView
 };
 
 export const Router = {
   currentView: null,
 
   // Views that have cleanup methods
-  viewsWithCleanup: ['ReadingView', 'AssessmentView'],
+  viewsWithCleanup: ['ReadingView', 'AssessmentView', 'ReadingListView'],
 
   // Cleanup current view before navigation
   cleanupCurrentView() {
@@ -75,6 +76,13 @@ export const Router = {
       case hash === '#/assessment':
         AssessmentView.render(app);
         break;
+      case hash === '#/reading-list':
+        ReadingListView.render(app);
+        break;
+      case hash === '#/profile':
+        // Profile/stats page - use existing StatsView but keep route name
+        await StatsView.render(app);
+        break;
       default:
         ChatView.render(app);
     }
@@ -86,7 +94,20 @@ export const Router = {
   updateNav(hash) {
     document.querySelectorAll('.tab-item').forEach(el => {
       const href = el.getAttribute('href');
-      el.classList.toggle('active', hash === href || (href === '#/chat' && hash === '#/chat'));
+      let isActive = false;
+      if (href === '#/profile') {
+        // "我的" tab matches #/profile, #/settings, #/report, #/assessment
+        isActive = hash === '#/profile' || hash === '#/settings' || hash === '#/report' || hash === '#/assessment';
+      } else if (href === '#/reading-list') {
+        // "阅读" tab matches #/reading-list and #/reading/123
+        isActive = hash === '#/reading-list' || hash.startsWith('#/reading/');
+      } else if (href === '#/vocab') {
+        // "词库" tab also covers SRS review and learning-word management
+        isActive = hash === '#/vocab' || hash === '#/flashcard' || hash === '#/learn-words';
+      } else {
+        isActive = hash === href;
+      }
+      el.classList.toggle('active', isActive);
     });
   },
 

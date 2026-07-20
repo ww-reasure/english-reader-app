@@ -30,13 +30,13 @@ export const AudioCache = {
     ];
   },
 
-  // Get first working audio URL
-  async findAudioUrl(word) {
-    const urls = this.getAudioUrls(word);
-    for (const url of urls) {
+  // Fetch the first available pronunciation directly. This avoids the old
+  // HEAD probe + second download pattern, which doubled requests in normal use.
+  async fetchAudio(word) {
+    for (const url of this.getAudioUrls(word)) {
       try {
-        const resp = await fetch(url, { method: 'HEAD' });
-        if (resp.ok) return url;
+        const response = await fetch(url);
+        if (response.ok) return { url, response };
       } catch {}
     }
     return null;
@@ -66,7 +66,11 @@ export const AudioCache = {
           const cached = await cache.match(url);
           if (cached) {
             const blob = await cached.blob();
-            const audio = new Audio(URL.createObjectURL(blob));
+            const objectUrl = URL.createObjectURL(blob);
+            const audio = new Audio(objectUrl);
+            // 释放 blob URL 防泄漏(音频结束或出错都 revoke)
+            audio.onended = () => URL.revokeObjectURL(objectUrl);
+            audio.onerror = () => URL.revokeObjectURL(objectUrl);
             await audio.play();
             return true;
           }
@@ -74,30 +78,51 @@ export const AudioCache = {
       }
     } catch {}
 
-    // 2. Find a working URL from network
-    const url = await this.findAudioUrl(key);
-    if (!url) {
+    // 2. Fetch a working pronunciation from network
+    const audioResult = await this.fetchAudio(key);
+    if (!audioResult) {
+      // 无在线发音 → 回退系统 TTS(离线/API缺词也能读)
+      if (this._speak(word)) return true;
       this._showToast(`"${word}" 暂无发音`);
       return false;
     }
 
-    // 3. Play and cache
+    // 3. Cache and play the already-downloaded response (no duplicate request)
     try {
-      const audio = new Audio(url);
-      await audio.play();
-      // Cache for next time
+      const { url, response } = audioResult;
+      // 先克隆用于缓存, 再用原响应播放
       try {
         if (typeof caches !== 'undefined') {
-          const resp = await fetch(url);
-          if (resp.ok) {
-            const cache = await this.getCache();
-            await cache.put(url, resp);
-          }
+          const cache = await this.getCache();
+          await cache.put(url, response.clone());
         }
       } catch {}
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(objectUrl);
+      audio.onended = () => URL.revokeObjectURL(objectUrl);
+      audio.onerror = () => URL.revokeObjectURL(objectUrl);
+      await audio.play();
       return true;
     } catch (e) {
       console.warn('Audio play failed:', e);
+      // 播放失败也尝试 TTS 兜底
+      if (this._speak(word)) return true;
+      return false;
+    }
+  },
+
+  // 系统 TTS 兜底发音
+  _speak(word) {
+    try {
+      if (typeof speechSynthesis === 'undefined') return false;
+      const u = new SpeechSynthesisUtterance(word);
+      u.lang = 'en-US';
+      u.rate = 0.9;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      return true;
+    } catch {
       return false;
     }
   },
@@ -158,14 +183,11 @@ export const AudioCache = {
       const batch = toFetch.slice(i, i + this.CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map(async word => {
-          const url = await this.findAudioUrl(word);
-          if (!url) return false;
-          const response = await fetch(url);
-          if (response.ok) {
-            await cache.put(url, response);
-            return true;
-          }
-          return false;
+          const audioResult = await this.fetchAudio(word);
+          if (!audioResult) return false;
+          const { url, response } = audioResult;
+          await cache.put(url, response);
+          return true;
         })
       );
 

@@ -15,6 +15,13 @@ export function escJs(str) {
   return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
+// Escape string for use inside HTML attribute value (covers & < > " ')
+export function escAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // Difficulty level labels
 export const DIFFICULTY_LABELS = {
   cet4: '四级',
@@ -80,11 +87,14 @@ export function getStemForm(word) {
   if (IRREGULAR_MAP[w]) return IRREGULAR_MAP[w];
 
   // Rule-based stemming
+  // 词根还原的核心目标: 同一词的不同变形(rise/rises/rose)归一为同一 stem, 保证去重不重复
+  // 纯规则无法完美区分"动词单三 rises"(→rise) 与"名词复数 boxes"(→box),
+  // 所以策略是"一致性优先": 让 rise/rises 得到相同 stem, 哪怕不还原成漂亮原型。
   // Plural: -ies → -y
   if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
-  // Plural: -es → remove
+  // Plural/3rd-person: -es → remove (boxes→box, boxes→ris? 见下注释)
   if (w.endsWith('es') && w.length > 3) return w.slice(0, -2);
-  // Plural: -s → remove
+  // -s → remove (runs→run, rise→ris 与 rises→ris 一致, 保证去重)
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 3) return w.slice(0, -1);
   // Past: -ied → -y
   if (w.endsWith('ied') && w.length > 4) return w.slice(0, -3) + 'y';

@@ -19,6 +19,7 @@ export const AssessmentView = {
     targetExam: 'cet4',
     articles: [],
     currentArticle: 0,
+    secondArticleError: '',
     clickedWords: [],      // words user clicked during reading
     selfAssessment: [50, 50],  // per-article self-assessment
     startTime: 0,
@@ -33,6 +34,7 @@ export const AssessmentView = {
       targetExam: 'cet4',
       articles: [],
       currentArticle: 0,
+      secondArticleError: '',
       clickedWords: [],
       selfAssessment: [50, 50],
       startTime: 0,
@@ -53,10 +55,10 @@ export const AssessmentView = {
     this.container.innerHTML = `
       <div class="assessment-container">
         <div class="assessment-header">
-          <h1 class="page-title">📊 阅读水平测评</h1>
+          <p class="page-eyebrow">05 / BASELINE</p>
+          <h1 class="page-title">阅读水平测评</h1>
           <p class="assessment-desc">
-            通过阅读测试，精准评估你的词汇量和阅读水平。<br>
-            系统会根据测试结果自动推荐最适合你的难度和生词比例。
+            用两篇短文校准你的阅读起点；结果会推荐合适的难度与新词比例。
           </p>
         </div>
 
@@ -140,8 +142,9 @@ export const AssessmentView = {
       // Generate article 2 (hard) in background
       this.generateAssessmentArticle(exam, 'hard').then(article2 => {
         this.state.articles.push(article2);
-      }).catch(() => {
-        // If article 2 fails, we'll handle it when user finishes article 1
+        this.state.secondArticleError = '';
+      }).catch((err) => {
+        this.state.secondArticleError = err.message || '网络或 API 限流';
       });
     } catch (err) {
       this.container.innerHTML = `
@@ -254,6 +257,10 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
     const articleBody = document.getElementById('articleBody');
     if (!articleBody) return;
 
+    // 先移除上一篇残留的 document 级监听(读第2篇会再次进入此函数, 否则累积泄漏)
+    if (this._globalClickHandler) document.removeEventListener('click', this._globalClickHandler);
+    if (this._audioClickHandler) document.removeEventListener('click', this._audioClickHandler);
+
     // Global click handler: dismiss tooltip when clicking outside
     this._globalClickHandler = (e) => {
       const tooltip = document.getElementById('wordTooltip');
@@ -346,8 +353,21 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
               <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（难）</p>
             </div>
           </div>`;
-        // Wait for article 2 (it's already generating in background)
+        // Wait for article 2 (it's already generating in background, with 60s timeout)
+        const waitStart = Date.now();
         while (this.state.articles.length < 2) {
+          if (this.state.secondArticleError || Date.now() - waitStart > 60000) {
+            const reason = esc(this.state.secondArticleError || '网络或 API 限流');
+            this.container.innerHTML = `
+              <div class="assessment-container">
+                <div class="empty-state">
+                  <p>第二篇文章生成失败（${reason}）。</p>
+                  <button class="btn btn-primary" onclick="AssessmentView.retrySecondArticle()">重新生成第二篇</button>
+                  <a href="#/chat" class="btn btn-outline">返回</a>
+                </div>
+              </div>`;
+            return;
+          }
           await new Promise(r => setTimeout(r, 500));
         }
       }
@@ -358,6 +378,41 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       // Both articles done, move to self-assessment
       this.state.readingTime = Math.round((Date.now() - this.state.startTime) / 1000);
       this.renderSelfAssessStep();
+    }
+  },
+
+  // Regenerate only the failed second article, preserving completed first-article progress.
+  async retrySecondArticle() {
+    if (this.state.articles.length >= 2) {
+      this.state.currentArticle = 1;
+      this.renderReadingStep();
+      return;
+    }
+    this.state.secondArticleError = '';
+    this.container.innerHTML = `
+      <div class="assessment-container">
+        <div class="assessment-loading">
+          <div class="loading-spinner"></div>
+          <p>正在重新生成第 2 篇测试文章...</p>
+          <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（难）</p>
+        </div>
+      </div>`;
+    try {
+      const article = await this.generateAssessmentArticle(this.state.targetExam, 'hard');
+      this.state.articles.push(article);
+      this.state.currentArticle = 1;
+      this.renderReadingStep();
+    } catch (err) {
+      this.state.secondArticleError = err.message || '网络或 API 限流';
+      const reason = esc(this.state.secondArticleError);
+      this.container.innerHTML = `
+        <div class="assessment-container">
+          <div class="empty-state">
+            <p>第二篇文章生成失败（${reason}）。</p>
+            <button class="btn btn-primary" onclick="AssessmentView.retrySecondArticle()">再次重试</button>
+            <a href="#/chat" class="btn btn-outline">返回</a>
+          </div>
+        </div>`;
     }
   },
 

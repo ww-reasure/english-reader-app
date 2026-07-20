@@ -146,12 +146,17 @@ ${rules}
   },
 
   // Make API request with timeout
-  async fetch(endpoint, body, timeoutMs = 60000) {
+  async fetch(endpoint, body, timeoutMs = 60000, signal = null) {
     const apiKey = Config.get('api_key');
     const baseUrl = Config.get('base_url');
     const model = Config.get('model');
 
     const controller = new AbortController();
+    const abortRequest = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', abortRequest, { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -178,6 +183,7 @@ ${rules}
       throw err;
     } finally {
       clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abortRequest);
     }
   },
 

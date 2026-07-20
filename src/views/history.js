@@ -8,6 +8,7 @@ import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
 
 export const HistoryView = {
   filterMode: 'all', // all | favorites
+  difficultyFilter: '',
 
   // Render history view
   async render(container) {
@@ -45,42 +46,45 @@ export const HistoryView = {
 
     container.innerHTML = `
       <div class="history-container">
-        <h1 class="page-title">阅读历史</h1>
+        <header class="page-heading">
+          <p class="page-eyebrow">02 / READING LOG</p>
+          <h1 class="page-title">阅读记录</h1>
+        </header>
         <div class="history-filters">
           <select onchange="HistoryView.filterDifficulty(this.value)">
-            <option value="">全部难度</option>
-            <option value="cet4">四级</option>
-            <option value="cet6">六级</option>
-            <option value="graduate">考研</option>
+            <option value="" ${this.difficultyFilter === '' ? 'selected' : ''}>全部难度</option>
+            <option value="cet4" ${this.difficultyFilter === 'cet4' ? 'selected' : ''}>四级</option>
+            <option value="cet6" ${this.difficultyFilter === 'cet6' ? 'selected' : ''}>六级</option>
+            <option value="graduate" ${this.difficultyFilter === 'graduate' ? 'selected' : ''}>考研</option>
           </select>
           <select onchange="HistoryView.filterFavorite(this.value)">
-            <option value="all">全部文章</option>
-            <option value="favorites">⭐ 收藏 (${favoritesCount})</option>
+            <option value="all" ${this.filterMode === 'all' ? 'selected' : ''}>全部文章</option>
+            <option value="favorites" ${this.filterMode === 'favorites' ? 'selected' : ''}>⭐ 收藏 (${favoritesCount})</option>
           </select>
         </div>
         <div class="article-list">${cards}</div>
       </div>`;
+    this.applyFilters();
   },
 
-  // Filter by difficulty
-  filterDifficulty(value) {
+  applyFilters() {
     document.querySelectorAll('.article-card-history').forEach(card => {
-      const matchDiff = !value || card.dataset.difficulty === value;
+      const matchDiff = !this.difficultyFilter || card.dataset.difficulty === this.difficultyFilter;
       const matchFav = this.filterMode !== 'favorites' || card.dataset.favorite === '1';
       card.style.display = (matchDiff && matchFav) ? '' : 'none';
     });
   },
 
+  // Filter by difficulty
+  filterDifficulty(value) {
+    this.difficultyFilter = value;
+    this.applyFilters();
+  },
+
   // Filter by favorite
   filterFavorite(value) {
     this.filterMode = value;
-    document.querySelectorAll('.article-card-history').forEach(card => {
-      if (value === 'favorites') {
-        card.style.display = card.dataset.favorite === '1' ? '' : 'none';
-      } else {
-        card.style.display = '';
-      }
-    });
+    this.applyFilters();
   },
 
   // Toggle favorite
@@ -91,6 +95,7 @@ export const HistoryView = {
     await DB.updateArticle(id, { favorite: newFav });
     btn.textContent = newFav ? '⭐' : '☆';
     btn.closest('.article-card-history').dataset.favorite = newFav ? '1' : '0';
+    this.applyFilters();
   },
 
   // Delete an article
@@ -98,6 +103,10 @@ export const HistoryView = {
     if (!confirm('确定要删除这篇文章吗？')) return;
     await DB.deleteArticle(id);
     btn.closest('.article-card-history').remove();
+    const articles = await DB.getAllArticles();
+    const favoritesCount = articles.filter(article => article.favorite).length;
+    const favoriteOption = document.querySelector('.history-filters select:last-child option[value="favorites"]');
+    if (favoriteOption) favoriteOption.textContent = `⭐ 收藏 (${favoritesCount})`;
   }
 };
 

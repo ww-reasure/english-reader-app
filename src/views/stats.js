@@ -45,7 +45,13 @@ export const StatsView = {
 
     container.innerHTML = `
       <div class="stats-container">
-        <h1 class="page-title">📊 阅读统计</h1>
+        <header class="page-heading profile-heading">
+          <p class="page-eyebrow">05 / STUDY ARCHIVE</p>
+          <div class="profile-heading-row">
+            <div><h1 class="page-title">学习档案</h1><p class="page-desc">把每一次阅读，留成看得见的积累。</p></div>
+            <a class="btn-icon" href="#/settings" title="打开设置" aria-label="打开设置">⚙</a>
+          </div>
+        </header>
 
         <div class="stats-grid">
           <div class="stats-card">
@@ -280,7 +286,9 @@ export const StatsView = {
 
     let streak = 0;
     const now = new Date();
-    for (let i = 0; i < 365; i++) {
+    // 容错: 今天还没读时, 允许从昨天起算连续(否则白天打开会把streak清零)
+    const startDay = (days.has(`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`)) ? 0 : 1;
+    for (let i = startDay; i < 365; i++) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;

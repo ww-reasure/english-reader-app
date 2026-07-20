@@ -83,9 +83,12 @@ export const SpacedRepetition = {
     return words
       .filter(w => !w.nextReview || w.nextReview <= now)
       .sort((a, b) => {
-        // Priority: new words > forgotten > due
-        if (!a.nextReview && b.nextReview) return -1;
-        if (a.nextReview && !b.nextReview) return 1;
+        // Priority: 到期最久的(forgotten/due) > 新词
+        // 避免: 新词先吃满 limit, 到期该复习的词排不上
+        if (!!a.nextReview !== !!b.nextReview) {
+          // 有 nextReview 且已到期的 排在 新词(nextReview=null) 之前
+          return a.nextReview ? -1 : 1;
+        }
         if (a.reviewCount !== b.reviewCount) return a.reviewCount - b.reviewCount;
         return (a.nextReview || 0) - (b.nextReview || 0);
       })

@@ -161,7 +161,7 @@ export const Tooltip = {
   async saveWord(word, translation, phonetic) {
     try {
       const hash = location.hash;
-      const match = hash.match(/#\/read\/(\d+)/);
+      const match = hash.match(/#\/reading\/(\d+)/);
       const articleId = match ? parseInt(match[1]) : null;
       await DB.saveWord({
         articleId,

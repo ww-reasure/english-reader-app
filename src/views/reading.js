@@ -4,12 +4,12 @@
  */
 
 import { DB } from '../db.js';
-import { DIFFICULTY_LABELS, esc, getStemForm, ReadingTimer } from '../helpers.js';
+import { DIFFICULTY_LABELS, esc, escAttr, getStemForm, ReadingTimer } from '../helpers.js';
 import { Tooltip } from '../components/tooltip.js';
 import { AIAnalysis } from '../components/ai-analysis.js';
 import { Dictionary } from '../dictionary.js';
 import { AudioCache } from '../audio-cache.js';
-import { Config } from '../config.js';
+import { Config, ARTICLE_SERVER_URL } from '../config.js';
 import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
 import { ChatView } from './chat.js';
@@ -22,6 +22,26 @@ export const ReadingView = {
   MIN_READ_TIME: 15,
   reviewMode: false,
   reviewWordsMap: new Map(), // stem -> word data
+  paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
+
+  _getParagraphTranslations(article, enParas) {
+    // 新格式保存稀疏数组，避免“先翻第3段”后刷新时发生段落错配
+    if (Array.isArray(article.paragraphTranslations)) {
+      return enParas.map((_, i) => article.paragraphTranslations[i] || '');
+    }
+    // 兼容 AI 生成文章的旧全文 translation（通常是连续完整段落）
+    const legacy = this._splitParas(article.translation);
+    return enParas.map((_, i) => legacy[i] || '');
+  },
+
+  _syncTranslationText() {
+    return this.paragraphTranslations.join('\n\n');
+  },
+
+  // 安全切段：防空崩溃。云端已清洗杂段,这里只做防空,保留所有 \n\n 段(含真小标题)
+  _splitParas(content) {
+    return (content || '').split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  },
 
   cleanup() {
     if (this._globalClickHandler) {
@@ -56,6 +76,21 @@ export const ReadingView = {
     this.articleData = article;
     this.reviewMode = !!article.reviewMode;
 
+    // 空 content 防护: 云端分段在修/抓取异常时可能存入空正文
+    if (!article.content || !article.content.trim()) {
+      container.innerHTML = `
+        <div class="reading-container">
+          <div class="reading-header">
+            <h1 class="reading-title">${esc(article.title || '文章')}</h1>
+            <div class="reading-actions">
+              <a href="javascript:history.back()" class="btn btn-outline">返回</a>
+            </div>
+          </div>
+          <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
+        </div>`;
+      return;
+    }
+
     // Load review words if in review mode
     if (this.reviewMode) {
       const learnWords = await DB.getAllLearnWords();
@@ -65,25 +100,27 @@ export const ReadingView = {
       });
     }
 
-    const enParas = article.content.split(/\n\n+/).filter(p => p.trim());
-    const zhParas = (article.translation || '').split(/\n\n+/).filter(p => p.trim());
+    const enParas = this._splitParas(article.content);
+    this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
     const difficultyLabel = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
 
     let parasHTML = '';
     enParas.forEach((p, i) => {
-      const hasTranslation = zhParas[i] && zhParas[i].trim();
+      const zhText = this.paragraphTranslations[i] || '';
+      const hasTranslation = !!zhText.trim();
       const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : esc(p.trim());
       parasHTML += `
-        <div class="paragraph-pair">
+        <div class="paragraph-pair" data-paragraph-index="${i}">
           <p class="en-paragraph">${paraHTML}</p>
-          ${hasTranslation ? `<button class="btn-paragraph-translate" onclick="ReadingView.toggleParagraph(this)">译</button>` : ''}
-          ${hasTranslation ? `<p class="zh-paragraph" style="display:none">${esc(zhParas[i].trim())}</p>` : ''}
+          <button class="btn-paragraph-translate" data-paragraph-index="${i}" onclick="ReadingView.toggleParagraph(this)">译</button>
+          ${hasTranslation ? `<p class="zh-paragraph" style="display:none">${esc(zhText.trim())}</p>` : ''}
         </div>`;
     });
 
     container.innerHTML = `
       <div class="reading-container">
-        <div class="reading-header">
+        <header class="reading-header">
+          <p class="page-eyebrow">02 / READING NOTE</p>
           <h1 class="reading-title">${esc(article.title)}</h1>
           <div class="reading-meta">
             <span class="badge badge-${article.difficulty}">${difficultyLabel}</span>
@@ -92,8 +129,8 @@ export const ReadingView = {
           </div>
           <div class="reading-actions">
             <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
-            <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()">显示翻译</button>
-            <a href="#/history" class="btn btn-outline">返回</a>
+            <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()" id="translateBtn">${this.paragraphTranslations.some(Boolean) ? '显示翻译' : '翻译全文'}</button>
+            <a href="javascript:history.back()" class="btn btn-outline">返回</a>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
             <span class="timer-toggle" title="点击展开/折叠计时">⏱</span>
@@ -104,8 +141,8 @@ export const ReadingView = {
               <span id="timerStatus" class="timer-status"></span>
             </div>
           </div>
-          <div class="reading-hint">${this.reviewMode ? '🔄 复习模式：高亮词为待复习词汇，点击可标记认识程度' : '单击单词查词，长按句子问 AI'}</div>
-        </div>
+          <div class="reading-hint">${this.reviewMode ? '复习标记词：点击后记录你的掌握程度' : '点击单词查释义；选中句子可以请求 AI 分析'}</div>
+        </header>
         <div id="articleBody" class="article-body">${parasHTML}</div>
         <div class="reading-finish-bar">
           <button class="btn btn-success btn-lg" onclick="ReadingView.finishReading()">✓ 阅读完成</button>
@@ -168,6 +205,8 @@ export const ReadingView = {
           this.clickedWords.push({
             word: word.toLowerCase(),
             stem,
+            translation: data.translation || '',
+            phonetic: data.phonetic || '',
             freqLevel: data.freqLevel || 'unknown',
             isReviewWord,
             quality: isReviewWord ? 3 : null // Default to 模糊 for review words
@@ -210,7 +249,7 @@ export const ReadingView = {
       const status = SpacedRepetition.getStatus(wordData);
       const cssClass = status === 'new' ? 'review-new' : status === 'mastered' ? '' : 'review-learning';
       if (!cssClass) return match; // Don't highlight mastered words
-      return `<mark class="review-word ${cssClass}" data-stem="${esc(stem)}">${match}</mark>`;
+      return `<mark class="review-word ${cssClass}" data-stem="${escAttr(stem)}">${match}</mark>`;
     });
   },
 
@@ -275,7 +314,8 @@ export const ReadingView = {
 
     // Check minimum time threshold
     if (elapsed < this.MIN_READ_TIME) {
-      // Too short, don't count — just go back
+      // Too short, don't count — cleanup 全部监听再返回(避免靠下次 render 才回收)
+      this.cleanup();
       history.back();
       return;
     }
@@ -403,7 +443,12 @@ export const ReadingView = {
           skipped++;
           continue;
         }
-        await DB.saveLearnWord({ word: w.word, createdAt: Date.now() });
+        await DB.saveLearnWord({
+          word: w.word,
+          translation: w.translation || '',
+          phonetic: w.phonetic || '',
+          createdAt: Date.now()
+        });
         added++;
       } catch {}
     }
@@ -438,25 +483,127 @@ export const ReadingView = {
   },
 
   // ===== Translation =====
-  toggleTranslation() {
-    const zhParas = document.querySelectorAll('.zh-paragraph');
-    const showing = zhParas[0]?.style.display === 'none';
-    zhParas.forEach(p => p.style.display = showing ? 'block' : 'none');
-    document.querySelectorAll('.btn-paragraph-translate').forEach(btn => {
-      btn.textContent = showing ? '隐' : '译';
-      btn.classList.toggle('active', showing);
+  async _persistParagraphTranslations() {
+    const translation = this._syncTranslationText();
+    await DB.updateArticle(this.articleData.id, {
+      paragraphTranslations: this.paragraphTranslations,
+      translation
     });
-    const toggleBtn = document.querySelector('.reading-actions .btn-outline');
-    if (toggleBtn) toggleBtn.textContent = showing ? '隐藏全部翻译' : '显示全部翻译';
+    this.articleData.paragraphTranslations = [...this.paragraphTranslations];
+    this.articleData.translation = translation;
   },
 
-  toggleParagraph(btn) {
-    const zhPara = btn.nextElementSibling;
-    if (!zhPara || !zhPara.classList.contains('zh-paragraph')) return;
-    const isVisible = zhPara.style.display !== 'none';
-    zhPara.style.display = isVisible ? 'none' : 'block';
-    btn.textContent = isVisible ? '译' : '隐';
-    btn.classList.toggle('active', !isVisible);
+  _renderParagraphTranslation(index, visible = true) {
+    const pair = document.querySelector(`.paragraph-pair[data-paragraph-index="${index}"]`);
+    if (!pair) return;
+    const text = this.paragraphTranslations[index] || '';
+    if (!text) return;
+    const btn = pair.querySelector('.btn-paragraph-translate');
+    let zhEl = pair.querySelector('.zh-paragraph');
+    if (!zhEl) {
+      zhEl = document.createElement('p');
+      zhEl.className = 'zh-paragraph';
+      pair.appendChild(zhEl);
+    }
+    zhEl.textContent = text;
+    zhEl.style.display = visible ? 'block' : 'none';
+    if (btn) {
+      btn.textContent = visible ? '隐' : '译';
+      btn.classList.toggle('active', visible);
+    }
+  },
+
+  async toggleTranslation() {
+    const toggleBtn = document.getElementById('translateBtn');
+    const missing = this.paragraphTranslations
+      .map((text, index) => text ? -1 : index)
+      .filter(index => index >= 0);
+    const available = this.paragraphTranslations.filter(Boolean).length;
+
+    // 全部已有翻译时，只切换显示/隐藏，不再请求 API
+    if (missing.length === 0 && available > 0) {
+      const anyVisible = Array.from(document.querySelectorAll('.zh-paragraph'))
+        .some(p => p.style.display !== 'none');
+      this.paragraphTranslations.forEach((text, index) => {
+        if (text) this._renderParagraphTranslation(index, !anyVisible);
+      });
+      if (toggleBtn) toggleBtn.textContent = anyVisible ? '显示翻译' : '隐藏全部翻译';
+      return;
+    }
+
+    if (!Config.hasApiKey()) {
+      alert('需要 API Key 才能翻译');
+      return;
+    }
+    if (toggleBtn) {
+      toggleBtn.disabled = true;
+      toggleBtn.textContent = '翻译全文中…';
+    }
+
+    const articleId = this.articleData.id;
+    const enParas = this._splitParas(this.articleData.content);
+    try {
+      // 只补齐未译段，已通过单段翻译得到的内容绝不重复请求
+      for (const index of missing) {
+        const text = await API.translateSentence(enParas[index]);
+        if (this.articleData?.id !== articleId) return;
+        if (text) this.paragraphTranslations[index] = text;
+      }
+      await this._persistParagraphTranslations();
+      this.paragraphTranslations.forEach((text, index) => {
+        if (text) this._renderParagraphTranslation(index, true);
+      });
+      if (toggleBtn) toggleBtn.textContent = '隐藏全部翻译';
+    } catch (e) {
+      console.warn('全文翻译失败:', e);
+      if (toggleBtn) toggleBtn.textContent = available ? '显示翻译' : '翻译全文';
+    } finally {
+      if (toggleBtn && this.articleData?.id === articleId) toggleBtn.disabled = false;
+    }
+  },
+
+  async toggleParagraph(btn) {
+    const index = Number(btn.dataset.paragraphIndex);
+    const pair = btn.closest('.paragraph-pair');
+    const existing = pair?.querySelector('.zh-paragraph');
+
+    // 已有译文：只切换本段，不请求 API
+    if (existing && (this.paragraphTranslations[index] || existing.textContent.trim())) {
+      const isVisible = existing.style.display !== 'none';
+      existing.style.display = isVisible ? 'none' : 'block';
+      btn.textContent = isVisible ? '译' : '隐';
+      btn.classList.toggle('active', !isVisible);
+      return;
+    }
+
+    if (!Config.hasApiKey()) {
+      alert('需要 API Key 才能翻译');
+      return;
+    }
+    if (btn.disabled) return;
+
+    const articleId = this.articleData.id;
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '翻译中…';
+    try {
+      // 从数据源取原文，避免复习模式的 <mark> 高亮标签进入翻译请求
+      const enParagraph = this._splitParas(this.articleData.content)[index];
+      const translation = await API.translateSentence(enParagraph);
+      if (!translation || this.articleData?.id !== articleId) return;
+      this.paragraphTranslations[index] = translation;
+      await this._persistParagraphTranslations();
+      this._renderParagraphTranslation(index, true);
+      const toggleBtn = document.getElementById('translateBtn');
+      if (toggleBtn) toggleBtn.textContent = '显示翻译';
+    } catch (e) {
+      console.warn('段落翻译失败:', e);
+    } finally {
+      if (this.articleData?.id === articleId) {
+        btn.disabled = false;
+        if (!this.paragraphTranslations[index]) btn.textContent = originalLabel;
+      }
+    }
   },
 
   // ===== Favorite =====
@@ -464,6 +611,29 @@ export const ReadingView = {
     const article = await DB.getArticle(articleId);
     if (!article) return;
     const newFav = article.favorite ? 0 : 1;
+    // 收藏时确保本地正文齐全: 云端后续删除也仍可在本地阅读
+    if (newFav === 1) {
+      if (!article.content || !article.content.trim()) {
+        const url = article.url || article.sourceUrl || '';
+        if (url) {
+          try {
+            const serverUrl = ARTICLE_SERVER_URL;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            const resp = await fetch(`${serverUrl}/api/articles/${article.id}`, { signal: controller.signal });
+            clearTimeout(timer);
+            if (resp.ok) {
+              const full = await resp.json();
+              if (full && full.content && full.content.trim()) {
+                await DB.updateArticle(articleId, { content: full.content, summary: full.summary || article.summary });
+              }
+            }
+          } catch (e) {
+            console.warn('补抓全文失败:', e);
+          }
+        }
+      }
+    }
     await DB.updateArticle(articleId, { favorite: newFav });
     const btn = document.getElementById('favBtn');
     if (btn) btn.textContent = newFav ? '⭐ 收藏' : '☆ 收藏';

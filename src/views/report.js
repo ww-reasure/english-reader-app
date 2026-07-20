@@ -65,8 +65,11 @@ export const ReportView = {
 
     container.innerHTML = `
       <div class="report-container">
-        <h1 class="page-title">📊 ${esc(reportTitle)}</h1>
-        <p class="report-date">${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日</p>
+        <header class="page-heading">
+          <p class="page-eyebrow">05 / WEEKLY RECAP</p>
+          <h1 class="page-title">${esc(reportTitle)}</h1>
+          <p class="report-date">${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日</p>
+        </header>
 
         <div class="report-section">
           <h2>📖 本周阅读</h2>
@@ -125,8 +128,9 @@ export const ReportView = {
         <div class="report-section">
           <h2>🔥 连续阅读</h2>
           <div class="report-streak">
+            <p class="page-eyebrow">CURRENT RUN</p>
             <span class="report-streak-num">${streak}</span>
-            <span class="report-streak-label">天</span>
+            <span class="report-streak-label">连续阅读天数</span>
           </div>
         </div>
 
@@ -144,9 +148,9 @@ export const ReportView = {
         </div>
 
         <div style="text-align:center;margin-top:24px">
-          <a href="#/chat" class="btn btn-primary">去阅读</a>
+          <a href="#/reading-list" class="btn btn-primary">去阅读</a>
           ${dueWords > 0 ? `<a href="#/flashcard" class="btn btn-outline">复习 ${dueWords} 个词</a>` : ''}
-          <a href="#/stats" class="btn btn-outline">详细统计</a>
+          <a href="#/profile" class="btn btn-outline">详细统计</a>
         </div>
       </div>`;
   },

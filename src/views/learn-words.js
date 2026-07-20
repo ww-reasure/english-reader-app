@@ -95,8 +95,11 @@ export const LearnWordsView = {
 
     container.innerHTML = `
       <div class="learn-words-container">
-        <h1 class="page-title">学习词库</h1>
-        <p class="page-desc">导入你学过的单词，每次生成文章时会自动融入这些单词帮助你复习。使用间隔重复算法自动调度复习。</p>
+        <header class="page-heading">
+          <p class="page-eyebrow">03 / STUDY QUEUE</p>
+          <h1 class="page-title">学习词库</h1>
+          <p class="page-desc">导入你学过的单词；每次阅读会自然带它们回来。间隔重复会安排下一次相遇。</p>
+        </header>
         ${cards}
       </div>`;
   },
@@ -160,22 +163,20 @@ export const LearnWordsView = {
     }
 
     overlay.innerHTML = `
-      <div class="modal" style="max-width:400px;width:90%;max-height:80vh;overflow-y:auto">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:24px;font-weight:bold">${esc(word.word)}</span>
-            <button class="btn-speak" data-word="${esc(word.word)}" style="background:none;border:none;font-size:20px;cursor:pointer">🔊</button>
+      <div class="modal word-detail-modal" role="dialog" aria-modal="true" aria-label="${esc(word.word)} 的学习详情">
+        <header class="word-detail-head">
+          <div>
+            <p class="page-eyebrow">STUDY NOTE</p>
+            <div class="word-detail-title">${esc(word.word)} <button class="btn-speak" data-word="${esc(word.word)}" aria-label="朗读 ${esc(word.word)}">听</button></div>
           </div>
-          <span style="background:${statusInfo.color};color:#fff;padding:2px 8px;border-radius:10px;font-size:12px">${statusInfo.icon} ${statusInfo.label}</span>
-        </div>
-        ${phonetic ? `<div style="color:var(--text-muted);margin-bottom:8px">[${esc(phonetic)}]</div>` : ''}
-        <div style="font-size:16px;margin-bottom:12px">${esc(translation)}</div>
-        ${word.interval ? `<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px">📅 复习间隔：${intervalText}</div>` : ''}
-        <div id="wordDetailExtras" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-          <div style="color:var(--text-muted);font-size:13px">加载详情...</div>
-        </div>
-        <div class="modal-actions" style="margin-top:16px">
-          <button class="btn" onclick="document.getElementById('wordDetailOverlay').style.display='none'">关闭</button>
+          <span class="word-status-mark" style="--status-color:${statusInfo.color}">${statusInfo.icon} ${statusInfo.label}</span>
+        </header>
+        ${phonetic ? `<div class="word-detail-phonetic">[${esc(phonetic)}]</div>` : ''}
+        <div class="word-detail-translation">${esc(translation)}</div>
+        ${word.interval ? `<div class="word-detail-schedule">下次复习间隔：${intervalText}</div>` : ''}
+        <div id="wordDetailExtras" class="word-detail-extras"><div class="text-muted">正在整理词根与例句…</div></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="document.getElementById('wordDetailOverlay').style.display='none'">关闭笔记</button>
         </div>
       </div>`;
 

@@ -56,7 +56,11 @@ export const VocabularyView = {
 
     container.innerHTML = `
       <div class="vocab-container">
-        <h1 class="page-title">我的生词本</h1>
+        <header class="page-heading">
+          <p class="page-eyebrow">03 / WORD NOTES</p>
+          <h1 class="page-title">我的生词本</h1>
+          <p class="page-desc">把阅读时停下来的词，整理成以后会再遇见的笔记。</p>
+        </header>
         <div class="vocab-list">${cards}</div>
       </div>`;
   },
@@ -109,21 +113,19 @@ export const VocabularyView = {
     }
 
     overlay.innerHTML = `
-      <div class="modal" style="max-width:400px;width:90%;max-height:80vh;overflow-y:auto">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:24px;font-weight:bold">${esc(word.word)}</span>
-            <button class="btn-speak" data-word="${esc(word.word)}" style="background:none;border:none;font-size:20px;cursor:pointer">🔊</button>
+      <div class="modal word-detail-modal" role="dialog" aria-modal="true" aria-label="${esc(word.word)} 的单词详情">
+        <header class="word-detail-head">
+          <div>
+            <p class="page-eyebrow">WORD NOTE</p>
+            <div class="word-detail-title">${esc(word.word)} <button class="btn-speak" data-word="${esc(word.word)}" aria-label="朗读 ${esc(word.word)}">听</button></div>
           </div>
-        </div>
-        ${phonetic ? `<div style="color:var(--text-muted);margin-bottom:8px">[${esc(phonetic)}]</div>` : ''}
-        <div style="font-size:16px;margin-bottom:12px">${esc(translation)}</div>
-        ${word.contextSentence ? `<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px;font-style:italic">"${esc(word.contextSentence)}"</div>` : ''}
-        <div id="wordDetailExtras" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-          <div style="color:var(--text-muted);font-size:13px">加载详情...</div>
-        </div>
-        <div class="modal-actions" style="margin-top:16px">
-          <button class="btn" onclick="document.getElementById('wordDetailOverlay').style.display='none'">关闭</button>
+        </header>
+        ${phonetic ? `<div class="word-detail-phonetic">[${esc(phonetic)}]</div>` : ''}
+        <div class="word-detail-translation">${esc(translation)}</div>
+        ${word.contextSentence ? `<blockquote class="word-detail-context">${esc(word.contextSentence)}</blockquote>` : ''}
+        <div id="wordDetailExtras" class="word-detail-extras"><div class="text-muted">正在整理词根与例句…</div></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="document.getElementById('wordDetailOverlay').style.display='none'">关闭笔记</button>
         </div>
       </div>`;
 
