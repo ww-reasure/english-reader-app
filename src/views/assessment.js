@@ -273,8 +273,8 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
     articleBody.addEventListener('click', async (e) => {
       const tooltip = document.getElementById('wordTooltip');
-      // Don't dismiss if clicking on tooltip
-      if (tooltip?.contains(e.target)) return;
+      // 阅读控件和 tooltip 内点击不进入基于 caret 的查词逻辑
+      if (tooltip?.contains(e.target) || e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
 
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
