@@ -24,3 +24,22 @@ test('reading context includes selected text but never full article content', as
   assert.match(joined, /Selected sentence/);
   assert.equal(joined.includes('x'.repeat(300)), false);
 });
+
+test('reading follow-ups receive the active sentence analysis, including its imitation sentence', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'reading',
+    summary: '',
+    messages: [],
+    userMessage: '解释仿写句里的单词',
+    pageContext: {
+      article: { title: 'Test' },
+      sentence: 'Original sentence.',
+      paragraph: 'Current paragraph.',
+      analysis: '仿写练习：Students who practise daily improve steadily.'
+    }
+  });
+  const joined = messages.map(message => message.content).join('\n');
+  assert.match(joined, /Students who practise daily improve steadily/);
+  assert.match(joined, /仿写/);
+});

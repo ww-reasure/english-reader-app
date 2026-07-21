@@ -46,7 +46,7 @@ export const Tooltip = {
     const tooltip = document.getElementById('wordTooltip');
     tooltip.innerHTML = `
       <div class="tooltip-loading">
-        <span style="color:#aaa">...</span>
+        <span style="color:var(--muted)">...</span>
         <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
       </div>`;
     this.position(tooltip, x, y);
@@ -108,8 +108,8 @@ export const Tooltip = {
     if (reviewMode) {
       const stem = data.word ? data.word.toLowerCase().replace(/[^a-z]/g, '') : '';
       html += `<div class="tooltip-rating-btns">
-        <button class="review-rating-btn" data-quality="3" data-stem="${esc(stem)}" style="color:#f39c12">不熟</button>
-        <button class="review-rating-btn" data-quality="1" data-stem="${esc(stem)}" style="color:#e74c3c">不认识</button>
+        <button class="review-rating-btn" data-quality="3" data-stem="${esc(stem)}" style="color:var(--warning)">不熟</button>
+        <button class="review-rating-btn" data-quality="1" data-stem="${esc(stem)}" style="color:var(--danger)">不认识</button>
       </div>`;
     }
 
@@ -162,8 +162,8 @@ export const Tooltip = {
         }));
 
         // Visual feedback: briefly highlight selected button
-        btn.style.background = quality === 1 ? '#e74c3c' : '#f39c12';
-        btn.style.color = '#fff';
+        btn.style.background = quality === 1 ? 'var(--danger)' : 'var(--warning)';
+        btn.style.color = 'var(--on-accent)';
 
         // Close tooltip after short delay for feedback
         setTimeout(() => {

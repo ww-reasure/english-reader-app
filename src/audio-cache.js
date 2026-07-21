@@ -133,7 +133,7 @@ export const AudioCache = {
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'audioToast';
-      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;z-index:10000;transition:opacity 0.3s';
+      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--toast-bg);color:var(--toast-ink);padding:8px 16px;border-radius:20px;font-size:14px;z-index:10000;transition:opacity 0.3s';
       document.body.appendChild(toast);
     }
     toast.textContent = msg;

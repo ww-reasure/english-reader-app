@@ -16,6 +16,7 @@ import { LearningAgent } from '../components/learning-agent.js';
 import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
 import { classifyComposerIntent } from '../components/composer-intent.js';
+import { renderLearningMarkdown } from '../components/rich-text.js';
 
 const conversationStore = new ConversationStore();
 const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
@@ -245,7 +246,7 @@ export const ChatView = {
     Config.set('assessment_done', 'true');
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
-    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；想读新文章时，说“生成一篇……”即可。<br>随时可以在「设置」中完成测评。');
+    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；想读新文章时，说“生成一篇……”即可。\n随时可以在「设置」中完成测评。');
   },
 
   // Clear chat history
@@ -576,7 +577,8 @@ export const ChatView = {
     if (!container) return;
     const div = document.createElement('div');
     div.className = `message ${type}-message`;
-    div.textContent = text;
+    if (type === 'user') div.textContent = text;
+    else div.innerHTML = renderLearningMarkdown(text);
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
   },

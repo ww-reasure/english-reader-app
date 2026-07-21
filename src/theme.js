@@ -4,6 +4,7 @@
  */
 
 import { Config } from './config.js';
+import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
 
 export const Theme = {
   // Initialize theme from saved preference or system preference
@@ -18,6 +19,9 @@ export const Theme = {
   apply(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     Config.set('theme', theme);
+    if (Capacitor.isNativePlatform()) {
+      SystemBars.setStyle({ style: theme === 'dark' ? SystemBarsStyle.Light : SystemBarsStyle.Dark }).catch(() => {});
+    }
     this.updateToggle();
   },
 

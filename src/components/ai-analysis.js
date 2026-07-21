@@ -16,6 +16,7 @@ import { ContextBuilder } from './context-builder.js';
 import { ChatService } from './chat-service.js';
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
+import { renderLearningMarkdown } from './rich-text.js';
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService({
@@ -42,7 +43,8 @@ export const AIAnalysis = {
   },
 
   clearArticleContext() {
-    if (this.articleContext?.id != null) chatService.cancel('reading:' + this.articleContext.id);
+    if (this.activeFollowupKey) chatService.cancel(this.activeFollowupKey);
+    this.activeFollowupKey = null;
     this.articleContext = null;
     this.hideButton();
     this._removeOutsideClickHandler();
@@ -143,7 +145,7 @@ export const AIAnalysis = {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     this.bindWordLookup(modal);
-    this.bindFollowUp(modal, sentence);
+    this.bindFollowUp(modal, sentence, content);
   },
 
   // Reuse the reading-page dictionary card inside the analysis modal.
@@ -172,14 +174,16 @@ export const AIAnalysis = {
     });
   },
 
-  bindFollowUp(modal, sentence) {
+  bindFollowUp(modal, sentence, analysis) {
     const toggle = modal.querySelector('#aiFollowupToggle');
     const panel = modal.querySelector('#aiFollowupPanel');
     const input = modal.querySelector('#aiFollowupInput');
     const send = modal.querySelector('#aiFollowupSend');
     if (!toggle || !panel || !input || !send || this.articleContext?.id == null) return;
 
-    const key = 'reading:' + this.articleContext.id;
+    const normalizedSentence = String(sentence || '').trim().replace(/\s+/g, ' ').slice(0, 260);
+    const key = 'reading:' + this.articleContext.id + ':' + encodeURIComponent(normalizedSentence);
+    this.activeFollowupKey = key;
     const renderHistory = () => {
       const list = modal.querySelector('#aiFollowupMessages');
       if (!list) return;
@@ -220,7 +224,7 @@ export const AIAnalysis = {
           session,
           userMessage: question,
           kind: 'reading',
-          pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph }
+          pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph, analysis }
         });
         list.querySelector('.ai-followup-thinking')?.remove();
         conversationStore.append(key, { role: 'user', kind: 'text', content: question });
@@ -249,18 +253,14 @@ export const AIAnalysis = {
     if (!container) return;
     const bubble = document.createElement('div');
     bubble.className = 'ai-followup-bubble ' + (role === 'user' ? 'user-message' : 'ai-message') + (isThinking ? ' ai-followup-thinking' : '');
-    bubble.textContent = content;
+    if (role === 'assistant' && !isThinking) bubble.innerHTML = renderLearningMarkdown(content);
+    else bubble.textContent = content;
     container.appendChild(bubble);
   },
 
   // Format result with basic markdown support (XSS-safe)
   formatResult(text) {
-    // Escape HTML first, then convert markdown
-    const safe = esc(text);
-    // Only allow **bold** syntax — no other HTML injection possible
-    return safe
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
+    return renderLearningMarkdown(text);
   },
 
   // Find sentence boundaries from a text node and offset

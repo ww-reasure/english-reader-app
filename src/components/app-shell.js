@@ -8,6 +8,7 @@ const routes = [
 
 export const AppShell = {
   _onKeydown: null,
+  _setDrawerOpen: null,
 
   getRouteMeta(hash) {
     if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读' };
@@ -60,6 +61,7 @@ export const AppShell = {
       if (open) drawer.querySelector('a.active, a')?.focus();
       else menu.focus();
     };
+    this._setDrawerOpen = setOpen;
 
     menu.addEventListener('click', () => setOpen(!drawer.classList.contains('is-open')));
     close.addEventListener('click', () => setOpen(false));
@@ -74,7 +76,14 @@ export const AppShell = {
   cleanup() {
     if (this._onKeydown) document.removeEventListener('keydown', this._onKeydown);
     this._onKeydown = null;
+    this._setDrawerOpen = null;
     document.body.classList.remove('app-shell-active');
     delete document.body.dataset.pageMode;
+  },
+  closeDrawer() {
+    const drawer = document.getElementById('appDrawer');
+    if (!drawer?.classList.contains('is-open')) return false;
+    this._setDrawerOpen?.(false);
+    return true;
   }
 };

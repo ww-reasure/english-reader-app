@@ -24,6 +24,11 @@ export const ReadingView = {
   reviewWordsMap: new Map(), // stem -> word data
   paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
 
+  goBack() {
+    if (window.Router?.back?.()) return;
+    history.back();
+  },
+
   _getParagraphTranslations(article, enParas) {
     // 新格式保存稀疏数组，避免“先翻第3段”后刷新时发生段落错配
     if (Array.isArray(article.paragraphTranslations)) {
@@ -90,7 +95,7 @@ export const ReadingView = {
           <div class="reading-header">
             <h1 class="reading-title">${esc(article.title || '文章')}</h1>
             <div class="reading-actions">
-              <a href="javascript:history.back()" class="btn btn-outline">返回</a>
+              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
             </div>
           </div>
           <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
@@ -137,7 +142,7 @@ export const ReadingView = {
           <div class="reading-actions">
             <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()" id="translateBtn">${this.paragraphTranslations.some(Boolean) ? '显示翻译' : '翻译全文'}</button>
-            <a href="javascript:history.back()" class="btn btn-outline">返回</a>
+            <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
             <span class="timer-toggle" title="点击展开/折叠计时">⏱</span>
@@ -339,7 +344,7 @@ export const ReadingView = {
     if (elapsed < this.MIN_READ_TIME) {
       // Too short, don't count — cleanup 全部监听再返回(避免靠下次 render 才回收)
       this.cleanup();
-      history.back();
+      this.goBack();
       return;
     }
 
@@ -452,7 +457,7 @@ export const ReadingView = {
   // Close summary and exit article
   closeAndExit() {
     document.getElementById('readingSummary').style.display = 'none';
-    history.back();
+    this.goBack();
   },
 
   // Add clicked words to review

@@ -368,15 +368,15 @@ export const FlashcardView = {
               <span class="flashcard-result-label">总复习</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:#27ae60">${this.ratingCounts[5]}</span>
+              <span class="flashcard-result-num" style="color:var(--success)">${this.ratingCounts[5]}</span>
               <span class="flashcard-result-label">认识</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:#f39c12">${this.ratingCounts[3]}</span>
+              <span class="flashcard-result-num" style="color:var(--warning)">${this.ratingCounts[3]}</span>
               <span class="flashcard-result-label">模糊</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:#e74c3c">${this.ratingCounts[1]}</span>
+              <span class="flashcard-result-num" style="color:var(--danger)">${this.ratingCounts[1]}</span>
               <span class="flashcard-result-label">忘记</span>
             </div>
           </div>

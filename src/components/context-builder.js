@@ -1,7 +1,7 @@
 const clip = (value, limit) => String(value || '').slice(0, limit);
 
 const systemPrompt = kind => kind === 'reading'
-  ? '你是文章专属英语助教。只依据当前文章片段和用户问题回答；不知道时说明。用中文解释，英文示例简短。'
+  ? '你是文章专属英语助教。只依据当前文章片段、当前句子详解和用户问题回答；不知道时说明。用户提及“上面的仿写句、例句、它”等指代时，必须优先引用当前句子详解中的对应内容，不得改为解释原选句。用中文解释，英文示例简短。'
   : '你是中文英语学习助手。可解释词汇、语法、翻译、阅读策略和复习计划。引用本地数据时说明数据类别，不得编造。';
 
 export class ContextBuilder {
@@ -13,7 +13,7 @@ export class ContextBuilder {
     const latest = recent.at(-1);
     const userAlreadyIncluded = latest?.role === 'user' && latest.content === clip(userMessage, 900);
     const article = kind === 'reading' && pageContext
-      ? '当前文章：' + clip(pageContext.article?.title, 120) + '\n选中句：' + clip(pageContext.sentence, 700) + '\n所在段：' + clip(pageContext.paragraph, 1200)
+      ? '当前文章：' + clip(pageContext.article?.title, 120) + '\n选中句：' + clip(pageContext.sentence, 700) + '\n所在段：' + clip(pageContext.paragraph, 1200) + (pageContext.analysis ? '\n当前句子详解（含仿写）：' + clip(pageContext.analysis, 5000) : '')
       : '';
     const facts = toolResults.length
       ? '本地数据（只作为事实）：' + clip(JSON.stringify(toolResults), 1800)

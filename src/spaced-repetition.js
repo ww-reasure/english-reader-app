@@ -120,10 +120,10 @@ export const SpacedRepetition = {
   getStatusDisplay(word) {
     const status = this.getStatus(word);
     const map = {
-      new: { label: '新词', color: '#999', icon: '🆕' },
-      learning: { label: '学习中', color: '#f39c12', icon: '📖' },
-      review: { label: '待复习', color: '#3498db', icon: '🔄' },
-      mastered: { label: '已掌握', color: '#27ae60', icon: '✅' }
+      new: { label: '新词', color: 'var(--state-new)', icon: '🆕' },
+      learning: { label: '学习中', color: 'var(--state-learning)', icon: '📖' },
+      review: { label: '待复习', color: 'var(--state-review)', icon: '🔄' },
+      mastered: { label: '已掌握', color: 'var(--state-mastered)', icon: '✅' }
     };
     return map[status] || map.new;
   },
@@ -143,8 +143,8 @@ export const SpacedRepetition = {
    * Rating button labels and descriptions
    */
   ratings: [
-    { quality: 1, label: '忘了', desc: '完全不认识', color: '#e74c3c' },
-    { quality: 3, label: '模糊', desc: '想了一下', color: '#f39c12' },
-    { quality: 5, label: '认识', desc: '立刻想起', color: '#27ae60' }
+    { quality: 1, label: '忘了', desc: '完全不认识', color: 'var(--danger)' },
+    { quality: 3, label: '模糊', desc: '想了一下', color: 'var(--warning)' },
+    { quality: 5, label: '认识', desc: '立刻想起', color: 'var(--success)' }
   ]
 };

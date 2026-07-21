@@ -7,6 +7,7 @@ import { Theme } from './theme.js';
 import { Modal } from './components/modal.js';
 import { Router } from './router.js';
 import { esc } from './helpers.js';
+import { installNativeNavigation } from './components/native-navigation.js';
 
 export const App = {
   // Cached DOM reference
@@ -25,6 +26,7 @@ export const App = {
 
       // Start router
       Router.init();
+      this._removeNativeNavigation = await installNativeNavigation(Router);
 
       // Initialize global event listeners
       this.initGlobalEvents();

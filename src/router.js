@@ -15,6 +15,7 @@ import { ReportView } from './views/report.js';
 import { AssessmentView } from './views/assessment.js';
 import { ReadingListView } from './views/reading-list.js';
 import { AppShell } from './components/app-shell.js';
+import { RouteHistory } from './components/route-history.js';
 
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
@@ -23,6 +24,7 @@ const views = {
 
 export const Router = {
   currentView: null,
+  routeHistory: null,
 
   // Views that have cleanup methods
   viewsWithCleanup: ['ChatView', 'ReadingView', 'AssessmentView', 'ReadingListView'],
@@ -100,8 +102,21 @@ export const Router = {
 
   // Initialize router
   init() {
-    window.addEventListener('hashchange', () => this.navigate());
-    if (!location.hash) location.hash = '#/chat';
+    if (!location.hash) history.replaceState(history.state, '', location.pathname + location.search + '#/chat');
+    this.routeHistory = new RouteHistory(location.hash || '#/chat');
+    window.addEventListener('hashchange', () => {
+      this.routeHistory.record(location.hash || '#/chat');
+      this.navigate();
+    });
     this.navigate();
+  },
+
+  back() {
+    const previous = this.routeHistory?.previous();
+    if (!previous) return false;
+    location.hash = previous;
+    return true;
   }
 };
+
+window.Router = Router;
