@@ -8,10 +8,9 @@ import { DB } from '../db.js';
 
 export const Modal = {
   // Show API settings modal
-  showApiSettings(required = false) {
+  showApiSettings() {
     const modal = document.getElementById('apiKeyModal');
     modal.style.display = 'flex';
-    modal.dataset.required = required ? '1' : '0';
 
     // Populate fields
     document.getElementById('apiKeyInput').value = Config.get('api_key');
@@ -35,7 +34,6 @@ export const Modal = {
   // Hide API settings modal
   hideApiSettings() {
     const modal = document.getElementById('apiKeyModal');
-    if (modal.dataset.required === '1' && !Config.hasApiKey()) return;
     modal.style.display = 'none';
   },
 

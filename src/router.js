@@ -14,6 +14,7 @@ import { StatsView } from './views/stats.js';
 import { ReportView } from './views/report.js';
 import { AssessmentView } from './views/assessment.js';
 import { ReadingListView } from './views/reading-list.js';
+import { AppShell } from './components/app-shell.js';
 
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
@@ -28,12 +29,9 @@ export const Router = {
 
   // Cleanup current view before navigation
   cleanupCurrentView() {
-    for (const viewName of this.viewsWithCleanup) {
-      const view = views[viewName];
-      if (view && typeof view.cleanup === 'function') {
-        view.cleanup();
-      }
-    }
+    if (this.currentView && typeof this.currentView.cleanup === 'function') this.currentView.cleanup();
+    AppShell.cleanup();
+    this.currentView = null;
   },
 
   // Route to the correct view based on hash
@@ -44,71 +42,53 @@ export const Router = {
     // Cleanup previous view's event listeners
     this.cleanupCurrentView();
 
+    let view;
+    let args = [];
     switch (true) {
       case hash === '#/chat':
-        await ChatView.render(app);
+        view = ChatView;
         break;
       case hash.startsWith('#/reading/'):
-        const articleId = parseInt(hash.split('/')[2]);
-        await ReadingView.render(app, articleId);
+        view = ReadingView;
+        args = [parseInt(hash.split('/')[2])];
         break;
       case hash === '#/history':
-        HistoryView.render(app);
+        view = HistoryView;
         break;
       case hash === '#/vocab':
-        VocabularyView.render(app);
+        view = VocabularyView;
         break;
       case hash === '#/flashcard':
-        FlashcardView.render(app);
+        view = FlashcardView;
         break;
       case hash === '#/learn-words':
-        LearnWordsView.render(app);
+        view = LearnWordsView;
         break;
       case hash === '#/settings':
-        SettingsView.render(app);
+        view = SettingsView;
         break;
       case hash === '#/stats':
-        StatsView.render(app);
+        view = StatsView;
         break;
       case hash === '#/report':
-        ReportView.render(app);
+        view = ReportView;
         break;
       case hash === '#/assessment':
-        AssessmentView.render(app);
+        view = AssessmentView;
         break;
       case hash === '#/reading-list':
-        ReadingListView.render(app);
+        view = ReadingListView;
         break;
       case hash === '#/profile':
-        // Profile/stats page - use existing StatsView but keep route name
-        await StatsView.render(app);
+        view = StatsView;
         break;
       default:
-        ChatView.render(app);
+        view = ChatView;
     }
 
-    this.updateNav(hash);
-  },
-
-  // Update tab bar active state
-  updateNav(hash) {
-    document.querySelectorAll('.tab-item').forEach(el => {
-      const href = el.getAttribute('href');
-      let isActive = false;
-      if (href === '#/profile') {
-        // "我的" tab matches #/profile, #/settings, #/report, #/assessment
-        isActive = hash === '#/profile' || hash === '#/settings' || hash === '#/report' || hash === '#/assessment';
-      } else if (href === '#/reading-list') {
-        // "阅读" tab matches #/reading-list and #/reading/123
-        isActive = hash === '#/reading-list' || hash.startsWith('#/reading/');
-      } else if (href === '#/vocab') {
-        // "词库" tab also covers SRS review and learning-word management
-        isActive = hash === '#/vocab' || hash === '#/flashcard' || hash === '#/learn-words';
-      } else {
-        isActive = hash === href;
-      }
-      el.classList.toggle('active', isActive);
-    });
+    const outlet = AppShell.mount(app, AppShell.getRouteMeta(hash), hash === '#/chat' ? 'chat' : 'standard');
+    await view.render(outlet, ...args);
+    this.currentView = view;
   },
 
   // Get current article ID from hash
