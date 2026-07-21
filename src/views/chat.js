@@ -11,7 +11,15 @@ import { Modal } from '../components/modal.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { AudioCache } from '../audio-cache.js';
 import { Dictionary } from '../dictionary.js';
-import { ChatShell } from '../components/chat-shell.js';
+import { ConversationStore } from '../components/conversation-store.js';
+import { LearningAgent } from '../components/learning-agent.js';
+import { ContextBuilder } from '../components/context-builder.js';
+import { ChatService } from '../components/chat-service.js';
+
+const conversationStore = new ConversationStore();
+const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
+const contextBuilder = new ContextBuilder();
+const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder });
 
 // Chat history persistence
 export const ChatHistory = {
@@ -70,11 +78,7 @@ export const PendingArticles = {
   },
 
   updateBadge() {
-    const badge = document.getElementById('chatBadge');
-    if (badge) {
-      badge.style.display = this.queue.length > 0 ? 'block' : 'none';
-      badge.textContent = this.queue.length;
-    }
+    // The global tab bar has been replaced by AppShell; pending cards are restored on home.
   }
 };
 
@@ -98,7 +102,8 @@ export const ChatView = {
 
   // Render chat view
   async render(container) {
-    ChatShell.activate();
+    this.mode = 'chat';
+    conversationStore.pruneExpiredArticleSessions(7 * 86400000);
     const topicOptions = this.topics.map(t =>
       `<option value="${t.value}">${t.label}</option>`
     ).join('');
@@ -108,31 +113,6 @@ export const ChatView = {
 
     container.innerHTML = `
       <div class="chat-container">
-        <header class="chat-header">
-          <button id="chatMenuBtn" class="chat-header-icon" type="button" aria-label="打开导航" aria-expanded="false">☰</button>
-          <div class="chat-header-copy">
-            <span class="chat-header-title">今日阅读</span>
-            <span class="chat-header-subtitle">让每一次阅读都更贴近你</span>
-          </div>
-          <a href="#/settings" class="chat-header-icon" title="打开设置" aria-label="打开设置">⚙</a>
-        </header>
-
-        <button id="chatNavBackdrop" class="chat-nav-backdrop" type="button" aria-label="关闭导航"></button>
-        <aside id="chatNavDrawer" class="chat-nav-drawer" aria-hidden="true">
-          <div class="chat-nav-heading">
-            <span>READING DESK</span>
-            <button id="chatNavClose" type="button" aria-label="关闭导航">×</button>
-          </div>
-          <nav class="chat-nav-links" aria-label="首页导航">
-            <a class="active" href="#/chat">创作阅读</a>
-            <a href="#/history">阅读记录</a>
-            <a href="#/vocab">词汇学习</a>
-            <a href="#/reading-list">发现阅读</a>
-            <a href="#/profile">学习档案</a>
-          </nav>
-          <button id="clearChatHistoryBtn" class="chat-nav-danger" type="button">清空生成记录</button>
-        </aside>
-
         <div id="chatMessages" class="chat-messages"></div>
 
         <footer class="chat-composer">
@@ -145,6 +125,10 @@ export const ChatView = {
             <button class="quick-action" type="button" data-action="import-article">导入文章</button>
             <button class="quick-action" type="button" data-action="import-words">导入单词</button>
             <a class="quick-action" href="#/learn-words">学习词库</a>
+          </div>
+          <div class="chat-mode-switch" role="group" aria-label="输入模式">
+            <button class="active" type="button" data-mode="chat">对话</button>
+            <button type="button" data-mode="generate">生成阅读</button>
           </div>
           <div id="composerOptions" class="composer-options" hidden>
             <div class="composer-options-heading">
@@ -165,8 +149,8 @@ export const ChatView = {
           </div>
           <div class="chat-input-row">
             <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false">＋</button>
-            <textarea id="promptInput" name="readingBrief" placeholder="想读什么主题、词汇或场景？" aria-label="阅读需求" rows="1"></textarea>
-            <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="生成阅读">↑</button>
+            <textarea id="promptInput" name="learningPrompt" placeholder="问词汇、语法、阅读方法或复习计划…" aria-label="学习问题" rows="1"></textarea>
+            <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题">↑</button>
           </div>
         </footer>
       </div>`;
@@ -189,30 +173,27 @@ export const ChatView = {
       document.removeEventListener('article-imported', this._importHandler);
     }
     this._importHandler = (e) => {
-      const { article, title } = e.detail;
-      this.addMessage('article', article, title);
-      this.addArticleCard(article, title);
+      this.addArticleCard(e.detail.article);
     };
     document.addEventListener('article-imported', this._importHandler);
   },
 
-  // Restore chat history from localStorage
+  // Restore the migrated or current home conversation.
   async restoreHistory() {
-    const history = ChatHistory.load();
-    if (history.length === 0) {
-      // Show welcome message with assessment option for first-time users
+    const session = conversationStore.getSession('home');
+    if (session.messages.length === 0) {
       const assessmentDone = Config.get('assessment_done') === 'true';
       if (assessmentDone) {
-        this.addMessageToDOM('system', '欢迎回来！选择话题和难度，描述你想阅读的内容。');
+        this.addMessageToDOM('system', '欢迎回来！你可以问我词汇、语法、阅读策略，或让它根据你的学习情况安排复习。');
       } else {
         this.addWelcomeWithAssessment();
       }
     } else {
-      history.forEach(msg => {
-        if (msg.type === 'article') {
-          this.addArticleCardToDOM(msg.article);
+      session.messages.forEach(message => {
+        if (message.kind === 'article') {
+          this.addArticleCardToDOM(message.article);
         } else {
-          this.addMessageToDOM(msg.type, msg.text);
+          this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
         }
       });
     }
@@ -273,10 +254,12 @@ export const ChatView = {
   // Clear chat history
   clearHistory() {
     if (!confirm('确定要清空对话历史吗？')) return;
+    chatService.cancel('home');
+    conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = '';
-    this.addMessageToDOM('system', '对话已清空');
+    this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
   },
 
   // Show pending articles that were generated while user was away
@@ -292,25 +275,20 @@ export const ChatView = {
 
   // Bind event listeners
   bindEvents() {
-    // Generate button
-    document.getElementById('generateBtn').addEventListener('click', () => this.handleGenerate());
+    document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
 
-    // Enter key to generate
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        this.handleGenerate();
+        this.submitComposer();
       }
     });
 
     document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
     document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
-    document.getElementById('chatMenuBtn').addEventListener('click', () => this.toggleNavigation());
-    document.getElementById('chatNavClose').addEventListener('click', () => this.toggleNavigation(false));
-    document.getElementById('chatNavBackdrop').addEventListener('click', () => this.toggleNavigation(false));
-    document.getElementById('clearChatHistoryBtn').addEventListener('click', () => {
-      this.toggleNavigation(false);
-      this.clearHistory();
+    document.querySelector('.chat-mode-switch').addEventListener('click', event => {
+      const button = event.target.closest('[data-mode]');
+      if (button) this.setMode(button.dataset.mode);
     });
 
     document.getElementById('quickActionRail').addEventListener('click', (e) => {
@@ -318,6 +296,7 @@ export const ChatView = {
       if (!action) return;
       const { action: name, topic } = action.dataset;
       if (name === 'random') {
+        this.setMode('generate');
         document.getElementById('promptInput').value = '';
         document.getElementById('topicSelect').value = '';
         document.getElementById('topicInput').style.display = 'none';
@@ -325,6 +304,7 @@ export const ChatView = {
       } else if (name === 'review') {
         this.handleReviewGenerate();
       } else if (name === 'topic') {
+        this.setMode('generate');
         document.getElementById('topicSelect').value = topic;
         document.getElementById('topicInput').style.display = 'none';
         document.getElementById('promptInput').focus();
@@ -349,6 +329,7 @@ export const ChatView = {
   },
 
   toggleComposerOptions(force) {
+    if (this.mode !== 'generate') this.setMode('generate');
     const panel = document.getElementById('composerOptions');
     const button = document.getElementById('composerOptionsBtn');
     if (!panel || !button) return;
@@ -357,16 +338,51 @@ export const ChatView = {
     button.setAttribute('aria-expanded', String(open));
   },
 
-  toggleNavigation(force) {
-    const drawer = document.getElementById('chatNavDrawer');
-    const backdrop = document.getElementById('chatNavBackdrop');
-    const button = document.getElementById('chatMenuBtn');
-    if (!drawer || !backdrop || !button) return;
-    const open = force ?? !drawer.classList.contains('is-open');
-    drawer.classList.toggle('is-open', open);
-    backdrop.classList.toggle('is-open', open);
-    drawer.setAttribute('aria-hidden', String(!open));
-    button.setAttribute('aria-expanded', String(open));
+  setMode(mode) {
+    this.mode = mode === 'generate' ? 'generate' : 'chat';
+    document.querySelectorAll('.chat-mode-switch [data-mode]').forEach(button => {
+      button.classList.toggle('active', button.dataset.mode === this.mode);
+    });
+    const input = document.getElementById('promptInput');
+    const send = document.getElementById('generateBtn');
+    const settings = document.getElementById('composerOptions');
+    if (input) {
+      input.placeholder = this.mode === 'chat'
+        ? '问词汇、语法、阅读方法或复习计划…'
+        : '想读什么主题、词汇或场景？';
+      input.setAttribute('aria-label', this.mode === 'chat' ? '学习问题' : '阅读需求');
+    }
+    if (send) send.setAttribute('aria-label', this.mode === 'chat' ? '发送问题' : '生成阅读');
+    if (settings && this.mode === 'chat') settings.hidden = true;
+  },
+
+  async submitComposer() {
+    const input = document.getElementById('promptInput');
+    const value = input?.value.trim();
+    if (this.mode === 'generate') return this.handleGenerate();
+    if (!value) return;
+    if (!Config.hasApiKey()) {
+      Modal.showApiSettings();
+      return;
+    }
+
+    this.appendConversation({ role: 'user', kind: 'text', content: value });
+    input.value = '';
+    this.showThinking();
+    try {
+      const session = conversationStore.getSession('home');
+      const reply = await chatService.ask({
+        sessionKey: 'home',
+        session,
+        userMessage: value,
+        kind: 'home'
+      });
+      this.removeThinking();
+      this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+    } catch (error) {
+      this.removeThinking();
+      this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答：' + error.message });
+    }
   },
 
   // Get selected topic
@@ -508,23 +524,45 @@ export const ChatView = {
     }
   },
 
-  // Add a chat message (with history save)
-  addMessage(type, text) {
-    this.addMessageToDOM(type, text);
-    // Save to history
-    const history = ChatHistory.load();
-    history.push({ type, text });
-    ChatHistory.save(history);
+  appendConversation(message) {
+    conversationStore.append('home', message);
+    conversationStore.compact('home', 16);
+    if (message.kind === 'article') {
+      this.addArticleCardToDOM(message.article);
+    } else {
+      const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
+      this.addMessageToDOM(type, message.content);
+    }
   },
 
-  // Add article card to chat (with history save + audio preload)
+  showThinking() {
+    const container = document.getElementById('chatMessages');
+    if (!container || document.getElementById('chatThinking')) return;
+    const thinking = document.createElement('div');
+    thinking.id = 'chatThinking';
+    thinking.className = 'message ai-message chat-thinking';
+    thinking.textContent = '正在整理你的学习信息…';
+    container.appendChild(thinking);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  removeThinking() {
+    document.getElementById('chatThinking')?.remove();
+  },
+
+  // Compatibility entry point used by reading and review flows.
+  addMessage(type, text) {
+    if (type === 'article') return this.addArticleCard(text);
+    this.appendConversation({
+      role: type === 'user' ? 'user' : 'assistant',
+      kind: type === 'error' ? 'error' : type === 'system' ? 'notice' : 'text',
+      content: String(text || '')
+    });
+  },
+
+  // Add article card to the home session and preload its vocabulary audio.
   addArticleCard(article) {
-    this.addArticleCardToDOM(article);
-    // Save to history
-    const history = ChatHistory.load();
-    history.push({ type: 'article', article: { id: article.id, title: article.title, difficulty: article.difficulty, wordCount: article.wordCount, content: article.content } });
-    ChatHistory.save(history);
-    // Preload audio for article words in background
+    this.appendConversation({ role: 'assistant', kind: 'article', article });
     if (article.content) {
       AudioCache.preloadWords(article.content).catch(() => {});
     }
@@ -548,7 +586,8 @@ export const ChatView = {
     const div = document.createElement('div');
     div.className = 'message ai-message';
 
-    const preview = article.content.substring(0, 200) + (article.content.length > 200 ? '...' : '');
+    const content = article.content || '';
+    const preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
     const difficultyLabel = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
 
     div.innerHTML = `
@@ -568,7 +607,8 @@ export const ChatView = {
   },
 
   cleanup() {
-    ChatShell.deactivate();
+    chatService.cancel('home');
+    this.removeThinking();
     if (this._importHandler) {
       document.removeEventListener('article-imported', this._importHandler);
       this._importHandler = null;
