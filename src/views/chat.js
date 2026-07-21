@@ -15,6 +15,7 @@ import { ConversationStore } from '../components/conversation-store.js';
 import { LearningAgent } from '../components/learning-agent.js';
 import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
+import { classifyComposerIntent } from '../components/composer-intent.js';
 
 const conversationStore = new ConversationStore();
 const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
@@ -102,7 +103,6 @@ export const ChatView = {
 
   // Render chat view
   async render(container) {
-    this.mode = 'chat';
     conversationStore.pruneExpiredArticleSessions(7 * 86400000);
     const topicOptions = this.topics.map(t =>
       `<option value="${t.value}">${t.label}</option>`
@@ -126,10 +126,6 @@ export const ChatView = {
             <button class="quick-action" type="button" data-action="import-words">导入单词</button>
             <a class="quick-action" href="#/learn-words">学习词库</a>
           </div>
-          <div class="chat-mode-switch" role="group" aria-label="输入模式">
-            <button class="active" type="button" data-mode="chat">对话</button>
-            <button type="button" data-mode="generate">生成阅读</button>
-          </div>
           <div id="composerOptions" class="composer-options" hidden>
             <div class="composer-options-heading">
               <span>生成设置</span>
@@ -149,7 +145,7 @@ export const ChatView = {
           </div>
           <div class="chat-input-row">
             <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false">＋</button>
-            <textarea id="promptInput" name="learningPrompt" placeholder="问词汇、语法、阅读方法或复习计划…" aria-label="学习问题" rows="1"></textarea>
+            <textarea id="promptInput" name="learningPrompt" placeholder="问问题，或说“生成一篇关于……”" aria-label="学习问题" rows="1"></textarea>
             <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题">↑</button>
           </div>
         </footer>
@@ -248,7 +244,7 @@ export const ChatView = {
     Config.set('assessment_done', 'true');
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = '';
-    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；需要新文章时，切换到「生成阅读」。<br>随时可以在「设置」中完成测评。');
+    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；想读新文章时，说“生成一篇……”即可。<br>随时可以在「设置」中完成测评。');
   },
 
   // Clear chat history
@@ -286,17 +282,12 @@ export const ChatView = {
 
     document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
     document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
-    document.querySelector('.chat-mode-switch').addEventListener('click', event => {
-      const button = event.target.closest('[data-mode]');
-      if (button) this.setMode(button.dataset.mode);
-    });
 
     document.getElementById('quickActionRail').addEventListener('click', (e) => {
       const action = e.target.closest('[data-action]');
       if (!action) return;
       const { action: name, topic } = action.dataset;
       if (name === 'random') {
-        this.setMode('generate');
         document.getElementById('promptInput').value = '';
         document.getElementById('topicSelect').value = '';
         document.getElementById('topicInput').style.display = 'none';
@@ -304,8 +295,8 @@ export const ChatView = {
       } else if (name === 'review') {
         this.handleReviewGenerate();
       } else if (name === 'topic') {
-        this.setMode('generate');
-        document.getElementById('topicSelect').value = topic;
+        const selectedTopic = this.topics.find(item => item.value === topic)?.label || topic;
+        document.getElementById('promptInput').value = `请生成一篇关于${selectedTopic}的英语阅读文章。`;
         document.getElementById('topicInput').style.display = 'none';
         document.getElementById('promptInput').focus();
       } else if (name === 'import-article') {
@@ -329,7 +320,6 @@ export const ChatView = {
   },
 
   toggleComposerOptions(force) {
-    if (this.mode !== 'generate') this.setMode('generate');
     const panel = document.getElementById('composerOptions');
     const button = document.getElementById('composerOptionsBtn');
     if (!panel || !button) return;
@@ -338,28 +328,9 @@ export const ChatView = {
     button.setAttribute('aria-expanded', String(open));
   },
 
-  setMode(mode) {
-    this.mode = mode === 'generate' ? 'generate' : 'chat';
-    document.querySelectorAll('.chat-mode-switch [data-mode]').forEach(button => {
-      button.classList.toggle('active', button.dataset.mode === this.mode);
-    });
-    const input = document.getElementById('promptInput');
-    const send = document.getElementById('generateBtn');
-    const settings = document.getElementById('composerOptions');
-    if (input) {
-      input.placeholder = this.mode === 'chat'
-        ? '问词汇、语法、阅读方法或复习计划…'
-        : '想读什么主题、词汇或场景？';
-      input.setAttribute('aria-label', this.mode === 'chat' ? '学习问题' : '阅读需求');
-    }
-    if (send) send.setAttribute('aria-label', this.mode === 'chat' ? '发送问题' : '生成阅读');
-    if (settings && this.mode === 'chat') settings.hidden = true;
-  },
-
   async submitComposer() {
     const input = document.getElementById('promptInput');
     const value = input?.value.trim();
-    if (this.mode === 'generate') return this.handleGenerate();
     if (!value) return;
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
@@ -368,6 +339,9 @@ export const ChatView = {
 
     this.appendConversation({ role: 'user', kind: 'text', content: value });
     input.value = '';
+    if (classifyComposerIntent(value) === 'generate') {
+      return this.handleGenerate({ prompt: value, alreadyAdded: true });
+    }
     this.showThinking();
     try {
       const session = conversationStore.getSession('home');
@@ -385,6 +359,16 @@ export const ChatView = {
     }
   },
 
+  buildGenerationContext() {
+    const session = conversationStore.getSession('home');
+    const recent = session.messages
+      .filter(message => message.kind === 'text')
+      .slice(-6)
+      .map(message => `${message.role === 'user' ? '学习者' : '助手'}：${message.content}`)
+      .join('\n');
+    return [session.summary, recent].filter(Boolean).join('\n').slice(-1600);
+  },
+
   // Get selected topic
   getTopic() {
     const select = document.getElementById('topicSelect').value;
@@ -396,7 +380,7 @@ export const ChatView = {
   },
 
   // Handle article generation
-  async handleGenerate() {
+  async handleGenerate({ prompt: providedPrompt, alreadyAdded = false } = {}) {
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
@@ -405,7 +389,7 @@ export const ChatView = {
     const generateButton = document.getElementById('generateBtn');
     if (generateButton?.disabled) return;
 
-    const prompt = document.getElementById('promptInput').value.trim();
+    const prompt = providedPrompt ?? document.getElementById('promptInput').value.trim();
     const difficulty = document.getElementById('difficultySelect').value;
     const topic = this.getTopic();
     const userKeywords = document.getElementById('topicInput').value.trim();
@@ -424,9 +408,11 @@ export const ChatView = {
     // Combine user keywords with review words
     const allKeywords = [userKeywords, reviewKeywords].filter(Boolean).join(', ');
 
-    this.addMessage('user', prompt
-      ? `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n${prompt}`
-      : `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n🎲 随机生成`);
+    if (!alreadyAdded) {
+      this.addMessage('user', prompt
+        ? prompt
+        : `请随机生成一篇${DIFFICULTY_LABELS[difficulty]}难度的英语阅读文章。`);
+    }
 
     if (generateButton) {
       generateButton.disabled = true;
@@ -439,7 +425,14 @@ export const ChatView = {
     if (promptInput) promptInput.value = '';
 
     try {
-      const article = await API.generateArticle(effectivePrompt, difficulty, topic, allKeywords);
+      const article = await API.generateArticle(
+        effectivePrompt,
+        difficulty,
+        topic,
+        allKeywords,
+        400,
+        this.buildGenerationContext()
+      );
       const id = await DB.saveArticle(article);
       const articleWithId = { ...article, id };
 
@@ -463,7 +456,7 @@ export const ChatView = {
       if (generateButton) {
         generateButton.disabled = false;
         generateButton.textContent = '↑';
-        generateButton.setAttribute('aria-label', '生成阅读');
+        generateButton.setAttribute('aria-label', '发送问题');
       }
     }
   },

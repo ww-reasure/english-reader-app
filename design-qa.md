@@ -6,21 +6,20 @@
 
 **Implementation evidence**
 
-- Browser-rendered capture of `http://127.0.0.1:5173/#/chat`, taken at 460 × 1024 on 2026-07-21. The reference and implementation were opened in the same comparison input during QA.
+- Browser-rendered capture of `http://127.0.0.1:5173/#/chat`, rechecked at 390 × 844 on 2026-07-21. The reference and implementation were opened in the same comparison input during QA.
 - State: returning learner on the default learning-chat mode, no provider configured, empty composer.
-- Primary interactions checked: opening and tapping outside the unified drawer, scrolling the quick-action rail, switching/retaining chat mode, opening the API setup gate on send, and dismissing it.
+- Primary interactions checked: opening and tapping outside the unified drawer, horizontally scrolling the quick-action rail, prefilling a generation request from a topic chip, opening generation settings, and opening/dismissing the API setup gate on send.
 - Console errors: none.
 
 **Comparison scope**
 
-- The reference is an empty general-chat screen; the implementation is an English-learning workspace with an intentional welcome prompt and a separate generation-mode control. The comparison therefore focuses on the shared mobile shell and lower interaction region rather than copying unavailable reference actions such as calls, camera, or microphone.
+- The reference is an empty general-chat screen; the implementation is an English-learning workspace with an intentional welcome prompt. The comparison therefore focuses on the shared mobile shell and lower interaction region rather than copying unavailable reference actions such as calls, camera, or microphone.
 - Full-view comparison confirmed a minimal header, deliberate vertical whitespace, a lower horizontal action rail, and a rounded fixed composer.
 - Focused lower-region comparison was required and performed because the rail/composer spacing, horizontal overflow behavior, and control reachability are the fidelity-critical surfaces.
 
 **Findings**
 
-- No actionable P0, P1, or P2 differences remain.
-- [P3] The implementation keeps a compact “对话 / 生成阅读” switch above the composer. This is an intentional product-specific addition so article generation remains discoverable without adding unimplemented reference actions.
+- No actionable P0, P1, P2, or P3 differences remain.
 
 **Required fidelity surfaces**
 
@@ -28,12 +27,13 @@
 - Spacing and layout rhythm: header, content scroller, quick rail, and composer are separate regions. The composer uses safe-area padding and remains fully reachable.
 - Colors and visual tokens: the reference's light, low-noise background is adapted to the app's existing cream paper surface, charcoal ink, and coral learning accent.
 - Image quality and asset fidelity: neither comparison state contains product imagery. The implementation adds no substitute imagery or decorative image assets.
-- Copy and app-specific content: first-use and returning-user messages now describe asking learning questions first and explicitly point to “生成阅读” only when article creation is needed.
+- Copy and app-specific content: the single input explicitly teaches “生成一篇关于……”, while normal questions and article requests share the same learning session.
 
 **Comparison history**
 
 1. [P1] Narrow mobile widths previously allowed the chat grid's composer to exceed the viewport (the 390px check measured a 640px composer track). Fixed by constraining the chat grid to `minmax(0, 1fr)`. Post-fix checks confirmed the page outlet and composer fit at 320, 360, 390, 412, and 430px widths.
 2. [P2] The initial onboarding and shortcuts read like the old generation panel and used decorative glyphs. Fixed by moving to direct learning-chat copy and text-first quick actions. The final browser capture is the post-fix evidence.
+3. [P2] The separate “对话 / 生成阅读” mode switch used a second vertical row and split the user's mental model. Fixed by using one composer: normal prompts go to learning chat, explicit article requests go to generation, and the generated article card remains in the same home conversation. The 390px post-fix capture confirms one horizontal quick-action row and no mode-switch row.
 
 **Implementation checklist**
 

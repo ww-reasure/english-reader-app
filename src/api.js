@@ -199,11 +199,14 @@ ${rules}
   },
 
   // Generate an article
-  async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400) {
+  async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '') {
+    const contextSection = learningContext
+      ? `\n\nRecent learning conversation (use only as a preference, never quote it):\n${learningContext}`
+      : '';
     const data = await this.fetch('/chat/completions', {
       messages: [
         { role: 'system', content: this.buildArticlePrompt(difficulty, wordCount, keywords) },
-        { role: 'user', content: `Topic: ${topic}\n\nUser request: ${prompt}` }
+        { role: 'user', content: `Topic: ${topic}\n\nUser request: ${prompt}${contextSection}` }
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7
