@@ -178,13 +178,24 @@ ${rules}
       return resp.json();
     } catch (err) {
       if (err.name === 'AbortError') {
-        throw new Error('请求超时，请检查网络连接');
+        throw new Error(signal?.aborted ? '请求已取消' : '请求超时，请检查网络连接');
       }
       throw err;
     } finally {
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', abortRequest);
     }
+  },
+
+  // Send a general learning-chat request.
+  async chat(messages, { tools = [], signal = null, temperature = 0.45 } = {}) {
+    const body = { messages, temperature };
+    if (tools.length) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+    }
+    const data = await this.fetch('/chat/completions', body, 60000, signal);
+    return data.choices?.[0]?.message || { content: '' };
   },
 
   // Generate an article
