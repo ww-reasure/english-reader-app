@@ -1,12 +1,16 @@
 {
   "name": "english-reader-app",
-  "version": "2.0.0",
+  "version": "1.8.0",
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build && npx cap sync android",
     "build:apk": "npm run build && node scripts/build-apk.js",
+    "version:patch": "node scripts/bump-version.js patch",
+    "version:minor": "node scripts/bump-version.js minor",
+    "release:patch": "npm run version:patch && npm run build:apk",
+    "release:minor": "npm run version:minor && npm run build:apk",
     "preview": "vite preview"
   },
   "keywords": [

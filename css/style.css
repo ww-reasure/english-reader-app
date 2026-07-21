@@ -101,6 +101,7 @@ body.app-shell-active { overflow:hidden; }
 body.app-shell-active #app { height:100dvh; min-height:0; padding:0; }
 .app-shell { min-height:100dvh; background:transparent; }
 .app-shell--chat { height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
+.app-shell--standard { height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
 .app-header { position:relative; z-index:40; min-height:76px; display:grid; grid-template-columns:44px minmax(0,1fr) 44px; align-items:center; gap:10px; padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px; border-bottom:1px solid var(--border-light); background:color-mix(in srgb,var(--surface) 97%,transparent); backdrop-filter:blur(16px); }
 .app-header-copy { min-width:0; }
 .app-header-kicker { margin:0 0 2px; color:var(--moss); font-family:ui-monospace,monospace; font-size:9px; font-weight:800; letter-spacing:.13em; line-height:1; }
@@ -236,7 +237,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 
 /* Lists, library and history */
 .history-container,.vocab-container,.learn-words-container,.reading-list-container,.settings-container,.stats-container,.report-container,.assessment-container { max-width:820px; margin:0 auto; padding:28px 16px calc(38px + env(safe-area-inset-bottom,0px)); }
-.app-shell--standard .app-page-outlet { background:var(--paper); }
+.app-shell--standard .app-page-outlet { overflow-y:auto; background:var(--paper); }
 .app-shell--standard .app-standard-page { min-height:100%; }
 .history-filters,.learn-words-stats,.reading-list-tabs { display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:18px; }
 .history-filters select { flex:1; min-width:140px; }
