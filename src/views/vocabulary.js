@@ -55,14 +55,15 @@ export const VocabularyView = {
     }
 
     container.innerHTML = `
-      <div class="vocab-container">
-        <header class="page-heading">
+      <section class="app-standard-page vocab-container" aria-labelledby="vocabularyContentTitle">
+        <h2 id="vocabularyContentTitle" class="sr-only">词汇学习内容</h2>
+        <header class="page-heading app-route-heading">
           <p class="page-eyebrow">03 / WORD NOTES</p>
           <h1 class="page-title">我的生词本</h1>
           <p class="page-desc">把阅读时停下来的词，整理成以后会再遇见的笔记。</p>
         </header>
         <div class="vocab-list">${cards}</div>
-      </div>`;
+      </section>`;
   },
 
   // Toggle manage mode

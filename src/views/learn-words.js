@@ -94,14 +94,15 @@ export const LearnWordsView = {
     }
 
     container.innerHTML = `
-      <div class="learn-words-container">
-        <header class="page-heading">
+      <section class="app-standard-page learn-words-container" aria-labelledby="learningWordsContentTitle">
+        <h2 id="learningWordsContentTitle" class="sr-only">学习词库内容</h2>
+        <header class="page-heading app-route-heading">
           <p class="page-eyebrow">03 / STUDY QUEUE</p>
           <h1 class="page-title">学习词库</h1>
           <p class="page-desc">导入你学过的单词；每次阅读会自然带它们回来。间隔重复会安排下一次相遇。</p>
         </header>
         ${cards}
-      </div>`;
+      </section>`;
   },
 
   // Set filter mode

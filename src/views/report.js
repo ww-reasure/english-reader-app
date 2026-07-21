@@ -64,7 +64,8 @@ export const ReportView = {
     const reportTitle = `${monthNames[now.getMonth()]}第 ${Math.ceil(now.getDate() / 7)} 周报告`;
 
     container.innerHTML = `
-      <div class="report-container">
+      <section class="app-standard-page report-container" aria-labelledby="reportContentTitle">
+        <h2 id="reportContentTitle" class="sr-only">学习报告内容</h2>
         <header class="page-heading">
           <p class="page-eyebrow">05 / WEEKLY RECAP</p>
           <h1 class="page-title">${esc(reportTitle)}</h1>
@@ -152,7 +153,7 @@ export const ReportView = {
           ${dueWords > 0 ? `<a href="#/flashcard" class="btn btn-outline">复习 ${dueWords} 个词</a>` : ''}
           <a href="#/profile" class="btn btn-outline">详细统计</a>
         </div>
-      </div>`;
+      </section>`;
   },
 
   formatTime(seconds) {

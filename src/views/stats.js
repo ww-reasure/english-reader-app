@@ -44,8 +44,9 @@ export const StatsView = {
     const totalClicks = readingStats.reduce((sum, s) => sum + (s.clickCount || 0), 0);
 
     container.innerHTML = `
-      <div class="stats-container">
-        <header class="page-heading profile-heading">
+      <section class="app-standard-page stats-container" aria-labelledby="profileContentTitle">
+        <h2 id="profileContentTitle" class="sr-only">学习档案内容</h2>
+        <header class="page-heading profile-heading app-route-heading">
           <p class="page-eyebrow">05 / STUDY ARCHIVE</p>
           <div class="profile-heading-row">
             <div><h1 class="page-title">学习档案</h1><p class="page-desc">把每一次阅读，留成看得见的积累。</p></div>
@@ -149,7 +150,7 @@ export const StatsView = {
           <a href="#/report" class="btn btn-outline">📊 阅读报告</a>
           ${dueWords > 0 ? `<a href="#/flashcard" class="btn btn-outline">复习 ${dueWords} 个单词</a>` : ''}
         </div>
-      </div>`;
+      </section>`;
   },
 
   // Toggle trend mode

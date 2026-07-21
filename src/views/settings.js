@@ -20,8 +20,9 @@ export const SettingsView = {
     const assessmentDate = Config.get('assessment_date') || '';
 
     container.innerHTML = `
-      <div class="settings-container">
-        <header class="page-heading">
+      <section class="app-standard-page settings-container" aria-labelledby="settingsContentTitle">
+        <h2 id="settingsContentTitle" class="sr-only">设置内容</h2>
+        <header class="page-heading app-route-heading">
           <p class="page-eyebrow">05 / WORKSPACE</p>
           <h1 class="page-title">设置</h1>
           <p class="page-desc">调整你的阅读节奏、主题与生成方式。</p>
@@ -180,7 +181,7 @@ export const SettingsView = {
           <button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button>
           <a href="#/chat" class="btn btn-outline">返回对话</a>
         </div>
-      </div>`;
+      </section>`;
 
     // Add event listeners for radio buttons (auto-save on change)
     document.querySelectorAll('input[name="level"]').forEach(radio => {

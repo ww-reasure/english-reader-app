@@ -117,8 +117,8 @@ export const ChatView = {
 
         <footer class="chat-composer">
           <div id="quickActionRail" class="quick-action-rail" aria-label="快捷操作">
-            <button class="quick-action" type="button" data-action="random">✦ 随机一篇</button>
-            <button class="quick-action" type="button" data-action="review">↻ 复习阅读</button>
+            <button class="quick-action" type="button" data-action="random">随机生成</button>
+            <button class="quick-action" type="button" data-action="review">复习阅读</button>
             <button class="quick-action" type="button" data-action="topic" data-topic="technology">科技</button>
             <button class="quick-action" type="button" data-action="topic" data-topic="psychology">心理学</button>
             <button class="quick-action" type="button" data-action="topic" data-topic="travel">旅行</button>
@@ -233,10 +233,10 @@ export const ChatView = {
     div.className = 'message system-message';
     div.innerHTML = `
       <div class="welcome-box">
-        <h3>👋 欢迎使用英语阅读助手</h3>
+        <h3>欢迎使用英语阅读助手</h3>
         <p>首次使用建议先进行<strong>阅读水平测评</strong>，系统会根据你的词汇量自动推荐最佳难度和生词比例。</p>
         <div class="welcome-actions">
-          <a href="#/assessment" class="btn btn-primary btn-sm">📊 开始测评（3分钟）</a>
+          <a href="#/assessment" class="btn btn-primary btn-sm">开始测评（约 3 分钟）</a>
           <button class="btn btn-outline btn-sm" onclick="ChatView.skipAssessment()">跳过，直接使用</button>
         </div>
       </div>`;
@@ -248,7 +248,7 @@ export const ChatView = {
     Config.set('assessment_done', 'true');
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = '';
-    this.addMessageToDOM('system', '已跳过测评。选择话题和难度，描述你想阅读的内容。<br>也可以导入单词，AI 会自动在文章中使用这些单词帮助你复习。<br>随时可以在「设置」页面进行测评。');
+    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；需要新文章时，切换到「生成阅读」。<br>随时可以在「设置」中完成测评。');
   },
 
   // Clear chat history

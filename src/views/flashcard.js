@@ -80,7 +80,8 @@ export const FlashcardView = {
       const totalWords = allWords.length;
       const masteredCount = allWords.filter(w => SpacedRepetition.getStatus(w) === 'mastered').length;
       container.innerHTML = `
-        <div class="flashcard-container">
+        <section class="app-standard-page flashcard-container" aria-labelledby="flashcardContentTitle">
+          <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
           <div class="empty-state">
             <p>🎉 暂时没有需要复习的单词</p>
             ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个已掌握</p>` : ''}
@@ -90,7 +91,7 @@ export const FlashcardView = {
               <a href="#/learn-words" class="btn btn-outline">学习词库</a>
             </div>
           </div>
-        </div>`;
+        </section>`;
       return;
     }
 

@@ -53,10 +53,11 @@ export const AssessmentView = {
   renderSelectStep() {
     this.state.step = 'select';
     this.container.innerHTML = `
-      <div class="assessment-container">
+      <section class="app-standard-page assessment-container" aria-labelledby="assessmentContentTitle">
+        <h2 id="assessmentContentTitle" class="sr-only">水平测评内容</h2>
         <div class="assessment-header">
           <p class="page-eyebrow">05 / BASELINE</p>
-          <h1 class="page-title">阅读水平测评</h1>
+          <h1 class="page-title app-route-heading">阅读水平测评</h1>
           <p class="assessment-desc">
             用两篇短文校准你的阅读起点；结果会推荐合适的难度与新词比例。
           </p>
@@ -105,7 +106,7 @@ export const AssessmentView = {
           <button class="btn btn-primary btn-lg" onclick="AssessmentView.startAssessment()">开始测评</button>
           <a href="#/chat" class="btn btn-outline">跳过，直接使用</a>
         </div>
-      </div>`;
+      </section>`;
   },
 
   // Start assessment - generate articles (parallel: article 1 first, then article 2 in background)

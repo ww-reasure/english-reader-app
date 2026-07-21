@@ -96,8 +96,9 @@ export const ReadingListView = {
       } else {
         // Empty response from server
         container.innerHTML = `
-          <div class="reading-list-container">
-            <h1 class="page-title">阅读列表</h1>
+          <section class="app-standard-page reading-list-container" aria-labelledby="readingListContentTitle">
+            <h2 id="readingListContentTitle" class="sr-only">阅读书架内容</h2>
+            <h1 class="page-title app-route-heading">阅读列表</h1>
             <div class="reading-list-tabs">
               <button class="reading-list-tab active" onclick="ReadingListView.filterByDifficulty('all')">全部</button>
               <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('cet4')">四级</button>
@@ -105,7 +106,7 @@ export const ReadingListView = {
               <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('graduate')">考研</button>
             </div>
             <div class="empty-state">暂无文章</div>
-          </div>`;
+          </section>`;
       }
     }
   },
@@ -237,8 +238,9 @@ export const ReadingListView = {
     }
 
     container.innerHTML = `
-      <div class="reading-list-container">
-        <header class="page-heading">
+      <section class="app-standard-page reading-list-container" aria-labelledby="readingListContentTitle">
+        <h2 id="readingListContentTitle" class="sr-only">阅读书架内容</h2>
+        <header class="page-heading app-route-heading">
           <p class="page-eyebrow">04 / THE SHELF</p>
           <h1 class="page-title">阅读书架</h1>
           <p class="page-desc">按难度与题材挑选一篇，留一点安静时间给英文。</p>
@@ -246,7 +248,7 @@ export const ReadingListView = {
         <div class="reading-list-tabs">${tabsHTML}</div>
         ${catTabsHTML ? `<div class="reading-list-tabs reading-list-tabs-cat">${catTabsHTML}</div>` : ''}
         <div class="article-list">${cardsHTML}</div>
-      </div>`;
+      </section>`;
 
     this._articles = articles;
   },

@@ -45,8 +45,9 @@ export const HistoryView = {
     }
 
     container.innerHTML = `
-      <div class="history-container">
-        <header class="page-heading">
+      <section class="app-standard-page history-container" aria-labelledby="historyContentTitle">
+        <h2 id="historyContentTitle" class="sr-only">阅读记录内容</h2>
+        <header class="page-heading app-route-heading">
           <p class="page-eyebrow">02 / READING LOG</p>
           <h1 class="page-title">阅读记录</h1>
         </header>
@@ -63,7 +64,7 @@ export const HistoryView = {
           </select>
         </div>
         <div class="article-list">${cards}</div>
-      </div>`;
+      </section>`;
     this.applyFilters();
   },
 
