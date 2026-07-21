@@ -8,14 +8,50 @@ import { getStemForm, esc, escJs } from '../helpers.js';
 import { Affixes } from '../affixes.js';
 import { Examples } from '../examples.js';
 import { AudioCache } from '../audio-cache.js';
+import { TooltipSession } from './tooltip-session.js';
 
 export const Tooltip = {
+  session: new TooltipSession(),
+
+  beginLookup(x, y) {
+    const lookupId = this.session.begin();
+    this.showLoading(x, y);
+    return lookupId;
+  },
+
+  isCurrent(lookupId) {
+    return this.session.isCurrent(lookupId);
+  },
+
+  isVisible() {
+    const tooltip = document.getElementById('wordTooltip');
+    return !!tooltip && tooltip.style.display !== 'none';
+  },
+
+  attachAutoDismiss() {
+    const dismiss = () => this.hide();
+    document.addEventListener('scroll', dismiss, { passive: true, capture: true });
+    document.addEventListener('touchmove', dismiss, { passive: true });
+    document.addEventListener('wheel', dismiss, { passive: true });
+
+    return () => {
+      document.removeEventListener('scroll', dismiss, true);
+      document.removeEventListener('touchmove', dismiss);
+      document.removeEventListener('wheel', dismiss);
+    };
+  },
+
   // Show loading state
   showLoading(x, y) {
     const tooltip = document.getElementById('wordTooltip');
-    tooltip.innerHTML = '<span style="color:#aaa">...</span>';
+    tooltip.innerHTML = `
+      <div class="tooltip-loading">
+        <span style="color:#aaa">...</span>
+        <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
+      </div>`;
     this.position(tooltip, x, y);
     tooltip.style.display = 'block';
+    this.bindCloseButton(tooltip);
   },
 
   // Check if word is already in vocabulary
@@ -33,12 +69,14 @@ export const Tooltip = {
   },
 
   // Show word data
-  async show(x, y, data, reviewMode) {
+  async show(lookupId, x, y, data, reviewMode) {
+    if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
 
     let html = `<div class="tooltip-word">
       <span>${esc(data.word)}</span>
       <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音">🔊</button>
+      <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
     </div>`;
 
     if (data.baseForm) {
@@ -78,6 +116,7 @@ export const Tooltip = {
     if (data.found && !reviewMode) {
       // Check if already saved
       const isSaved = await this.isWordSaved(data.word);
+      if (!this.isCurrent(lookupId)) return false;
       if (isSaved) {
         html += `<div class="tooltip-actions">
           <span class="btn-saved-word">✅ 已收藏</span>
@@ -89,9 +128,11 @@ export const Tooltip = {
       }
     }
 
+    if (!this.isCurrent(lookupId)) return false;
     tooltip.innerHTML = html;
     this.position(tooltip, x, y);
     tooltip.style.display = 'block';
+    this.bindCloseButton(tooltip);
 
     // Bind audio button click directly (more reliable than event delegation)
     const speakBtn = tooltip.querySelector('.btn-speak');
@@ -130,6 +171,18 @@ export const Tooltip = {
         }, 200);
       });
     });
+
+    return true;
+  },
+
+  bindCloseButton(tooltip) {
+    const closeBtn = tooltip.querySelector('.tooltip-close');
+    if (!closeBtn) return;
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.hide();
+    });
   },
 
   // Position tooltip relative to click, avoiding viewport edges
@@ -153,6 +206,7 @@ export const Tooltip = {
 
   // Hide tooltip
   hide() {
+    this.session.dismiss();
     const tooltip = document.getElementById('wordTooltip');
     if (tooltip) tooltip.style.display = 'none';
   },

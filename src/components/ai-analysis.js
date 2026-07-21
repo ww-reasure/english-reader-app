@@ -5,13 +5,16 @@
 
 import { Tooltip } from './tooltip.js';
 import { API } from '../api.js';
+import { Dictionary } from '../dictionary.js';
 import { esc, debounce } from '../helpers.js';
+import { SentenceAnalysisCache } from './sentence-analysis-cache.js';
 
 export const AIAnalysis = {
   currentText: '',
   longPressTimer: null,
   isLongPress: false,
   ignoreNextArticleClick: false,
+  analysisCache: new SentenceAnalysisCache(),
 
   // Show "Ask AI" button at position
   showButton(x, y, text) {
@@ -47,10 +50,12 @@ export const AIAnalysis = {
   async analyze(sentence) {
     this.hideButton();
     Tooltip.hide();
-    this.showResult(sentence, '正在分析...', true);
+    const cached = this.analysisCache.get(sentence);
+    const isResolved = typeof cached === 'string';
+    this.showResult(sentence, isResolved ? cached : '正在分析...', !isResolved);
 
     try {
-      const result = await API.analyzeSentence(sentence);
+      const result = await this.analysisCache.getOrCreate(sentence, () => API.analyzeSentence(sentence));
       this.showResult(sentence, result, false);
     } catch (err) {
       this.showResult(sentence, `分析失败：${err.message}`, false);
@@ -71,7 +76,8 @@ export const AIAnalysis = {
     modal.className = 'modal modal-wide';
     modal.innerHTML = `
       <h2>AI 句子分析</h2>
-      <div class="ai-original-sentence">${esc(sentence)}</div>
+      <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
+      <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
       <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
         ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
       </div>
@@ -81,6 +87,33 @@ export const AIAnalysis = {
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    this.bindWordLookup(modal);
+  },
+
+  // Reuse the reading-page dictionary card inside the analysis modal.
+  bindWordLookup(modal) {
+    const sentence = modal.querySelector('.ai-lookup-sentence');
+    if (!sentence) return;
+
+    sentence.addEventListener('click', async (e) => {
+      if (Tooltip.isVisible()) {
+        e.stopPropagation();
+        Tooltip.hide();
+        return;
+      }
+
+      const word = Tooltip.getWordAtPoint(e);
+      if (!word) return;
+
+      e.stopPropagation();
+      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
+      try {
+        const data = await Dictionary.lookup(word);
+        await Tooltip.show(lookupId, e.clientX, e.clientY, data);
+      } catch {
+        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
+      }
+    });
   },
 
   // Format result with basic markdown support (XSS-safe)

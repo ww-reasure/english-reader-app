@@ -11,6 +11,7 @@ import { Modal } from '../components/modal.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { AudioCache } from '../audio-cache.js';
 import { Dictionary } from '../dictionary.js';
+import { ChatShell } from '../components/chat-shell.js';
 
 // Chat history persistence
 export const ChatHistory = {
@@ -78,6 +79,7 @@ export const PendingArticles = {
 };
 
 export const ChatView = {
+  isReviewGenerating: false,
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -96,6 +98,7 @@ export const ChatView = {
 
   // Render chat view
   async render(container) {
+    ChatShell.activate();
     const topicOptions = this.topics.map(t =>
       `<option value="${t.value}">${t.label}</option>`
     ).join('');
@@ -105,18 +108,49 @@ export const ChatView = {
 
     container.innerHTML = `
       <div class="chat-container">
-        <div class="chat-header">
-          <div class="chat-header-left">
+        <header class="chat-header">
+          <button id="chatMenuBtn" class="chat-header-icon" type="button" aria-label="打开导航" aria-expanded="false">☰</button>
+          <div class="chat-header-copy">
             <span class="chat-header-title">今日阅读</span>
+            <span class="chat-header-subtitle">让每一次阅读都更贴近你</span>
           </div>
-          <div class="chat-header-right">
-            <a href="#/settings" class="btn-icon" title="打开设置" aria-label="打开设置">⚙</a>
-            <button class="btn-icon" onclick="ChatView.clearHistory()" title="清空对话记录" aria-label="清空对话记录">🗑</button>
+          <a href="#/settings" class="chat-header-icon" title="打开设置" aria-label="打开设置">⚙</a>
+        </header>
+
+        <button id="chatNavBackdrop" class="chat-nav-backdrop" type="button" aria-label="关闭导航"></button>
+        <aside id="chatNavDrawer" class="chat-nav-drawer" aria-hidden="true">
+          <div class="chat-nav-heading">
+            <span>READING DESK</span>
+            <button id="chatNavClose" type="button" aria-label="关闭导航">×</button>
           </div>
-        </div>
+          <nav class="chat-nav-links" aria-label="首页导航">
+            <a class="active" href="#/chat">创作阅读</a>
+            <a href="#/history">阅读记录</a>
+            <a href="#/vocab">词汇学习</a>
+            <a href="#/reading-list">发现阅读</a>
+            <a href="#/profile">学习档案</a>
+          </nav>
+          <button id="clearChatHistoryBtn" class="chat-nav-danger" type="button">清空生成记录</button>
+        </aside>
+
         <div id="chatMessages" class="chat-messages"></div>
-        <div class="chat-input-area">
-          <div class="input-options" aria-label="生成文章设置">
+
+        <footer class="chat-composer">
+          <div id="quickActionRail" class="quick-action-rail" aria-label="快捷操作">
+            <button class="quick-action" type="button" data-action="random">✦ 随机一篇</button>
+            <button class="quick-action" type="button" data-action="review">↻ 复习阅读</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="technology">科技</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="psychology">心理学</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="travel">旅行</button>
+            <button class="quick-action" type="button" data-action="import-article">导入文章</button>
+            <button class="quick-action" type="button" data-action="import-words">导入单词</button>
+            <a class="quick-action" href="#/learn-words">学习词库</a>
+          </div>
+          <div id="composerOptions" class="composer-options" hidden>
+            <div class="composer-options-heading">
+              <span>生成设置</span>
+              <button id="composerOptionsClose" type="button" aria-label="关闭生成设置">×</button>
+            </div>
             <select id="difficultySelect" name="difficulty" aria-label="文章难度">
               <option value="cet4" ${savedExamLevel === 'cet4' ? 'selected' : ''}>四级</option>
               <option value="cet6" ${savedExamLevel === 'cet6' ? 'selected' : ''}>六级</option>
@@ -129,22 +163,12 @@ export const ChatView = {
             </select>
             <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
           </div>
-          <div class="input-row">
-            <textarea id="promptInput" name="readingBrief" placeholder="想读什么主题、词汇或场景？留空则随机挑选…" aria-label="阅读需求" rows="2"></textarea>
-            <button id="generateBtn" class="btn btn-primary">开始生成</button>
+          <div class="chat-input-row">
+            <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false">＋</button>
+            <textarea id="promptInput" name="readingBrief" placeholder="想读什么主题、词汇或场景？" aria-label="阅读需求" rows="1"></textarea>
+            <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="生成阅读">↑</button>
           </div>
-          <div class="input-actions">
-            <div class="import-menu-wrapper">
-              <button class="btn btn-outline btn-sm" onclick="document.getElementById('importDropdown').classList.toggle('show')">📥 导入</button>
-              <div id="importDropdown" class="import-dropdown">
-                <button onclick="document.getElementById('importDropdown').classList.remove('show'); Modal.showImport()">📄 导入文章</button>
-                <button onclick="document.getElementById('importDropdown').classList.remove('show'); WordImport.showModal()">📝 导入单词</button>
-              </div>
-            </div>
-            <button class="btn btn-outline btn-sm" id="reviewReadBtn" onclick="ChatView.handleReviewGenerate()">🔄 复习阅读</button>
-            <a href="#/learn-words" class="btn btn-outline btn-sm">学习词库</a>
-          </div>
-        </div>
+        </footer>
       </div>`;
 
     this.bindEvents();
@@ -279,6 +303,38 @@ export const ChatView = {
       }
     });
 
+    document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
+    document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
+    document.getElementById('chatMenuBtn').addEventListener('click', () => this.toggleNavigation());
+    document.getElementById('chatNavClose').addEventListener('click', () => this.toggleNavigation(false));
+    document.getElementById('chatNavBackdrop').addEventListener('click', () => this.toggleNavigation(false));
+    document.getElementById('clearChatHistoryBtn').addEventListener('click', () => {
+      this.toggleNavigation(false);
+      this.clearHistory();
+    });
+
+    document.getElementById('quickActionRail').addEventListener('click', (e) => {
+      const action = e.target.closest('[data-action]');
+      if (!action) return;
+      const { action: name, topic } = action.dataset;
+      if (name === 'random') {
+        document.getElementById('promptInput').value = '';
+        document.getElementById('topicSelect').value = '';
+        document.getElementById('topicInput').style.display = 'none';
+        this.handleGenerate();
+      } else if (name === 'review') {
+        this.handleReviewGenerate();
+      } else if (name === 'topic') {
+        document.getElementById('topicSelect').value = topic;
+        document.getElementById('topicInput').style.display = 'none';
+        document.getElementById('promptInput').focus();
+      } else if (name === 'import-article') {
+        Modal.showImport();
+      } else if (name === 'import-words') {
+        WordImport.showModal();
+      }
+    });
+
     // Topic select change
     document.getElementById('topicSelect').addEventListener('change', (e) => {
       const customInput = document.getElementById('topicInput');
@@ -290,6 +346,27 @@ export const ChatView = {
         customInput.value = '';
       }
     });
+  },
+
+  toggleComposerOptions(force) {
+    const panel = document.getElementById('composerOptions');
+    const button = document.getElementById('composerOptionsBtn');
+    if (!panel || !button) return;
+    const open = force ?? panel.hidden;
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  },
+
+  toggleNavigation(force) {
+    const drawer = document.getElementById('chatNavDrawer');
+    const backdrop = document.getElementById('chatNavBackdrop');
+    const button = document.getElementById('chatMenuBtn');
+    if (!drawer || !backdrop || !button) return;
+    const open = force ?? !drawer.classList.contains('is-open');
+    drawer.classList.toggle('is-open', open);
+    backdrop.classList.toggle('is-open', open);
+    drawer.setAttribute('aria-hidden', String(!open));
+    button.setAttribute('aria-expanded', String(open));
   },
 
   // Get selected topic
@@ -308,6 +385,9 @@ export const ChatView = {
       Modal.showApiSettings();
       return;
     }
+
+    const generateButton = document.getElementById('generateBtn');
+    if (generateButton?.disabled) return;
 
     const prompt = document.getElementById('promptInput').value.trim();
     const difficulty = document.getElementById('difficultySelect').value;
@@ -332,10 +412,10 @@ export const ChatView = {
       ? `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n${prompt}`
       : `话题：${topic} | 难度：${DIFFICULTY_LABELS[difficulty]}\n🎲 随机生成`);
 
-    const btn = document.getElementById('generateBtn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '生成中...';
+    if (generateButton) {
+      generateButton.disabled = true;
+      generateButton.textContent = '…';
+      generateButton.setAttribute('aria-label', '正在生成阅读');
     }
 
     // Clear input immediately
@@ -364,18 +444,18 @@ export const ChatView = {
         this.addMessage('error', `错误：${err.message}`);
       }
     } finally {
-      const btn = document.getElementById('generateBtn');
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '生成';
+      if (generateButton) {
+        generateButton.disabled = false;
+        generateButton.textContent = '↑';
+        generateButton.setAttribute('aria-label', '生成阅读');
       }
     }
   },
 
   // Handle review reading generation
   async handleReviewGenerate() {
-    if (!Config.hasApiKey()) {
-      Modal.showApiSettings();
+    if (this.isReviewGenerating || !Config.hasApiKey()) {
+      if (!Config.hasApiKey()) Modal.showApiSettings();
       return;
     }
 
@@ -401,14 +481,9 @@ export const ChatView = {
 
     const difficulty = document.getElementById('difficultySelect').value;
     const topic = this.getTopic();
+    this.isReviewGenerating = true;
 
     this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词`);
-
-    const btn = document.getElementById('reviewReadBtn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '生成中...';
-    }
 
     try {
       const article = await API.generateReviewArticle(reviewWords, difficulty, topic);
@@ -429,11 +504,7 @@ export const ChatView = {
         this.addMessage('error', `错误：${err.message}`);
       }
     } finally {
-      const btn = document.getElementById('reviewReadBtn');
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '🔄 复习阅读';
-      }
+      this.isReviewGenerating = false;
     }
   },
 
@@ -494,6 +565,14 @@ export const ChatView = {
 
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
+  },
+
+  cleanup() {
+    ChatShell.deactivate();
+    if (this._importHandler) {
+      document.removeEventListener('article-imported', this._importHandler);
+      this._importHandler = null;
+    }
   }
 };
 

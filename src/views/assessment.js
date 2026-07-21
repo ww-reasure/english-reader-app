@@ -260,6 +260,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
     // 先移除上一篇残留的 document 级监听(读第2篇会再次进入此函数, 否则累积泄漏)
     if (this._globalClickHandler) document.removeEventListener('click', this._globalClickHandler);
     if (this._audioClickHandler) document.removeEventListener('click', this._audioClickHandler);
+    if (this._tooltipDismissCleanup) this._tooltipDismissCleanup();
 
     // Global click handler: dismiss tooltip when clicking outside
     this._globalClickHandler = (e) => {
@@ -270,11 +271,19 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       Tooltip.hide();
     };
     document.addEventListener('click', this._globalClickHandler);
+    this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
 
     articleBody.addEventListener('click', async (e) => {
       const tooltip = document.getElementById('wordTooltip');
       // 阅读控件和 tooltip 内点击不进入基于 caret 的查词逻辑
       if (tooltip?.contains(e.target) || e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
+
+      // 卡片打开时，正文第一次点击只负责收起，不立即查询其他单词。
+      if (Tooltip.isVisible()) {
+        e.stopPropagation();
+        Tooltip.hide();
+        return;
+      }
 
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
@@ -282,14 +291,12 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       // Stop propagation so global handler doesn't immediately hide the new tooltip
       e.stopPropagation();
 
-      // Hide previous tooltip before showing new one
-      Tooltip.hide();
-
-      Tooltip.showLoading(e.clientX, e.clientY);
+      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
 
       try {
         const data = await Dictionary.lookup(word);
-        Tooltip.show(e.clientX, e.clientY, data);
+        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data);
+        if (!shown) return;
 
         // Track clicked words for assessment
         const stem = getStemForm(word.toLowerCase());
@@ -306,7 +313,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
           if (counter) counter.textContent = this.state.clickedWords.length;
         }
       } catch {
-        Tooltip.hide();
+        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
     });
 
@@ -335,6 +342,11 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       document.removeEventListener('click', this._audioClickHandler);
       this._audioClickHandler = null;
     }
+    if (this._tooltipDismissCleanup) {
+      this._tooltipDismissCleanup();
+      this._tooltipDismissCleanup = null;
+    }
+    Tooltip.hide();
   },
 
   // Finish reading current article

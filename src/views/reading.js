@@ -56,6 +56,11 @@ export const ReadingView = {
       document.removeEventListener('review-rated', this._reviewRatedHandler);
       this._reviewRatedHandler = null;
     }
+    if (this._tooltipDismissCleanup) {
+      this._tooltipDismissCleanup();
+      this._tooltipDismissCleanup = null;
+    }
+    Tooltip.hide();
     if (this._resumeHandler) {
       document.removeEventListener('touchstart', this._resumeHandler);
       document.removeEventListener('scroll', this._resumeHandler);
@@ -170,6 +175,7 @@ export const ReadingView = {
       AIAnalysis.hideButton();
     };
     document.addEventListener('click', this._globalClickHandler);
+    this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
 
     // Listen for review rating events from tooltip
     this._reviewRatedHandler = (e) => {
@@ -193,20 +199,28 @@ export const ReadingView = {
       // 阅读控件本身不应触发基于 caret 的查词
       if (e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
 
+      // 卡片打开时，正文第一次点击只负责收起，不立即查询其他单词。
+      if (Tooltip.isVisible()) {
+        e.stopPropagation();
+        Tooltip.hide();
+        AIAnalysis.hideButton();
+        return;
+      }
+
       const word = Tooltip.getWordAtPoint(e);
       if (!word || word.length < 2) return;
       e.stopPropagation();
 
-      Tooltip.hide();
       AIAnalysis.hideButton();
-      Tooltip.showLoading(e.clientX, e.clientY);
+      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
 
       try {
         const data = await Dictionary.lookup(word);
         const stem = getStemForm(word.toLowerCase());
         const isReviewWord = this.reviewMode && this.reviewWordsMap.has(stem);
 
-        Tooltip.show(e.clientX, e.clientY, data, isReviewWord);
+        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord);
+        if (!shown) return;
 
         if (!this.clickedWords.some(w => w.stem === stem)) {
           this.clickedWords.push({
@@ -220,7 +234,7 @@ export const ReadingView = {
           });
         }
       } catch {
-        Tooltip.hide();
+        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
     });
 
