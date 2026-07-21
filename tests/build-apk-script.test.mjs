@@ -14,3 +14,12 @@ test('Android build script selects the platform Gradle wrapper from the android 
   assert.match(getAndroidProjectDirectory(), /android$/);
   assert.equal(packageJson.scripts['build:apk'], 'npm run build && node scripts/build-apk.js');
 });
+
+test('legacy Capacitor libraries receive an Android namespace only when missing', () => {
+  const { withAndroidNamespace } = require('../scripts/build-apk.js');
+  const missing = "android {\n    compileSdkVersion 30\n}";
+  const present = "android {\n    namespace 'com.example.ready'\n}";
+
+  assert.match(withAndroidNamespace(missing, 'com.example.legacy'), /namespace 'com\.example\.legacy'/);
+  assert.equal(withAndroidNamespace(present, 'com.example.legacy'), present);
+});

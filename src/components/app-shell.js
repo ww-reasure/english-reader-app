@@ -32,15 +32,17 @@ export const AppShell = {
       '<a class="' + (navKey === meta.navKey ? 'active' : '') + '" href="' + href + '">' + label + '</a>'
     )).join('');
 
+    const kicker = meta.navKey === 'chat' ? 'AI STUDY COACH' : 'ENGLISH LEARNING';
     container.innerHTML = `
       <div class="app-shell app-shell--${pageMode}">
         <header class="app-header">
-          <button id="appMenuBtn" class="app-icon-button" type="button" aria-label="打开导航" aria-expanded="false">☰</button>
-          <h1 class="app-header-title">${meta.title}</h1>
-          <a class="app-icon-button" href="#/settings" aria-label="打开设置">⚙</a>
+          <button id="appMenuBtn" class="app-icon-button" type="button" aria-label="打开导航" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+          <div class="app-header-copy"><p class="app-header-kicker">${kicker}</p><h1 class="app-header-title">${meta.title}</h1></div>
+          <a class="app-icon-button" href="#/settings" aria-label="打开设置"><i class="fa-solid fa-gear" aria-hidden="true"></i></a>
         </header>
         <button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>
         <aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
+          <div class="app-drawer-top"><p class="app-drawer-brand">LEARNING NOTEBOOK</p><button id="appDrawerClose" class="app-drawer-close" type="button" aria-label="关闭导航"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="sr-only">关闭导航</span></button></div>
           <nav>${links}</nav>
         </aside>
         <main id="pageOutlet" class="app-page-outlet" tabindex="-1"></main>
@@ -49,6 +51,7 @@ export const AppShell = {
     const drawer = document.getElementById('appDrawer');
     const backdrop = document.getElementById('appDrawerBackdrop');
     const menu = document.getElementById('appMenuBtn');
+    const close = document.getElementById('appDrawerClose');
     const setOpen = open => {
       drawer.classList.toggle('is-open', open);
       drawer.setAttribute('aria-hidden', String(!open));
@@ -59,6 +62,7 @@ export const AppShell = {
     };
 
     menu.addEventListener('click', () => setOpen(!drawer.classList.contains('is-open')));
+    close.addEventListener('click', () => setOpen(false));
     backdrop.addEventListener('click', () => setOpen(false));
     this._onKeydown = event => {
       if (event.key === 'Escape' && drawer.classList.contains('is-open')) setOpen(false);

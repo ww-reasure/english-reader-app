@@ -113,18 +113,18 @@ export const ChatView = {
 
     container.innerHTML = `
       <div class="chat-container">
-        <div id="chatMessages" class="chat-messages"></div>
+        <div id="chatMessages" class="chat-messages">${this.studyAnchorMarkup()}</div>
 
         <footer class="chat-composer">
           <div id="quickActionRail" class="quick-action-rail" aria-label="快捷操作">
-            <button class="quick-action" type="button" data-action="random">随机生成</button>
-            <button class="quick-action" type="button" data-action="review">复习阅读</button>
-            <button class="quick-action" type="button" data-action="topic" data-topic="technology">科技</button>
-            <button class="quick-action" type="button" data-action="topic" data-topic="psychology">心理学</button>
-            <button class="quick-action" type="button" data-action="topic" data-topic="travel">旅行</button>
-            <button class="quick-action" type="button" data-action="import-article">导入文章</button>
-            <button class="quick-action" type="button" data-action="import-words">导入单词</button>
-            <a class="quick-action" href="#/learn-words">学习词库</a>
+            <button class="quick-action" type="button" data-action="random"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>随机生成</button>
+            <button class="quick-action" type="button" data-action="review"><i class="fa-solid fa-book-open" aria-hidden="true"></i>复习阅读</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="technology"><i class="fa-solid fa-microchip" aria-hidden="true"></i>科技</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="psychology"><i class="fa-solid fa-brain" aria-hidden="true"></i>心理学</button>
+            <button class="quick-action" type="button" data-action="topic" data-topic="travel"><i class="fa-solid fa-plane" aria-hidden="true"></i>旅行</button>
+            <button class="quick-action" type="button" data-action="import-article"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>导入文章</button>
+            <button class="quick-action" type="button" data-action="import-words"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i>导入单词</button>
+            <a class="quick-action" href="#/learn-words"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>学习词库</a>
           </div>
           <div id="composerOptions" class="composer-options" hidden>
             <div class="composer-options-heading">
@@ -144,9 +144,9 @@ export const ChatView = {
             <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
           </div>
           <div class="chat-input-row">
-            <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false">＋</button>
+            <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
             <textarea id="promptInput" name="learningPrompt" placeholder="问问题，或说“生成一篇关于……”" aria-label="学习问题" rows="1"></textarea>
-            <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题">↑</button>
+            <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
           </div>
         </footer>
       </div>`;
@@ -210,10 +210,11 @@ export const ChatView = {
         div.className = 'message system-message';
         div.innerHTML = `
           <div class="due-reminder">
-            📢 你有 <strong>${dueCount}</strong> 个单词需要复习
+            <i class="fa-solid fa-bell" aria-hidden="true"></i> 你有 <strong>${dueCount}</strong> 个单词需要复习
             <a href="#/flashcard" class="btn btn-primary btn-sm">开始复习</a>
           </div>`;
-        container.insertBefore(div, container.firstChild);
+        const anchor = container.querySelector('.chat-study-intro');
+        anchor ? anchor.insertAdjacentElement('afterend', div) : container.insertBefore(div, container.firstChild);
       }
     } catch {
       // Ignore errors
@@ -243,7 +244,7 @@ export const ChatView = {
   skipAssessment() {
     Config.set('assessment_done', 'true');
     const container = document.getElementById('chatMessages');
-    if (container) container.innerHTML = '';
+    if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；想读新文章时，说“生成一篇……”即可。<br>随时可以在「设置」中完成测评。');
   },
 
@@ -254,8 +255,16 @@ export const ChatView = {
     conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
-    if (container) container.innerHTML = '';
+    if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
+  },
+
+  studyAnchorMarkup() {
+    const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date());
+    return `<section class="chat-study-intro" aria-label="今日学习">
+      <div class="chat-study-strip"><span><i class="fa-solid fa-book-open" aria-hidden="true"></i> 今日学习</span><time>${today}</time></div>
+      <div class="chat-study-copy"><p>从一个问题开始</p><span>对话、生成阅读与复习，都在同一条学习线里继续。</span></div>
+    </section>`;
   },
 
   // Show pending articles that were generated while user was away
@@ -587,7 +596,7 @@ export const ChatView = {
       <div class="article-card">
         <div class="article-card-header">
           <span class="article-title">${esc(article.title)}</span>
-          ${article.reviewMode ? '<span class="badge badge-review">🔄 复习</span>' : ''}
+          ${article.reviewMode ? '<span class="badge badge-review"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 复习</span>' : ''}
           <span class="badge badge-${article.difficulty}">${difficultyLabel}</span>
           <span class="word-count">${article.wordCount} 词</span>
         </div>

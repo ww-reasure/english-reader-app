@@ -22,7 +22,9 @@ export const HistoryView = {
       articles.forEach(article => {
         const date = formatDate(article.createdAt);
         const label = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
-        const favIcon = article.favorite ? '⭐' : '☆';
+        const favIcon = article.favorite
+          ? '<i class="fa-solid fa-star" aria-hidden="true"></i>'
+          : '<i class="fa-regular fa-star" aria-hidden="true"></i>';
 
         cards += `
           <div class="article-card-history" data-difficulty="${article.difficulty}" data-favorite="${article.favorite ? '1' : '0'}">
@@ -60,7 +62,7 @@ export const HistoryView = {
           </select>
           <select onchange="HistoryView.filterFavorite(this.value)">
             <option value="all" ${this.filterMode === 'all' ? 'selected' : ''}>全部文章</option>
-            <option value="favorites" ${this.filterMode === 'favorites' ? 'selected' : ''}>⭐ 收藏 (${favoritesCount})</option>
+            <option value="favorites" ${this.filterMode === 'favorites' ? 'selected' : ''}>收藏 (${favoritesCount})</option>
           </select>
         </div>
         <div class="article-list">${cards}</div>
@@ -94,7 +96,9 @@ export const HistoryView = {
     if (!article) return;
     const newFav = article.favorite ? 0 : 1;
     await DB.updateArticle(id, { favorite: newFav });
-    btn.textContent = newFav ? '⭐' : '☆';
+    btn.innerHTML = newFav
+      ? '<i class="fa-solid fa-star" aria-hidden="true"></i>'
+      : '<i class="fa-regular fa-star" aria-hidden="true"></i>';
     btn.closest('.article-card-history').dataset.favorite = newFav ? '1' : '0';
     this.applyFilters();
   },
@@ -107,7 +111,7 @@ export const HistoryView = {
     const articles = await DB.getAllArticles();
     const favoritesCount = articles.filter(article => article.favorite).length;
     const favoriteOption = document.querySelector('.history-filters select:last-child option[value="favorites"]');
-    if (favoriteOption) favoriteOption.textContent = `⭐ 收藏 (${favoritesCount})`;
+    if (favoriteOption) favoriteOption.textContent = `收藏 (${favoritesCount})`;
   }
 };
 
