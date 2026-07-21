@@ -61,6 +61,7 @@ export const ReadingView = {
       this._tooltipDismissCleanup = null;
     }
     Tooltip.hide();
+    AIAnalysis.clearArticleContext();
     if (this._resumeHandler) {
       document.removeEventListener('touchstart', this._resumeHandler);
       document.removeEventListener('scroll', this._resumeHandler);
@@ -79,6 +80,7 @@ export const ReadingView = {
       return;
     }
     this.articleData = article;
+    AIAnalysis.setArticleContext({ id: article.id, title: article.title }, '');
     this.reviewMode = !!article.reviewMode;
 
     // 空 content 防护: 云端分段在修/抓取异常时可能存入空正文

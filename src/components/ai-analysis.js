@@ -8,6 +8,21 @@ import { API } from '../api.js';
 import { Dictionary } from '../dictionary.js';
 import { esc, debounce } from '../helpers.js';
 import { SentenceAnalysisCache } from './sentence-analysis-cache.js';
+import { Config } from '../config.js';
+import { Modal } from './modal.js';
+import { ConversationStore } from './conversation-store.js';
+import { LearningAgent } from './learning-agent.js';
+import { ContextBuilder } from './context-builder.js';
+import { ChatService } from './chat-service.js';
+import { DB } from '../db.js';
+import { SpacedRepetition } from '../spaced-repetition.js';
+
+const conversationStore = new ConversationStore();
+const chatService = new ChatService({
+  api: API,
+  agent: new LearningAgent({ db: DB, srs: SpacedRepetition }),
+  builder: new ContextBuilder()
+});
 
 export const AIAnalysis = {
   currentText: '',
@@ -15,6 +30,35 @@ export const AIAnalysis = {
   isLongPress: false,
   ignoreNextArticleClick: false,
   analysisCache: new SentenceAnalysisCache(),
+  articleContext: null,
+  _outsideClickHandler: null,
+
+  setArticleContext(article, paragraph = '') {
+    this.articleContext = {
+      id: article?.id,
+      title: article?.title || '当前文章',
+      paragraph: String(paragraph || '')
+    };
+  },
+
+  clearArticleContext() {
+    if (this.articleContext?.id != null) chatService.cancel('reading:' + this.articleContext.id);
+    this.articleContext = null;
+    this.hideButton();
+    this._removeOutsideClickHandler();
+  },
+
+  updateParagraphContext(node) {
+    if (!this.articleContext || !node) return;
+    const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    const paragraph = element?.closest('.paragraph-pair')?.querySelector('.en-paragraph')?.textContent?.trim();
+    if (paragraph) this.articleContext.paragraph = paragraph;
+  },
+
+  _removeOutsideClickHandler() {
+    if (this._outsideClickHandler) document.removeEventListener('click', this._outsideClickHandler);
+    this._outsideClickHandler = null;
+  },
 
   // Show "Ask AI" button at position
   showButton(x, y, text) {
@@ -81,6 +125,17 @@ export const AIAnalysis = {
       <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
         ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
       </div>
+      ${!isLoading && this.articleContext?.id != null ? `
+      <section class="ai-followup" aria-label="继续追问">
+        <button id="aiFollowupToggle" class="btn btn-outline btn-sm" type="button">继续追问</button>
+        <div id="aiFollowupPanel" class="ai-followup-panel" hidden>
+          <div id="aiFollowupMessages" class="ai-followup-messages" aria-live="polite"></div>
+          <div class="ai-followup-composer">
+            <textarea id="aiFollowupInput" rows="2" placeholder="继续问这句话的语法、词义或表达…" aria-label="继续追问"></textarea>
+            <button id="aiFollowupSend" class="btn btn-primary btn-sm" type="button">发送</button>
+          </div>
+        </div>
+      </section>` : ''}
       <div class="modal-actions">
         <button class="btn" onclick="document.getElementById('aiResultModal').remove()">关闭</button>
       </div>`;
@@ -88,6 +143,7 @@ export const AIAnalysis = {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     this.bindWordLookup(modal);
+    this.bindFollowUp(modal, sentence);
   },
 
   // Reuse the reading-page dictionary card inside the analysis modal.
@@ -114,6 +170,87 @@ export const AIAnalysis = {
         if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
     });
+  },
+
+  bindFollowUp(modal, sentence) {
+    const toggle = modal.querySelector('#aiFollowupToggle');
+    const panel = modal.querySelector('#aiFollowupPanel');
+    const input = modal.querySelector('#aiFollowupInput');
+    const send = modal.querySelector('#aiFollowupSend');
+    if (!toggle || !panel || !input || !send || this.articleContext?.id == null) return;
+
+    const key = 'reading:' + this.articleContext.id;
+    const renderHistory = () => {
+      const list = modal.querySelector('#aiFollowupMessages');
+      if (!list) return;
+      list.innerHTML = '';
+      conversationStore.getSession(key).messages.forEach(message => {
+        if (message.kind !== 'text') return;
+        this.addFollowUpBubble(list, message.role, message.content);
+      });
+    };
+
+    toggle.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) {
+        renderHistory();
+        input.focus();
+      }
+    });
+
+    const submit = async () => {
+      const question = input.value.trim();
+      if (!question || send.disabled) return;
+      if (!Config.hasApiKey()) {
+        Modal.showApiSettings();
+        return;
+      }
+
+      const list = modal.querySelector('#aiFollowupMessages');
+      const context = this.articleContext;
+      const session = conversationStore.getSession(key);
+      input.value = '';
+      send.disabled = true;
+      this.addFollowUpBubble(list, 'user', question);
+      this.addFollowUpBubble(list, 'assistant', '正在回答…', true);
+
+      try {
+        const reply = await chatService.ask({
+          sessionKey: key,
+          session,
+          userMessage: question,
+          kind: 'reading',
+          pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph }
+        });
+        list.querySelector('.ai-followup-thinking')?.remove();
+        conversationStore.append(key, { role: 'user', kind: 'text', content: question });
+        conversationStore.append(key, { role: 'assistant', kind: 'text', content: reply.content });
+        conversationStore.compact(key, 8);
+        this.addFollowUpBubble(list, 'assistant', reply.content);
+      } catch (error) {
+        list.querySelector('.ai-followup-thinking')?.remove();
+        this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + error.message);
+      } finally {
+        send.disabled = false;
+        list.scrollTop = list.scrollHeight;
+      }
+    };
+
+    send.addEventListener('click', submit);
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        submit();
+      }
+    });
+  },
+
+  addFollowUpBubble(container, role, content, isThinking = false) {
+    if (!container) return;
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-followup-bubble ' + (role === 'user' ? 'user-message' : 'ai-message') + (isThinking ? ' ai-followup-thinking' : '');
+    bubble.textContent = content;
+    container.appendChild(bubble);
   },
 
   // Format result with basic markdown support (XSS-safe)
@@ -218,6 +355,7 @@ export const AIAnalysis = {
 
     const node = range.startContainer;
     if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    this.updateParagraphContext(node);
 
     const offset = range.startOffset;
     const boundaries = this.findSentenceBoundaries(node, offset);
@@ -280,6 +418,7 @@ export const AIAnalysis = {
       if (text.length > 3 && /[a-zA-Z]/.test(text)) {
         try {
           const range = selection.getRangeAt(0);
+          this.updateParagraphContext(range.commonAncestorContainer);
           const rect = range.getBoundingClientRect();
           this.showButton(rect.left + rect.width / 2, rect.bottom, text);
         } catch {
@@ -293,11 +432,13 @@ export const AIAnalysis = {
     articleBody.addEventListener('mouseup', checkSelection);
 
     // Close button when clicking elsewhere
-    document.addEventListener('click', (e) => {
+    this._removeOutsideClickHandler();
+    this._outsideClickHandler = (e) => {
       if (e.target.id !== 'aiAnalyzeBtn' && !e.target.closest('.modal-overlay')) {
         this.hideButton();
       }
-    });
+    };
+    document.addEventListener('click', this._outsideClickHandler);
   }
 };
 
