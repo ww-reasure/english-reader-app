@@ -26,6 +26,15 @@ test('dark theme supplies the semantic surfaces used by reading cards and contro
   }
 });
 
+test('vocabulary list words use a dedicated readable theme token', async () => {
+  const css = await readFile(new URL('../css/style.css', import.meta.url), 'utf8');
+  const darkTheme = css.match(/\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+
+  assert.match(css, /--vocab-word:\s*var\(--pine\)/);
+  assert.match(darkTheme, /--vocab-word:\s*var\(--moss\)/);
+  assert.match(css, /\.vocab-word \.word\s*\{[^}]*color:\s*var\(--vocab-word\)/s);
+});
+
 test('standard routes constrain the app shell so the page outlet can scroll', async () => {
   const css = await readFile(new URL('../css/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.app-shell--standard\s*\{[^}]*height:\s*100dvh[^}]*display:\s*grid[^}]*grid-template-rows:\s*auto\s+minmax\(0,1fr\)[^}]*overflow:\s*hidden/s);

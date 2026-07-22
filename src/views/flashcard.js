@@ -21,6 +21,7 @@ import { API } from '../api.js';
 import { ChatView } from './chat.js';
 import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
+import { Tooltip } from '../components/tooltip.js';
 import {
   REVIEW_PHASES,
   createReviewState,
@@ -43,6 +44,10 @@ export const FlashcardView = {
   container: null,
   currentTranslation: '',
   currentPhonetic: '',
+  _exampleLookupRoot: null,
+  _exampleLookupHandler: null,
+  _exampleLookupGlobalHandler: null,
+  _exampleTooltipDismissCleanup: null,
 
   // Today's reviewed words (persisted across sessions)
   TODAY_KEY: 'todayReviewedWords',
@@ -85,6 +90,7 @@ export const FlashcardView = {
 
   // Render flashcard view
   async render(container) {
+    this.cleanupExampleWordLookup();
     this.container = container;
     const allWords = await DB.getAllLearnWords();
     const dueWords = SpacedRepetition.getDueWords(allWords);
@@ -126,6 +132,7 @@ export const FlashcardView = {
 
   // Render a single word at the start of its recall phase.
   async renderCard(container) {
+    this.cleanupExampleWordLookup();
     if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
@@ -175,6 +182,7 @@ export const FlashcardView = {
   },
 
   renderRecall(container) {
+    this.cleanupExampleWordLookup();
     const word = this.words[this.currentIndex];
     const { meaningRevealed, isSubmitting } = this.reviewState;
     const knownDisabled = meaningRevealed || isSubmitting;
@@ -247,6 +255,7 @@ export const FlashcardView = {
   },
 
   renderStudy(container) {
+    this.cleanupExampleWordLookup();
     const word = this.words[this.currentIndex];
     const tabs = [
       ['examples', '例句'],
@@ -278,7 +287,12 @@ export const FlashcardView = {
             <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
           </div>
         </div>
+        <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
       </main>`;
+
+    if (this.studyTab === 'examples' && !this.studyDetails.loading) {
+      this.bindExampleWordLookup();
+    }
   },
 
   renderStudyPanel() {
@@ -291,7 +305,7 @@ export const FlashcardView = {
       if (!examples.length) return '<div class="flashcard-study-empty">暂无例句，下一次复习时会继续补充。</div>';
       return `<ol class="flashcard-example-list">${examples.map((example, index) => `
         <li class="flashcard-example-item">
-          <p>${esc(example)}</p>
+          <p class="flashcard-example-text" title="点击英文单词查看翻译">${esc(example)}</p>
           <button class="example-translate-btn" type="button" onclick="FlashcardView.translateExample(${index}, this)" title="翻译例句">译</button>
           <div class="example-translation" id="exTrans${index}"></div>
         </li>`).join('')}</ol>`;
@@ -322,6 +336,64 @@ export const FlashcardView = {
     if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !['examples', 'roots', 'related', 'memory'].includes(tab)) return;
     this.studyTab = tab;
     this.renderStudy(this.container);
+  },
+
+  bindExampleWordLookup() {
+    const root = this.container?.querySelector('.flashcard-study-panel');
+    if (!root) return;
+
+    this._exampleLookupRoot = root;
+    this._exampleLookupHandler = async (e) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target || target.closest('.example-translate-btn')) return;
+      if (!target.closest('.flashcard-example-item p')) return;
+
+      // Opening another word is deliberately a second tap: the first one only
+      // closes the current card so readers do not accidentally change lookups.
+      if (Tooltip.isVisible()) {
+        e.stopPropagation();
+        Tooltip.hide();
+        return;
+      }
+
+      const word = Tooltip.getWordAtPoint(e);
+      if (!word) return;
+
+      e.stopPropagation();
+      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
+      try {
+        const data = await Dictionary.lookup(word);
+        await Tooltip.show(lookupId, e.clientX, e.clientY, data);
+      } catch {
+        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
+      }
+    };
+    root.addEventListener('click', this._exampleLookupHandler);
+
+    this._exampleLookupGlobalHandler = (e) => {
+      const tooltip = document.getElementById('wordTooltip');
+      if (!tooltip || tooltip.style.display === 'none' || tooltip.contains(e.target)) return;
+      Tooltip.hide();
+    };
+    document.addEventListener('click', this._exampleLookupGlobalHandler);
+    this._exampleTooltipDismissCleanup = Tooltip.attachAutoDismiss();
+  },
+
+  cleanupExampleWordLookup() {
+    if (this._exampleLookupRoot && this._exampleLookupHandler) {
+      this._exampleLookupRoot.removeEventListener('click', this._exampleLookupHandler);
+    }
+    if (this._exampleLookupGlobalHandler) {
+      document.removeEventListener('click', this._exampleLookupGlobalHandler);
+    }
+    if (this._exampleTooltipDismissCleanup) {
+      this._exampleTooltipDismissCleanup();
+    }
+    this._exampleLookupRoot = null;
+    this._exampleLookupHandler = null;
+    this._exampleLookupGlobalHandler = null;
+    this._exampleTooltipDismissCleanup = null;
+    Tooltip.hide();
   },
 
   async loadStudyDetails(session) {
@@ -384,6 +456,7 @@ export const FlashcardView = {
 
   // Render completion result
   renderResult(container) {
+    this.cleanupExampleWordLookup();
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
     // Today's accumulated words (across multiple review sessions)
@@ -543,6 +616,10 @@ export const FlashcardView = {
         ChatView.addMessage('error', `生成失败：${err.message}`);
       }
     }
+  },
+
+  cleanup() {
+    this.cleanupExampleWordLookup();
   }
 };
 

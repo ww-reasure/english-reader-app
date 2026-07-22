@@ -19,6 +19,7 @@
   --amber: #a46d23;
   --amber-soft: #f5e8cb;
   --pine: #173f35;
+  --vocab-word: var(--pine);
   --pine-soft: #e3eee8;
   --paper-note: #fdfaf2;
   --danger: #ba3e4d;
@@ -80,6 +81,7 @@
   --amber-soft: #42341f;
   --danger: #ff8491;
   --pine: #0f2d26;
+  --vocab-word: var(--moss);
   --pine-soft: #183a31;
   --paper-note: #1d2825;
   --on-accent: #121817;
@@ -302,7 +304,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .reading-list-tabs-cat { margin-top:-8px; }
 .reading-list-tab-cat { color:var(--moss); }
 .vocab-card { display:flex; gap:12px; align-items:center; }
-.vocab-word .word { color:var(--pine); font-family:Georgia,serif; font-weight:700; }
+.vocab-word .word { color:var(--vocab-word); font-family:Georgia,serif; font-weight:700; }
 .vocab-translation { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-soft); }
 .learn-words-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(124px,1fr)); gap:0; border-top:1px solid var(--rule); }
 .learn-word-chip { display:flex; flex-direction:column; align-items:flex-start; gap:3px; min-height:76px; padding:12px 10px; border:0; border-right:1px solid var(--rule); border-bottom:1px solid var(--rule); border-radius:0; background:transparent; }
@@ -358,6 +360,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .flashcard-example-item { padding-bottom:16px; border-bottom:1px solid var(--rule); }
 .flashcard-example-item:last-child { padding-bottom:0; border-bottom:0; }
 .flashcard-example-item p { display:inline; margin:0; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:17px; line-height:1.7; }
+.flashcard-example-text { cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.flashcard-example-text:active { color:var(--moss); }
 .example-translate-btn { min-width:34px; min-height:30px; margin:7px 0 0 6px; border:1px solid var(--rule-strong); border-radius:3px; background:transparent; color:var(--moss); font-size:12px; font-weight:800; }
 .example-translation { margin-top:9px; padding-left:12px; border-left:2px solid var(--signal); color:var(--ink-soft); font-size:14px; line-height:1.65; }
 .flashcard-root-breakdown { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:21px; line-height:1.65; }

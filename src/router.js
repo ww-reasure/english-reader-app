@@ -27,7 +27,7 @@ export const Router = {
   routeHistory: null,
 
   // Views that have cleanup methods
-  viewsWithCleanup: ['ChatView', 'ReadingView', 'AssessmentView', 'ReadingListView'],
+  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'ReadingListView'],
 
   // Cleanup current view before navigation
   cleanupCurrentView() {
