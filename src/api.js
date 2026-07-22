@@ -199,7 +199,7 @@ ${rules}
   },
 
   // Generate an article
-  async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '') {
+  async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '', options = {}) {
     const contextSection = learningContext
       ? `\n\nRecent learning conversation (use only as a preference, never quote it):\n${learningContext}`
       : '';
@@ -210,7 +210,7 @@ ${rules}
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7
-    });
+    }, 60000, options.signal || null);
 
     const result = JSON.parse(data.choices[0].message.content);
     return {
@@ -293,7 +293,7 @@ ${rules}
   },
 
   // Generate review article that incorporates vocabulary words
-  async generateReviewArticle(words, difficulty, topic) {
+  async generateReviewArticle(words, difficulty, topic, options = {}) {
     const wordList = words.join(', ');
     const level = Config.get('level') || 'easy';
     const key = `${difficulty}_${level}`;
@@ -322,7 +322,7 @@ ${rules}
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7
-    });
+    }, 60000, options.signal || null);
 
     const result = JSON.parse(data.choices[0].message.content);
     return {

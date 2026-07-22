@@ -12,16 +12,23 @@ import { SpacedRepetition } from '../spaced-repetition.js';
 import { AudioCache } from '../audio-cache.js';
 import { Dictionary } from '../dictionary.js';
 import { ConversationStore } from '../components/conversation-store.js';
-import { LearningAgent } from '../components/learning-agent.js';
+import { LEARNING_TOOLS, LearningAgent } from '../components/learning-agent.js';
 import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
 import { classifyComposerIntent } from '../components/composer-intent.js';
 import { renderLearningMarkdown } from '../components/rich-text.js';
+import { ArticleGenerationTool, GENERATE_READING_TOOL } from '../components/article-generation-tool.js';
 
 const conversationStore = new ConversationStore();
 const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
 const contextBuilder = new ContextBuilder();
 const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder });
+const articleGenerationTool = new ArticleGenerationTool({
+  api: API,
+  db: DB,
+  pickWords: words => shuffleArray(words).slice(0, 8)
+});
+const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, GENERATE_READING_TOOL];
 
 // Chat history persistence
 export const ChatHistory = {
@@ -86,6 +93,9 @@ export const PendingArticles = {
 
 export const ChatView = {
   isReviewGenerating: false,
+  homeEpoch: 0,
+  _generationController: null,
+  _clearContextHandler: null,
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -251,13 +261,28 @@ export const ChatView = {
 
   // Clear chat history
   clearHistory() {
-    if (!confirm('确定要清空对话历史吗？')) return;
+    if (!confirm('清除本次对话的上下文和显示记录？已保存的阅读文章不受影响。')) return;
+    this.homeEpoch += 1;
     chatService.cancel('home');
+    this._generationController?.abort();
+    this._generationController = null;
+    this.resetGenerateButton();
+    this.isReviewGenerating = false;
+    this.removeThinking();
+    this.removeArticleGenerationStatus();
     conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
+  },
+
+  resetGenerateButton() {
+    const generateButton = document.getElementById('generateBtn');
+    if (!generateButton) return;
+    generateButton.disabled = false;
+    generateButton.textContent = '↑';
+    generateButton.setAttribute('aria-label', '发送问题');
   },
 
   studyAnchorMarkup() {
@@ -292,6 +317,11 @@ export const ChatView = {
 
     document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
     document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
+    const clearContextButton = document.getElementById('appClearContextBtn');
+    if (clearContextButton) {
+      this._clearContextHandler = () => this.clearHistory();
+      clearContextButton.addEventListener('click', this._clearContextHandler);
+    }
 
     document.getElementById('quickActionRail').addEventListener('click', (e) => {
       const action = e.target.closest('[data-action]');
@@ -347,6 +377,7 @@ export const ChatView = {
       return;
     }
 
+    const epoch = this.homeEpoch;
     this.appendConversation({ role: 'user', kind: 'text', content: value });
     input.value = '';
     if (classifyComposerIntent(value) === 'generate') {
@@ -359,14 +390,39 @@ export const ChatView = {
         sessionKey: 'home',
         session,
         userMessage: value,
-        kind: 'home'
+        kind: 'home',
+        tools: HOME_LEARNING_TOOLS,
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch)
       });
       this.removeThinking();
+      this.removeArticleGenerationStatus();
+      if (epoch !== this.homeEpoch) return;
       this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+      reply.artifacts.forEach(artifact => {
+        if (artifact.type === 'article') this.addArticleCard(artifact.article);
+      });
     } catch (error) {
       this.removeThinking();
-      this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答：' + error.message });
+      this.removeArticleGenerationStatus();
+      if (epoch === this.homeEpoch) {
+        this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答：' + error.message });
+      }
     }
+  },
+
+  async executeHomeTool(name, args, { signal }, epoch) {
+    if (name !== 'generate_reading') {
+      return { result: await learningAgent.execute(name, args) };
+    }
+    this.showArticleGenerationStatus();
+    const { article, metadata } = await articleGenerationTool.execute(args, {
+      fallbackDifficulty: document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4',
+      fallbackTopic: this.getTopic(),
+      learningContext: this.buildGenerationContext(),
+      signal,
+      isActive: () => epoch === this.homeEpoch
+    });
+    return { result: metadata, artifact: { type: 'article', article } };
   },
 
   buildGenerationContext() {
@@ -381,7 +437,7 @@ export const ChatView = {
 
   // Get selected topic
   getTopic() {
-    const select = document.getElementById('topicSelect').value;
+    const select = document.getElementById('topicSelect')?.value;
     if (select === 'custom') {
       return document.getElementById('topicInput').value.trim() || 'general';
     }
@@ -402,21 +458,8 @@ export const ChatView = {
     const prompt = providedPrompt ?? document.getElementById('promptInput').value.trim();
     const difficulty = document.getElementById('difficultySelect').value;
     const topic = this.getTopic();
-    const userKeywords = document.getElementById('topicInput').value.trim();
-
-    // Empty prompt = random generation
+    const epoch = this.homeEpoch;
     const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[difficulty]}难度的英语阅读文章。`;
-
-    // Get words from learn library for review
-    const learnWords = await DB.getAllLearnWords();
-    let reviewKeywords = '';
-    if (learnWords.length > 0) {
-      const selected = shuffleArray(learnWords).slice(0, 8);
-      reviewKeywords = selected.map(w => w.word).join(', ');
-    }
-
-    // Combine user keywords with review words
-    const allKeywords = [userKeywords, reviewKeywords].filter(Boolean).join(', ');
 
     if (!alreadyAdded) {
       this.addMessage('user', prompt
@@ -433,40 +476,47 @@ export const ChatView = {
     // Clear input immediately
     const promptInput = document.getElementById('promptInput');
     if (promptInput) promptInput.value = '';
+    const controller = new AbortController();
+    this._generationController?.abort();
+    this._generationController = controller;
+    this.showArticleGenerationStatus();
 
     try {
-      const article = await API.generateArticle(
-        effectivePrompt,
+      const { article: articleWithId, keywords } = await articleGenerationTool.execute({
+        request: effectivePrompt,
         difficulty,
         topic,
-        allKeywords,
-        400,
-        this.buildGenerationContext()
-      );
-      const id = await DB.saveArticle(article);
-      const articleWithId = { ...article, id };
+        wordCount: 400
+      }, {
+        fallbackDifficulty: difficulty,
+        fallbackTopic: topic,
+        learningContext: this.buildGenerationContext(),
+        signal: controller.signal,
+        isActive: () => epoch === this.homeEpoch
+      });
+      if (epoch !== this.homeEpoch) return;
 
       // Check if we're still on the chat page
       const chatMessages = document.getElementById('chatMessages');
       if (chatMessages) {
         this.addArticleCard(articleWithId);
-        if (reviewKeywords) {
-          this.addMessage('system', `已自动融入学习词库中的单词：${reviewKeywords}`);
+        if (keywords) {
+          this.addMessage('system', `已自动融入学习词库中的单词：${keywords}`);
         }
       } else {
         // User navigated away, save to pending queue
-        PendingArticles.add(articleWithId, reviewKeywords);
+        PendingArticles.add(articleWithId, keywords);
       }
     } catch (err) {
       const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages) {
+      if (chatMessages && epoch === this.homeEpoch) {
         this.addMessage('error', `错误：${err.message}`);
       }
     } finally {
-      if (generateButton) {
-        generateButton.disabled = false;
-        generateButton.textContent = '↑';
-        generateButton.setAttribute('aria-label', '发送问题');
+      if (this._generationController === controller) {
+        this._generationController = null;
+        this.resetGenerateButton();
+        this.removeArticleGenerationStatus();
       }
     }
   },
@@ -500,17 +550,27 @@ export const ChatView = {
 
     const difficulty = document.getElementById('difficultySelect').value;
     const topic = this.getTopic();
+    const epoch = this.homeEpoch;
+    const controller = new AbortController();
+    this._generationController?.abort();
+    this._generationController = controller;
     this.isReviewGenerating = true;
 
     this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词`);
+    this.showArticleGenerationStatus('正在制作复习阅读…');
 
     try {
-      const article = await API.generateReviewArticle(reviewWords, difficulty, topic);
+      const article = await API.generateReviewArticle(reviewWords, difficulty, topic, { signal: controller.signal });
+      if (controller.signal.aborted || epoch !== this.homeEpoch) return;
       const id = await DB.saveArticle({ ...article, reviewMode: true });
+      if (controller.signal.aborted || epoch !== this.homeEpoch) {
+        await DB.deleteArticle(id);
+        return;
+      }
       const articleWithId = { ...article, id, reviewMode: true };
 
       const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages) {
+      if (chatMessages && epoch === this.homeEpoch) {
         this.addArticleCard(articleWithId);
         const usedCount = article.usedWords?.length || 0;
         this.addMessage('system', `📝 已从 ${reviewWords.length} 个待复习词中挑选 ${usedCount} 个融入文章，点击阅读开始复习`);
@@ -519,10 +579,14 @@ export const ChatView = {
       }
     } catch (err) {
       const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages) {
+      if (chatMessages && epoch === this.homeEpoch) {
         this.addMessage('error', `错误：${err.message}`);
       }
     } finally {
+      if (this._generationController === controller) {
+        this._generationController = null;
+        this.removeArticleGenerationStatus();
+      }
       this.isReviewGenerating = false;
     }
   },
@@ -551,6 +615,22 @@ export const ChatView = {
 
   removeThinking() {
     document.getElementById('chatThinking')?.remove();
+  },
+
+  showArticleGenerationStatus(label = '文章定制中…') {
+    this.removeThinking();
+    const container = document.getElementById('chatMessages');
+    if (!container || document.getElementById('articleGenerationStatus')) return;
+    const status = document.createElement('div');
+    status.id = 'articleGenerationStatus';
+    status.className = 'message ai-message chat-thinking article-generation-status';
+    status.innerHTML = `<i class="fa-solid fa-pen-ruler" aria-hidden="true"></i><span>${esc(label)}</span>`;
+    container.appendChild(status);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  removeArticleGenerationStatus() {
+    document.getElementById('articleGenerationStatus')?.remove();
   },
 
   // Compatibility entry point used by reading and review flows.
@@ -611,8 +691,17 @@ export const ChatView = {
   },
 
   cleanup() {
+    this.homeEpoch += 1;
     chatService.cancel('home');
+    this._generationController?.abort();
+    this._generationController = null;
     this.removeThinking();
+    this.removeArticleGenerationStatus();
+    const clearContextButton = document.getElementById('appClearContextBtn');
+    if (clearContextButton && this._clearContextHandler) {
+      clearContextButton.removeEventListener('click', this._clearContextHandler);
+    }
+    this._clearContextHandler = null;
     if (this._importHandler) {
       document.removeEventListener('article-imported', this._importHandler);
       this._importHandler = null;

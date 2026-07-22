@@ -11,10 +11,14 @@ test('composer routes explicit article requests into the learning-reading flow',
   assert.ok(intentModule, 'composer intent router module is required');
   assert.equal(intentModule.classifyComposerIntent('请生成一篇关于科技的四级英语阅读'), 'generate');
   assert.equal(intentModule.classifyComposerIntent('帮我来一篇旅行主题的英文文章'), 'generate');
+  assert.equal(intentModule.classifyComposerIntent('我想读一篇旅行主题的英语阅读'), 'generate');
+  assert.equal(intentModule.classifyComposerIntent('给我一篇考研英语阅读练习'), 'generate');
+  assert.equal(intentModule.classifyComposerIntent('请写一篇关于 AI 教育的英文文章'), 'generate');
 });
 
 test('composer keeps questions about reading generation in the chat flow', () => {
   assert.ok(intentModule, 'composer intent router module is required');
   assert.equal(intentModule.classifyComposerIntent('怎么生成一篇适合我的文章？'), 'chat');
+  assert.equal(intentModule.classifyComposerIntent('为什么文章生成失败？'), 'chat');
   assert.equal(intentModule.classifyComposerIntent('我今天最应该复习什么？'), 'chat');
 });

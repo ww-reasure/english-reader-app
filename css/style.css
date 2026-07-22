@@ -133,12 +133,13 @@ body.app-shell-active #app { height:100dvh; min-height:0; padding:0; }
 .app-shell { min-height:100dvh; background:transparent; }
 .app-shell--chat { height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
 .app-shell--standard { height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
-.app-header { position:relative; z-index:40; min-height:76px; display:grid; grid-template-columns:48px minmax(0,1fr) 48px; align-items:center; gap:10px; padding:calc(12px + var(--safe-area-inset-top, env(safe-area-inset-top,0px))) 16px 12px; border-bottom:1px solid var(--border-light); background:color-mix(in srgb,var(--surface) 97%,transparent); backdrop-filter:blur(16px); }
+.app-header { position:relative; z-index:40; min-height:76px; display:grid; grid-template-columns:48px minmax(0,1fr) auto; align-items:center; gap:10px; padding:calc(12px + var(--safe-area-inset-top, env(safe-area-inset-top,0px))) 16px 12px; border-bottom:1px solid var(--border-light); background:color-mix(in srgb,var(--surface) 97%,transparent); backdrop-filter:blur(16px); }
 .app-header-copy { min-width:0; }
 .app-header-kicker { margin:0 0 2px; color:var(--moss); font-family:ui-monospace,monospace; font-size:9px; font-weight:800; letter-spacing:.13em; line-height:1; }
 .app-header-title { margin:0; overflow:hidden; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:21px; font-weight:700; line-height:1.08; letter-spacing:-.04em; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
 .app-icon-button { width:48px; height:48px; display:grid; place-items:center; padding:0; border:0; border-radius:999px; background:transparent; color:var(--ink); font-size:18px; line-height:1; text-decoration:none; }
 .app-icon-button:active { background:var(--surface-soft); transform:scale(.94); }
+.app-header-actions { display:flex; align-items:center; justify-self:end; gap:2px; }
 .app-page-outlet { min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; }
 .app-shell--chat .app-page-outlet { display:grid; overflow:hidden; }
 .app-drawer-backdrop { position:fixed; z-index:48; inset:0; display:block; border:0; background:rgba(18,24,23,.35); opacity:0; pointer-events:none; transition:opacity var(--duration) var(--ease); }
@@ -199,6 +200,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .chat-study-copy p { margin:0 0 5px; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:clamp(24px,7vw,31px); font-weight:700; letter-spacing:-.045em; line-height:1.1; }
 .chat-study-copy span { display:block; max-width:340px; color:var(--ink-soft); font-size:13px; line-height:1.65; }
 .chat-thinking { padding:10px 12px; border:1px dashed var(--rule-strong); border-radius:14px; color:var(--muted); font-size:12px; }
+.article-generation-status { display:flex; align-items:center; gap:8px; border-style:solid; border-color:color-mix(in srgb,var(--moss) 45%,var(--rule)); background:var(--surface-soft); color:var(--moss); font-weight:700; }
+.article-generation-status > i { animation:article-status-pulse 1.2s ease-in-out infinite; }
+@keyframes article-status-pulse { 50% { opacity:.38; transform:translateY(-1px); } }
 .error-message { border-color:color-mix(in srgb,var(--danger) 45%,var(--border)); background:var(--error-surface); color:var(--danger); }
 .chat-composer { position:relative; z-index:3; padding:11px 12px calc(13px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); border-top:1px solid var(--border-light); background:color-mix(in srgb,var(--surface) 98%,transparent); box-shadow:0 -12px 28px rgba(23,32,31,.06); }
 .quick-action-rail { width:100%; min-width:0; display:flex; flex-wrap:nowrap; gap:8px; overflow-x:auto; overscroll-behavior-x:contain; touch-action:pan-x; padding:2px 4px 11px; scrollbar-width:none; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; }

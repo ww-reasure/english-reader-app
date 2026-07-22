@@ -111,6 +111,18 @@ test('in-card updates keep rendering inside the shell outlet', async () => {
   assert.doesNotMatch(source, /document\.getElementById\('app'\)/);
 });
 
+test('learn word in-place actions preserve the AppShell outlet', async () => {
+  const source = await readFile(new URL('../src/views/learn-words.js', import.meta.url), 'utf8');
+
+  assert.match(source, /container:\s*null/);
+  assert.match(source, /this\.container = container/);
+  assert.match(source, /setFilter\(mode\)\s*\{\s*this\.filterMode = mode;\s*this\.render\(this\.container\);/s);
+  assert.match(source, /toggleManage\(\)\s*\{\s*this\.manageMode = !this\.manageMode;\s*this\.render\(this\.container\);/s);
+  assert.match(source, /async deleteWord\(id\)\s*\{[\s\S]*?await DB\.deleteLearnWord\(id\);[\s\S]*?if \(words\.length === 0\)\s*\{\s*this\.manageMode = false;\s*\}\s*await this\.render\(this\.container\);/s);
+  assert.match(source, /clearAll\(\)\s*\{[\s\S]*?this\.render\(this\.container\);/s);
+  assert.doesNotMatch(source, /document\.getElementById\('app'\)/);
+});
+
 test('recall scoring uses one segmented action group with feedback icons', async () => {
   const [source, css] = await Promise.all([
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),

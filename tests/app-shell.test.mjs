@@ -19,3 +19,10 @@ test('keeps flashcard review in the standard English Learning header', async () 
 
   assert.deepEqual(meta, { navKey: 'vocab', title: '单词复习' });
 });
+
+test('reserves the clear-context header action for the chat route', async () => {
+  const source = await readFile(new URL('../src/components/app-shell.js', import.meta.url), 'utf8');
+  assert.match(source, /meta\.navKey === 'chat'/);
+  assert.match(source, /appClearContextBtn/);
+  assert.match(source, /app-header-actions/);
+});

@@ -14,9 +14,11 @@ import { esc } from '../helpers.js';
 export const LearnWordsView = {
   manageMode: false,
   filterMode: 'all',  // all | new | learning | review | mastered
+  container: null,
 
   // Render learn words view
   async render(container) {
+    this.container = container;
     const words = await DB.getAllLearnWords();
     const dueCount = SpacedRepetition.getDueCount(words);
 
@@ -108,27 +110,23 @@ export const LearnWordsView = {
   // Set filter mode
   setFilter(mode) {
     this.filterMode = mode;
-    this.render(document.getElementById('app'));
+    this.render(this.container);
   },
 
   // Toggle manage mode
   toggleManage() {
     this.manageMode = !this.manageMode;
-    this.render(document.getElementById('app'));
+    this.render(this.container);
   },
 
   // Delete a word
   async deleteWord(id) {
     await DB.deleteLearnWord(id);
-    const el = document.getElementById(`learn-word-${id}`);
-    if (el) el.remove();
-
-    // Check if list is now empty
     const words = await DB.getAllLearnWords();
     if (words.length === 0) {
       this.manageMode = false;
-      this.render(document.getElementById('app'));
     }
+    await this.render(this.container);
   },
 
   // Show word detail popup
@@ -240,7 +238,7 @@ export const LearnWordsView = {
     if (!confirm('确定要清空所有学习单词吗？此操作不可撤销。')) return;
     await DB.clearLearnWords();
     this.manageMode = false;
-    this.render(document.getElementById('app'));
+    this.render(this.container);
   }
 };
 
