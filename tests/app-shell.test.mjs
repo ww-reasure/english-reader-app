@@ -12,3 +12,10 @@ test('maps article routes to the bookshelf drawer item', async () => {
   assert.equal(AppShell.getRouteMeta('#/reading/42').navKey, 'reading-list');
   assert.equal(AppShell.getRouteMeta('#/history').title, '阅读记录');
 });
+
+test('keeps flashcard review in the standard English Learning header', async () => {
+  const { AppShell } = await loadShell();
+  const meta = AppShell.getRouteMeta('#/flashcard');
+
+  assert.deepEqual(meta, { navKey: 'vocab', title: '单词复习' });
+});

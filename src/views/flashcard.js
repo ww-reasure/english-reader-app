@@ -21,14 +21,26 @@ import { API } from '../api.js';
 import { ChatView } from './chat.js';
 import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
+import {
+  REVIEW_PHASES,
+  createReviewState,
+  revealMeaning,
+  startRating,
+  finishRating,
+  skipWord,
+  nextWord
+} from '../flashcard-flow.mjs';
 
 export const FlashcardView = {
   words: [],
   currentIndex: 0,
   ratingCounts: { 1: 0, 3: 0, 5: 0 },
   reviewedWords: [],       // Current session
-  isFlipped: false,
-  pendingQuality: null,
+  reviewState: createReviewState(),
+  studyTab: 'examples',
+  studyDetails: { examples: [], rootAnalysis: null, loading: false },
+  cardSession: 0,
+  container: null,
   currentTranslation: '',
   currentPhonetic: '',
 
@@ -73,6 +85,7 @@ export const FlashcardView = {
 
   // Render flashcard view
   async render(container) {
+    this.container = container;
     const allWords = await DB.getAllLearnWords();
     const dueWords = SpacedRepetition.getDueWords(allWords);
 
@@ -80,9 +93,10 @@ export const FlashcardView = {
       const totalWords = allWords.length;
       const masteredCount = allWords.filter(w => SpacedRepetition.getStatus(w) === 'mastered').length;
       container.innerHTML = `
-        <section class="app-standard-page flashcard-container" aria-labelledby="flashcardContentTitle">
+        <section class="app-standard-page flashcard-review-shell flashcard-review-shell--empty" aria-labelledby="flashcardContentTitle">
+          <div class="flashcard-container">
           <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
-          <div class="empty-state">
+          <div class="empty-state flashcard-empty-sheet">
             <p>🎉 暂时没有需要复习的单词</p>
             ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个已掌握</p>` : ''}
             <p>去阅读页面收藏新单词，或导入单词到学习词库。</p>
@@ -90,6 +104,7 @@ export const FlashcardView = {
               <a href="#/chat" class="btn btn-primary">去阅读</a>
               <a href="#/learn-words" class="btn btn-outline">学习词库</a>
             </div>
+          </div>
           </div>
         </section>`;
       return;
@@ -109,21 +124,20 @@ export const FlashcardView = {
     return SpacedRepetition.getDueCount(allWords);
   },
 
-  // Render a single flashcard
+  // Render a single word at the start of its recall phase.
   async renderCard(container) {
     if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
     }
 
-    this.isFlipped = false;
-    this.pendingQuality = null;
-
+    const session = ++this.cardSession;
     const word = this.words[this.currentIndex];
-    const statusInfo = SpacedRepetition.getStatusDisplay(word);
-    const progress = Math.round((this.currentIndex / this.words.length) * 100);
+    this.reviewState = createReviewState();
+    this.studyTab = 'examples';
+    this.studyDetails = { examples: [], rootAnalysis: null, loading: false };
+    this.reviewNotice = '';
 
-    // Get translation and phonetic (from DB or dictionary lookup)
     let translation = word.translation || '';
     let phonetic = word.phonetic || '';
     if (!translation) {
@@ -136,189 +150,210 @@ export const FlashcardView = {
         translation = '暂无翻译';
       }
     }
+
+    if (session !== this.cardSession) return;
     this.currentTranslation = translation;
     this.currentPhonetic = phonetic;
+    this.renderRecall(container);
+  },
 
-    container.innerHTML = `
-      <div class="flashcard-container">
-        <div class="flashcard-progress">
-          <span class="page-eyebrow">03 / RECALL</span>
-          <span>${this.currentIndex + 1} / ${this.words.length}</span>
-          <span class="flashcard-status-badge" style="background:${statusInfo.color}">${statusInfo.icon} ${statusInfo.label}</span>
-        </div>
-        <div class="flashcard-progress-bar">
-          <div class="flashcard-progress-fill" style="width:${progress}%"></div>
-        </div>
-        <div class="flashcard" id="flashcard" onclick="FlashcardView.flipCard()">
-          <div class="flashcard-front" id="flashcardFront">
-            <div class="flashcard-word">${esc(word.word)}</div>
-            ${phonetic ? `<div class="flashcard-phonetic">[${esc(phonetic)}]</div>` : ''}
-            <div class="flashcard-hint">点击查看释义</div>
-          </div>
-          <div class="flashcard-back" id="flashcardBack" style="display:none">
-            <div class="flashcard-translation">${esc(translation)}</div>
-            ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
-            <div id="flashcardDetails" class="flashcard-details"></div>
-            <div class="flashcard-hint" id="flashcardBackHint">根据记忆程度选择评分</div>
-          </div>
-        </div>
-        <div class="flashcard-actions" id="flashcardActions">
-          <button class="flashcard-rating-btn flashcard-btn-knew" id="btnKnew"
-            onclick="FlashcardView.rate(5)" title="没翻就知道意思">
-            认识
-          </button>
-          <button class="flashcard-rating-btn flashcard-btn-fuzzy"
-            onclick="FlashcardView.rateAndFlip(3)" title="想了一下">
-            模糊
-          </button>
-          <button class="flashcard-rating-btn flashcard-btn-forgot"
-            onclick="FlashcardView.rateAndFlip(1)" title="完全不认识">
-            忘了
-          </button>
-        </div>
-        <div id="flashcardNext" style="display:none" class="flashcard-next-container">
-          <button class="btn btn-primary" onclick="FlashcardView.goNext()">下一词</button>
-        </div>
-        <div class="flashcard-skip">
-          <button class="btn btn-outline btn-sm" onclick="FlashcardView.skip()">跳过</button>
-        </div>
+  renderProgress(phase) {
+    const word = this.words[this.currentIndex];
+    const statusInfo = SpacedRepetition.getStatusDisplay(word);
+    const progress = Math.round((this.currentIndex / this.words.length) * 100);
+    return `
+      <div class="flashcard-progress-block">
+      <div class="flashcard-progress">
+        <span class="page-eyebrow">03 / ${phase}</span>
+        <span class="flashcard-progress-count">${this.currentIndex + 1} / ${this.words.length}</span>
+        <span class="flashcard-status-badge" style="--status-color:${statusInfo.color}">${statusInfo.icon} ${statusInfo.label}</span>
+      </div>
+      <div class="flashcard-progress-bar" aria-hidden="true">
+        <div class="flashcard-progress-fill" style="width:${progress}%"></div>
+      </div>
       </div>`;
   },
 
-  // Flip card (toggle between front and back)
-  flipCard() {
-    const card = document.getElementById('flashcard');
-    const front = document.getElementById('flashcardFront');
-    const back = document.getElementById('flashcardBack');
-    const btnKnew = document.getElementById('btnKnew');
+  renderRecall(container) {
+    const word = this.words[this.currentIndex];
+    const { meaningRevealed, isSubmitting } = this.reviewState;
+    const knownDisabled = meaningRevealed || isSubmitting;
+    const submitLabel = isSubmitting ? '保存中…' : '';
 
-    if (!this.isFlipped) {
-      // Flip to back
-      this.isFlipped = true;
-      if (front) front.style.display = 'none';
-      if (back) back.style.display = 'block';
-      if (btnKnew) {
-        btnKnew.disabled = true;
-        btnKnew.style.opacity = '0.3';
-        btnKnew.style.cursor = 'not-allowed';
-      }
-      // Load word details (examples + roots) async
-      this.loadWordDetails();
-    } else {
-      // Flip back to front
-      this.isFlipped = false;
-      if (front) front.style.display = 'block';
-      if (back) back.style.display = 'none';
-    }
+    container.innerHTML = `
+      <main class="app-standard-page flashcard-review-shell flashcard-review-shell--recall" aria-labelledby="flashcardContentTitle">
+        <div class="flashcard-container">
+          <h2 id="flashcardContentTitle" class="sr-only">单词回忆评分</h2>
+          ${this.renderProgress('RECALL')}
+          <section class="flashcard flashcard-recall-card flashcard-recall-stage" aria-live="polite">
+            <div class="flashcard-front">
+              <div class="flashcard-word">${esc(word.word)}</div>
+              ${this.currentPhonetic ? `<div class="flashcard-phonetic">[${esc(this.currentPhonetic)}]</div>` : ''}
+              ${meaningRevealed
+                ? `<div class="flashcard-recall-meaning">${esc(this.currentTranslation)}</div><p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`
+                : `<button class="flashcard-reveal-btn" type="button" onclick="FlashcardView.showMeaning()">点击查看释义</button>`}
+            </div>
+          </section>
+          ${this.reviewNotice ? `<p class="flashcard-review-notice" role="alert">${esc(this.reviewNotice)}</p>` : ''}
+          <div class="flashcard-actions flashcard-rating-group" aria-label="回忆评分">
+            <button class="flashcard-rating-btn flashcard-btn-knew" type="button" ${knownDisabled ? 'disabled' : ''}
+              onclick="FlashcardView.submitRating(5)" title="未查看释义就认识"><i class="fa-regular fa-face-smile flashcard-rating-icon" aria-hidden="true"></i><span>${submitLabel || '认识'}</span></button>
+            <button class="flashcard-rating-btn flashcard-btn-fuzzy" type="button" ${isSubmitting ? 'disabled' : ''}
+              onclick="FlashcardView.submitRating(3)" title="记得不够确定"><i class="fa-regular fa-face-meh flashcard-rating-icon" aria-hidden="true"></i><span>${submitLabel || '模糊'}</span></button>
+            <button class="flashcard-rating-btn flashcard-btn-forgot" type="button" ${isSubmitting ? 'disabled' : ''}
+              onclick="FlashcardView.submitRating(1)" title="没有回忆起来"><i class="fa-regular fa-face-frown flashcard-rating-icon" aria-hidden="true"></i><span>${submitLabel || '忘了'}</span></button>
+          </div>
+          <div class="flashcard-skip">
+            <button class="flashcard-skip-btn" type="button" ${isSubmitting ? 'disabled' : ''} onclick="FlashcardView.skip()">跳过</button>
+          </div>
+        </div>
+      </main>`;
   },
 
-  // Load word details (examples + word root + memory tip) for current card
-  async loadWordDetails() {
-    const word = this.words[this.currentIndex];
-    const detailsEl = document.getElementById('flashcardDetails');
-    if (!detailsEl) return;
+  showMeaning() {
+    const nextState = revealMeaning(this.reviewState);
+    if (nextState === this.reviewState) return;
+    this.reviewState = nextState;
+    this.renderRecall(this.container);
+  },
 
-    // Show loading
-    detailsEl.innerHTML = '<div class="details-loading">加载详情...</div>';
+  async submitRating(quality) {
+    const submittingState = startRating(this.reviewState, quality);
+    if (!submittingState) return;
+
+    const session = this.cardSession;
+    this.reviewState = submittingState;
+    this.renderRecall(this.container);
 
     try {
-      // Load examples and root analysis in parallel
-      const [examples, rootAnalysis] = await Promise.all([
-        Examples.getExamples(word.word).catch(() => []),
-        Affixes.getAnalysis(word.word).catch(() => null)
-      ]);
-      this._currentExamples = examples;
-
-      let html = '';
-
-      // Word root analysis (AI-generated format)
-      if (rootAnalysis) {
-        html += '<div class="details-section">';
-
-        // Breakdown
-        if (rootAnalysis.breakdown) {
-          html += '<div class="details-label">🔤 词根拆解</div>';
-          html += `<div class="details-breakdown">${esc(rootAnalysis.breakdown)}</div>`;
-        }
-
-        // Origin
-        if (rootAnalysis.origin) {
-          html += `<div class="details-origin">词源：${esc(rootAnalysis.origin)}</div>`;
-        }
-
-        // Related words
-        if (rootAnalysis.relatedWords && rootAnalysis.relatedWords.length > 0) {
-          html += `<div class="details-related">🔗 同根词：${rootAnalysis.relatedWords.map(w => esc(w)).join(', ')}</div>`;
-        }
-
-        // Memory tip
-        if (rootAnalysis.memoryTip) {
-          html += `<div class="details-memory">💡 记忆法：${esc(rootAnalysis.memoryTip)}</div>`;
-        }
-
-        html += '</div>';
-      }
-
-      // Examples
-      if (examples.length > 0) {
-        html += '<div class="details-section">';
-        html += '<div class="details-label">📝 例句</div>';
-        html += '<div class="details-examples">';
-        examples.forEach((ex, i) => {
-          html += `<div class="details-example">• ${esc(ex)} <button class="example-translate-btn" onclick="FlashcardView.translateExample(${i}, this)" title="翻译">译</button><div class="example-translation" id="exTrans${i}"></div></div>`;
-        });
-        html += '</div></div>';
-      }
-
-      if (html) {
-        detailsEl.innerHTML = html;
-      } else {
-        detailsEl.innerHTML = '';
-      }
+      await this.recordRating(quality);
     } catch {
-      detailsEl.innerHTML = '';
+      if (session !== this.cardSession) return;
+      this.reviewState = {
+        ...this.reviewState,
+        pendingQuality: null,
+        isSubmitting: false
+      };
+      this.reviewNotice = '评分保存失败，请重试。';
+      this.renderRecall(this.container);
+      return;
     }
+
+    if (session !== this.cardSession) return;
+    this.reviewState = finishRating(this.reviewState);
+    this.studyDetails = { examples: [], rootAnalysis: null, loading: true };
+    this.renderStudy(this.container);
+    this.loadStudyDetails(session);
   },
 
-  // Rate as "认识" (5) — only works when NOT flipped
-  async rate(quality) {
-    if (this.isFlipped) return; // Should not happen, but guard
+  renderStudy(container) {
+    const word = this.words[this.currentIndex];
+    const tabs = [
+      ['examples', '例句'],
+      ['roots', '词根'],
+      ['related', '同根词'],
+      ['memory', '记忆法']
+    ];
 
-    // Record and go next immediately
-    await this.recordRating(quality);
+    container.innerHTML = `
+      <main class="app-standard-page flashcard-review-shell flashcard-review-shell--study" aria-labelledby="flashcardStudyTitle">
+        <div class="flashcard-container">
+          <h2 id="flashcardStudyTitle" class="sr-only">单词学习详情</h2>
+          ${this.renderProgress('STUDY')}
+          <section class="flashcard-study-sheet">
+            <div class="flashcard-study-head">
+              <div class="flashcard-study-word">${esc(word.word)}</div>
+              ${this.currentPhonetic ? `<div class="flashcard-phonetic">[${esc(this.currentPhonetic)}]</div>` : ''}
+              <div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>
+              ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
+            </div>
+            <div class="flashcard-study-panel" role="tabpanel">
+              ${this.renderStudyPanel()}
+            </div>
+            <div class="flashcard-study-tabs" role="tablist" aria-label="学习资料">
+              ${tabs.map(([id, label]) => `<button class="flashcard-study-tab ${this.studyTab === id ? 'active' : ''}" type="button" role="tab" aria-selected="${this.studyTab === id}" onclick="FlashcardView.setStudyTab('${id}')">${label}</button>`).join('')}
+            </div>
+          </section>
+          <div class="flashcard-study-next">
+            <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
+          </div>
+        </div>
+      </main>`;
+  },
+
+  renderStudyPanel() {
+    if (this.studyDetails.loading) {
+      return '<div class="flashcard-study-loading">正在整理学习资料…</div>';
+    }
+
+    const { examples, rootAnalysis } = this.studyDetails;
+    if (this.studyTab === 'examples') {
+      if (!examples.length) return '<div class="flashcard-study-empty">暂无例句，下一次复习时会继续补充。</div>';
+      return `<ol class="flashcard-example-list">${examples.map((example, index) => `
+        <li class="flashcard-example-item">
+          <p>${esc(example)}</p>
+          <button class="example-translate-btn" type="button" onclick="FlashcardView.translateExample(${index}, this)" title="翻译例句">译</button>
+          <div class="example-translation" id="exTrans${index}"></div>
+        </li>`).join('')}</ol>`;
+    }
+
+    if (this.studyTab === 'roots') {
+      if (!rootAnalysis?.breakdown && !rootAnalysis?.origin) return '<div class="flashcard-study-empty">暂无词根分析。</div>';
+      return `
+        ${rootAnalysis.breakdown ? `<div class="flashcard-root-breakdown">${esc(rootAnalysis.breakdown)}</div>` : ''}
+        ${rootAnalysis.origin ? `<div class="flashcard-root-origin">词源：${esc(rootAnalysis.origin)}</div>` : ''}`;
+    }
+
+    if (this.studyTab === 'related') {
+      const relatedWords = Affixes.getRelatedWordDetails(rootAnalysis);
+      if (!relatedWords.length) return '<div class="flashcard-study-empty">暂无同根词。</div>';
+      return `<div class="flashcard-related-list">${relatedWords.map(({ word, translation }) => `
+        <div class="flashcard-related-word">
+          <span class="flashcard-related-term">${esc(word)}</span>
+          <span class="flashcard-related-translation">${translation ? esc(translation) : '暂无释义'}</span>
+        </div>`).join('')}</div>`;
+    }
+
+    if (!rootAnalysis?.memoryTip) return '<div class="flashcard-study-empty">暂无记忆法。</div>';
+    return `<p class="flashcard-memory-tip">${esc(rootAnalysis.memoryTip)}</p>`;
+  },
+
+  setStudyTab(tab) {
+    if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !['examples', 'roots', 'related', 'memory'].includes(tab)) return;
+    this.studyTab = tab;
+    this.renderStudy(this.container);
+  },
+
+  async loadStudyDetails(session) {
+    const word = this.words[this.currentIndex];
+    const [examples, rootAnalysis] = await Promise.all([
+      Examples.getExamples(word.word).catch(() => []),
+      Affixes.getAnalysis(word.word).catch(() => null)
+    ]);
+
+    if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY) return;
+    this._currentExamples = examples;
+    this.studyDetails = { examples, rootAnalysis, loading: false };
+    this.renderStudy(this.container);
+    this.loadRelatedTranslations(session, word.word, rootAnalysis);
+  },
+
+  async loadRelatedTranslations(session, word, rootAnalysis) {
+    if (!rootAnalysis || Affixes.getRelatedWordDetails(rootAnalysis).every(item => item.translation)) return;
+    const enriched = await Affixes.enrichRelatedTranslations(word, rootAnalysis).catch(() => rootAnalysis);
+    if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY || !enriched) return;
+    this.studyDetails = { ...this.studyDetails, rootAnalysis: enriched };
+    if (this.studyTab === 'related') this.renderStudy(this.container);
+  },
+
+  advanceToNextWord() {
+    if (!nextWord(this.reviewState)) return;
     this.currentIndex++;
-    this.renderCard(document.getElementById('app'));
+    this.renderCard(this.container);
   },
 
-  // Rate as 模糊(3) or 忘了(1) — auto flip, then show "下一词"
-  async rateAndFlip(quality) {
-    this.pendingQuality = quality;
-
-    // Auto flip if not already
-    if (!this.isFlipped) {
-      this.flipCard();
-    }
-
-    // Show "下一词" button, hide rating buttons
-    const actions = document.getElementById('flashcardActions');
-    const nextBtn = document.getElementById('flashcardNext');
-    const hint = document.getElementById('flashcardBackHint');
-
-    if (actions) actions.style.display = 'none';
-    if (nextBtn) nextBtn.style.display = 'block';
-    if (hint) {
-      const labels = { 1: '❌ 忘了', 3: '🔶 模糊' };
-      hint.textContent = labels[quality] + ' — 点击「下一词」继续';
-    }
-  },
-
-  // Go to next word (after rating 模糊/忘了)
-  async goNext() {
-    if (this.pendingQuality !== null) {
-      await this.recordRating(this.pendingQuality);
-    }
-    this.currentIndex++;
-    this.renderCard(document.getElementById('app'));
+  restart() {
+    this.render(this.container);
   },
 
   // Record a rating
@@ -342,8 +377,9 @@ export const FlashcardView = {
 
   // Skip current word (don't rate)
   skip() {
+    if (!skipWord(this.reviewState)) return;
     this.currentIndex++;
-    this.renderCard(document.getElementById('app'));
+    this.renderCard(this.container);
   },
 
   // Render completion result
@@ -359,9 +395,10 @@ export const FlashcardView = {
     const canGenerate = todayTotal >= 3;
 
     container.innerHTML = `
+      <main class="app-standard-page flashcard-review-shell flashcard-review-shell--result" aria-labelledby="flashcardResultTitle">
       <div class="flashcard-container">
-        <div class="flashcard-result">
-          <h2>📊 复习完成！</h2>
+        <section class="flashcard-result flashcard-result-sheet">
+          <h2 id="flashcardResultTitle">复习完成</h2>
           <div class="flashcard-result-stats">
             <div class="flashcard-result-stat">
               <span class="flashcard-result-num">${total}</span>
@@ -410,10 +447,11 @@ export const FlashcardView = {
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
             <a href="#/chat" class="btn btn-outline">返回阅读</a>
             <a href="#/learn-words" class="btn btn-outline">词库管理</a>
-            <button class="btn btn-outline" onclick="FlashcardView.render(document.getElementById('app'))">再来一轮</button>
+            <button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>
           </div>
-        </div>
-      </div>`;
+        </section>
+      </div>
+      </main>`;
   },
 
   // Translate an example sentence

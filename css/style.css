@@ -309,20 +309,77 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .learn-word-text { color:var(--ink); font-family:Georgia,serif; font-weight:700; }
 .due-reminder { margin-bottom:16px; }
 
-/* SRS */
-.flashcard-container { max-width:620px; margin:0 auto; padding:24px 16px calc(34px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); }
-.flashcard-progress { width:100%; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:12px; }
-.flashcard-progress-bar { width:100%; height:2px; margin:12px 0 24px; background:var(--rule); }
-.flashcard { width:100%; min-height:300px; display:flex; align-items:center; justify-content:center; background:var(--surface); border-top:2px solid var(--ink); border-bottom:1px solid var(--rule); border-radius:0; box-shadow:none; overflow:auto; }
-.flashcard-front,.flashcard-back { width:100%; padding:36px 24px; }
-.flashcard-front { text-align:center; }
-.flashcard-front .flashcard-word { color:var(--ink); font-family:Georgia,serif; font-size:clamp(32px,10vw,52px); letter-spacing:-.04em; }
-.flashcard-front .flashcard-word::after { content:""; display:block; width:32px; height:2px; margin:14px auto; background:var(--signal); }
-.flashcard-back .flashcard-translation { font-family:Georgia,serif; font-size:22px; line-height:1.55; }
-.flashcard-actions { display:grid; grid-template-columns:repeat(3,1fr); width:100%; gap:7px; margin-top:16px; }
-.flashcard-rating-btn { min-height:48px; border:1px solid var(--rule-strong); border-radius:0; background:transparent; font-weight:800; }
+/* Two-stage vocabulary review: recall first, then a calm study notebook. */
+.flashcard-review-shell { min-height:100%; background:transparent; }
+.flashcard-container { width:min(100%,620px); min-height:100%; margin:0 auto; padding:20px 16px calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); }
+.flashcard-progress-block { min-height:54px; }
+.flashcard-progress { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+.flashcard-progress .page-eyebrow { margin:0; }
+.flashcard-progress-count { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:16px; font-variant-numeric:tabular-nums; }
+.flashcard-status-badge { justify-self:end; padding:4px 7px; border:1px solid var(--status-color,var(--rule-strong)); color:var(--status-color,var(--moss)); font-size:10px; font-weight:800; white-space:nowrap; }
+.flashcard-progress-bar { width:100%; height:3px; margin:11px 0 20px; overflow:hidden; background:var(--rule); }
+.flashcard-progress-fill { min-width:14px; background:var(--signal); transition:width var(--duration) var(--ease); }
+.flashcard { width:100%; background:var(--surface); border:1px solid var(--rule); border-top:3px solid var(--ink); box-shadow:0 12px 26px rgba(36,40,35,.06); }
+.flashcard-recall-card { min-height:clamp(330px,48dvh,440px); display:grid; place-items:center; }
+.flashcard-recall-stage { position:relative; }
+.flashcard-recall-stage::before { content:"回忆测试"; position:absolute; top:13px; left:16px; color:var(--moss); font-size:11px; font-weight:800; letter-spacing:.12em; }
+.flashcard-front { width:100%; padding:36px 24px; text-align:center; }
+.flashcard-word,.flashcard-study-word { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-weight:700; letter-spacing:-.045em; }
+.flashcard-word { font-size:clamp(42px,13vw,64px); line-height:1.05; overflow-wrap:anywhere; }
+.flashcard-word::after { content:""; display:block; width:34px; height:3px; margin:20px auto 17px; background:var(--signal); }
+.flashcard-phonetic { margin-top:11px; color:var(--muted); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:14px; line-height:1.45; }
+.flashcard-reveal-btn { min-height:46px; margin-top:24px; padding:8px 14px; border:0; background:transparent; color:var(--ink-soft); font-size:16px; text-decoration:underline; text-decoration-color:var(--rule-strong); text-underline-offset:7px; }
+.flashcard-recall-meaning { max-width:480px; margin:25px auto 0; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:clamp(20px,5.8vw,27px); line-height:1.52; }
+.flashcard-hint { max-width:300px; margin:18px auto 0; color:var(--muted); font-size:12px; line-height:1.65; }
+.flashcard-review-notice { margin:12px 0 0; color:var(--danger); font-size:13px; text-align:center; }
+.flashcard-actions { margin-top:16px; }
+.flashcard-rating-group { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); overflow:hidden; border:1px solid var(--rule-strong); border-radius:8px; background:var(--paper-note); }
+.flashcard-rating-btn { min-height:74px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:8px 5px; border:0; border-right:1px solid var(--rule-strong); border-radius:0; background:transparent; color:var(--ink); font-weight:800; transition:transform var(--duration-fast) var(--ease),background var(--duration-fast) var(--ease),border-color var(--duration-fast) var(--ease); }
+.flashcard-rating-btn:last-child { border-right:0; }
+.flashcard-rating-icon { font-size:20px; line-height:1; }
+.flashcard-rating-btn:hover:not(:disabled),.flashcard-rating-btn:focus-visible:not(:disabled) { background:var(--surface-soft); }
+.flashcard-rating-btn:active:not(:disabled) { transform:translateY(2px); }
+.flashcard-rating-btn:disabled { opacity:.42; cursor:not-allowed; }
 .flashcard-btn-knew { color:var(--moss); } .flashcard-btn-fuzzy { color:var(--amber); } .flashcard-btn-forgot { color:var(--danger); }
+.flashcard-skip { margin-top:12px; text-align:center; }
+.flashcard-skip-btn { min-height:38px; padding:7px 12px; border:0; border-radius:3px; background:transparent; color:var(--ink-soft); font-weight:750; text-decoration:underline; text-decoration-color:var(--rule-strong); text-decoration-thickness:1px; text-underline-offset:6px; }
+.flashcard-skip-btn:disabled { opacity:.45; cursor:not-allowed; }
+
+.flashcard-review-shell--study { height:100%; min-height:0; overflow:hidden; }
+.flashcard-review-shell--study .flashcard-container { height:100%; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:0; }
+.flashcard-study-sheet { height:100%; min-height:340px; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--rule-strong); border-top:3px solid var(--ink); background:var(--surface); box-shadow:0 12px 26px rgba(36,40,35,.06); }
+.flashcard-study-head { padding:25px 24px 17px; border-bottom:1px dashed var(--rule); }
+.flashcard-study-word { font-size:clamp(34px,10vw,50px); line-height:1.06; overflow-wrap:anywhere; }
+.flashcard-study-translation { margin-top:16px; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:clamp(19px,5.2vw,25px); line-height:1.5; }
+.flashcard-interval { margin-top:9px; color:var(--moss); font-size:12px; font-weight:750; }
+.flashcard-study-panel { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:21px 24px; color:var(--ink-soft); font-size:15px; line-height:1.78; }
+.flashcard-study-loading,.flashcard-study-empty { min-height:140px; display:grid; place-items:center; color:var(--muted); text-align:center; }
+.flashcard-example-list { display:grid; gap:18px; padding:0; margin:0; list-style-position:inside; }
+.flashcard-example-item { padding-bottom:16px; border-bottom:1px solid var(--rule); }
+.flashcard-example-item:last-child { padding-bottom:0; border-bottom:0; }
+.flashcard-example-item p { display:inline; margin:0; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:17px; line-height:1.7; }
+.example-translate-btn { min-width:34px; min-height:30px; margin:7px 0 0 6px; border:1px solid var(--rule-strong); border-radius:3px; background:transparent; color:var(--moss); font-size:12px; font-weight:800; }
+.example-translation { margin-top:9px; padding-left:12px; border-left:2px solid var(--signal); color:var(--ink-soft); font-size:14px; line-height:1.65; }
+.flashcard-root-breakdown { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:21px; line-height:1.65; }
+.flashcard-root-origin { margin-top:18px; padding:12px 0 12px 13px; border-left:2px solid var(--moss); background:var(--surface-soft); color:var(--ink-soft); }
+.flashcard-related-list { display:grid; gap:8px; align-content:start; }
+.flashcard-related-word { display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:10px 12px; border:1px solid var(--rule); border-radius:8px; background:var(--surface-soft); }
+.flashcard-related-term { min-width:0; color:var(--ink); font-family:Georgia,serif; font-size:17px; overflow-wrap:anywhere; }
+.flashcard-related-translation { flex:0 1 auto; color:var(--ink-soft); font-size:13px; line-height:1.45; text-align:right; }
+.flashcard-memory-tip { margin:0; padding:4px 0 4px 14px; border-left:3px solid var(--amber); color:var(--ink); font-size:16px; line-height:1.82; }
+.flashcard-study-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; padding:10px; border-top:1px solid var(--rule); background:var(--paper-note); }
+.flashcard-study-tab { min-height:42px; padding:6px 3px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:12px; font-weight:800; white-space:nowrap; }
+.flashcard-study-tab.active { background:var(--moss-soft); color:var(--ink); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--moss) 18%,transparent); }
+.flashcard-study-next { padding-top:16px; }
+.flashcard-next-btn { width:100%; min-height:56px; border:1px solid var(--moss); border-radius:999px; background:var(--moss); color:var(--on-accent); box-shadow:0 9px 18px color-mix(in srgb,var(--moss) 22%,transparent); font-size:18px; font-weight:800; letter-spacing:.04em; }
+.flashcard-next-btn:active { transform:translateY(1px); background:var(--pine); }
+.flashcard-review-shell--empty,.flashcard-review-shell--result { display:grid; place-items:start center; }
+.flashcard-empty-sheet,.flashcard-result-sheet { width:100%; border:1px solid var(--rule); border-top:3px solid var(--ink); background:var(--surface); box-shadow:0 12px 26px rgba(36,40,35,.06); }
+.flashcard-empty-sheet { margin-top:0; padding:32px 22px; }
+.flashcard-empty-sheet .btn-primary { color:var(--on-accent); }
 .flashcard-result { width:100%; text-align:left; }
+.flashcard-result-sheet { padding:26px 22px; }
+.flashcard-result-sheet h2 { margin:0 0 20px; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:clamp(28px,8vw,38px); letter-spacing:-.04em; }
 .flashcard-result-stats { display:grid; grid-template-columns:repeat(2,1fr); gap:0; border-top:1px solid var(--rule); }
 .flashcard-result-stat { padding:14px 0; border-bottom:1px solid var(--rule); }
 .flashcard-result-num { display:block; color:var(--signal); font-family:Georgia,serif; font-size:32px; }
