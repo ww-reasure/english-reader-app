@@ -6,7 +6,6 @@
 import { ARTICLE_SERVER_URL } from '../config.js';
 import { DB } from '../db.js';
 import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
-import { API } from '../api.js';
 
 // 文章题材映射(云端 category key → 友好显示名)，未命中归为"其他"
 const CATEGORIES = ['all', 'science', 'world', 'society', 'culture', 'other'];
@@ -23,17 +22,8 @@ export const ReadingListView = {
   _articles: [],
   _currentFilter: 'all',       // difficulty: all/cet4/cet6/graduate
   _currentCategory: 'all',     // category: all/science/world/society/culture/other
-  _titleTranslations: {},   // title -> translated title
-  _translationCacheKey: 'readingListTranslations',
-  _translationCacheMax: 300,
-  _translationController: null,
 
-  cleanup() {
-    if (this._translationController) {
-      this._translationController.abort();
-      this._translationController = null;
-    }
-  },
+  cleanup() {},
 
   // Main render — show skeleton, fetch, then display
   async render(container) {
@@ -71,8 +61,6 @@ export const ReadingListView = {
       // Success — render server articles
       this._articles = articles;
       this._renderArticles(container, articles);
-      // Batch translate titles in background
-      this._translateTitles(articles);
     } else {
       // Try cache fallback from IndexedDB
       let cached = [];
@@ -111,61 +99,6 @@ export const ReadingListView = {
     }
   },
 
-  // Batch translate article titles via one API call, cache results
-  async _translateTitles(articles) {
-    this.cleanup();
-    // Load cache
-    try {
-      const cached = localStorage.getItem(this._translationCacheKey);
-      if (cached) this._titleTranslations = JSON.parse(cached);
-    } catch {}
-
-    // Find untranslated titles
-    const untranslated = articles.filter(a => a.title && !this._titleTranslations[a.title]).map(a => a.title);
-    if (untranslated.length === 0) return;
-
-    this._translationController = new AbortController();
-    const signal = this._translationController.signal;
-    // Batch translate all at once
-    try {
-      const prompt = `将以下英文标题翻译成中文，简洁准确。每行一个，保持顺序。\n\n${untranslated.join('\n')}`;
-      const data = await API.fetch('/chat/completions', {
-        messages: [
-          { role: 'system', content: '逐行翻译英文标题为中文，只输出译文，不要序号和原文。' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3
-      }, 60000, signal);
-      if (signal.aborted) return;
-      const translations = data.choices[0].message.content.trim().split('\n').filter(t => t.trim());
-
-      untranslated.forEach((title, i) => {
-        if (translations[i]) {
-          this._titleTranslations[title] = translations[i].trim();
-        }
-      });
-
-      // Keep the cache bounded so long-term browsing does not fill localStorage.
-      const entries = Object.entries(this._titleTranslations);
-      if (entries.length > this._translationCacheMax) {
-        this._titleTranslations = Object.fromEntries(entries.slice(-this._translationCacheMax));
-      }
-      try {
-        localStorage.setItem(this._translationCacheKey, JSON.stringify(this._titleTranslations));
-      } catch {}
-
-      // Re-render to show translations (only if user 还在阅读列表页, 否则跳过避免覆盖其他视图)
-      if (location.hash !== '#/reading-list') return;
-      const container = document.getElementById('app');
-      this._renderArticles(container, this._articles);
-    } catch (e) {
-      if (!signal.aborted) console.warn('标题翻译失败:', e);
-    } finally {
-      if (this._translationController?.signal === signal) {
-        this._translationController = null;
-      }
-    }
-  },
   async _fetchArticles() {
     const serverUrl = ARTICLE_SERVER_URL;
     const controller = new AbortController();
@@ -225,7 +158,7 @@ export const ReadingListView = {
               <a class="article-list-title" onclick="ReadingListView._openArticle(${i})">${esc(article.title || 'Untitled')}</a>
               <span class="badge badge-${article.difficulty || 'cet4'}">${label}</span>
             </div>
-            ${this._titleTranslations[article.title] ? `<div class="article-list-title-cn">${esc(this._titleTranslations[article.title])}</div>` : ''}
+            ${article.titleZh ? `<div class="article-list-title-cn">${esc(article.titleZh)}</div>` : ''}
             <div class="article-list-meta">
               ${article.source ? `<span class="article-list-source">${esc(article.source)}</span>` : ''}
               <span class="article-list-cat">${CATEGORY_LABELS[cat]}</span>

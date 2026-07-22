@@ -161,7 +161,8 @@ export const DB = {
             content: serverArticle.content,
             summary: serverArticle.summary || existing.summary || '',
             difficulty: serverArticle.difficulty || existing.difficulty,
-            wordCount: serverArticle.wordCount || existing.wordCount
+            wordCount: serverArticle.wordCount || existing.wordCount,
+            titleZh: serverArticle.titleZh || existing.titleZh || ''
           });
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
@@ -175,6 +176,7 @@ export const DB = {
       const tx = db.transaction('articles', 'readwrite');
       const req = tx.objectStore('articles').add({
         title: serverArticle.title,
+        titleZh: serverArticle.titleZh || '',
         content: serverArticle.content,
         translation: '',
         difficulty: serverArticle.difficulty || 'cet4',
