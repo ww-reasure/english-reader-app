@@ -1,6 +1,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { assertReleaseMetadata } = require('./bump-version.js');
 
 function getGradleCommand(platform = process.platform) {
   return {
@@ -11,6 +12,23 @@ function getGradleCommand(platform = process.platform) {
 
 function getAndroidProjectDirectory() {
   return path.resolve(__dirname, '..', 'android');
+}
+
+function getProjectDirectory() {
+  return path.resolve(__dirname, '..');
+}
+
+function assertBuildReleaseMetadata(packageJson, buildGradle, versionManifest, packageLock) {
+  return assertReleaseMetadata(packageJson, buildGradle, versionManifest, packageLock);
+}
+
+function preflightBuildReleaseMetadata() {
+  const projectDirectory = getProjectDirectory();
+  const packageJson = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'package-lock.json'), 'utf8'));
+  const buildGradle = fs.readFileSync(path.join(projectDirectory, 'android', 'app', 'build.gradle'), 'utf8');
+  const versionManifest = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'version.json'), 'utf8'));
+  return assertBuildReleaseMetadata(packageJson, buildGradle, versionManifest, packageLock);
 }
 
 function withAndroidNamespace(buildGradle, namespace) {
@@ -36,6 +54,7 @@ function ensureLegacyTextToSpeechNamespace() {
 }
 
 function buildApk() {
+  preflightBuildReleaseMetadata();
   ensureLegacyTextToSpeechNamespace();
   const { command, args } = getGradleCommand();
   return new Promise((resolve, reject) => {
@@ -59,4 +78,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildApk, ensureLegacyTextToSpeechNamespace, getAndroidProjectDirectory, getGradleCommand, withAndroidNamespace };
+module.exports = {
+  assertBuildReleaseMetadata,
+  buildApk,
+  ensureLegacyTextToSpeechNamespace,
+  getAndroidProjectDirectory,
+  getGradleCommand,
+  getProjectDirectory,
+  preflightBuildReleaseMetadata,
+  withAndroidNamespace
+};

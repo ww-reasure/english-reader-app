@@ -22,6 +22,7 @@ import { ChatView } from './chat.js';
 import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
 import { Tooltip } from '../components/tooltip.js';
+import { ArticleGenerationTool, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
 import {
   REVIEW_PHASES,
   createReviewState,
@@ -31,6 +32,8 @@ import {
   skipWord,
   nextWord
 } from '../flashcard-flow.mjs';
+
+const reviewArticleTool = new ArticleGenerationTool({ api: API, db: DB });
 
 export const FlashcardView = {
   words: [],
@@ -97,14 +100,14 @@ export const FlashcardView = {
 
     if (dueWords.length === 0) {
       const totalWords = allWords.length;
-      const masteredCount = allWords.filter(w => SpacedRepetition.getStatus(w) === 'mastered').length;
+      const masteredCount = allWords.filter(w => SpacedRepetition.getStatus(w) === 'stable').length;
       container.innerHTML = `
         <section class="app-standard-page flashcard-review-shell flashcard-review-shell--empty" aria-labelledby="flashcardContentTitle">
           <div class="flashcard-container">
           <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
           <div class="empty-state flashcard-empty-sheet">
             <p>🎉 暂时没有需要复习的单词</p>
-            ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个已掌握</p>` : ''}
+            ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个进入长期巩固</p>` : ''}
             <p>去阅读页面收藏新单词，或导入单词到学习词库。</p>
             <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
               <a href="#/chat" class="btn btn-primary">去阅读</a>
@@ -432,7 +435,12 @@ export const FlashcardView = {
   async recordRating(quality) {
     const word = this.words[this.currentIndex];
     const srsData = SpacedRepetition.calculateNext(word, quality);
-    await DB.updateLearnWordSRS(word.id, srsData);
+    await DB.recordLearnWordReview(word.id, srsData, {
+      rating: quality,
+      source: 'flashcard',
+      sawAnswer: this.reviewState.meaningRevealed
+    });
+    Object.assign(word, srsData);
 
     this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
 
@@ -569,52 +577,55 @@ export const FlashcardView = {
       words = todayWords.map(w => w.word);
     }
 
-    if (words.length < 2) {
+    const allWords = normalizeTargetWords(words, Number.POSITIVE_INFINITY);
+    if (allWords.length < 2) {
       alert('词汇太少，无法生成文章');
       return;
     }
 
     const difficulty = Config.get('exam_level') || 'cet4';
-    const shouldSplit = words.length > 8;
-    const halfLen = Math.ceil(words.length / 2);
+    const selectedBatches = chunkTargetWords(allWords).slice(0, 2);
+    const selectedWords = selectedBatches.flat();
+    const deferredCount = Math.max(0, allWords.length - selectedWords.length);
+    const selectionMessage = deferredCount > 0
+      ? `本次优先巩固 ${selectedWords.length} / ${allWords.length} 个词，其余 ${deferredCount} 个词将在下次生成时继续处理。`
+      : `本次将巩固全部 ${selectedWords.length} 个词。`;
 
     location.hash = '#/chat';
     await new Promise(r => setTimeout(r, 100));
 
-    if (shouldSplit) {
-      const group1 = words.slice(0, halfLen).join(', ');
-      const group2 = words.slice(halfLen).join(', ');
+    ChatView.addMessage('system', `📝 使用今天复习的词汇生成巩固阅读。${selectionMessage}`);
+    const generationSession = ChatView.startArticleGenerationSession();
+    ChatView.showArticleGenerationStatus('正在制作复习阅读…');
 
-      ChatView.addMessage('system', `📝 使用今天复习的 ${words.length} 个词汇生成阅读（分两篇短文）`);
-
-      try {
-        const article1 = await API.generateArticle(
-          `请生成一篇短文，自然融入以下词汇：${group1}。`, difficulty, '复习巩固', group1, 250);
-        const id1 = await DB.saveArticle(article1);
-        ChatView.addArticleCard({ ...article1, id: id1 });
-
-        const article2 = await API.generateArticle(
-          `请生成一篇短文，自然融入以下词汇：${group2}。选择与上一篇不同的主题。`, difficulty, '复习巩固', group2, 250);
-        const id2 = await DB.saveArticle(article2);
-        ChatView.addArticleCard({ ...article2, id: id2 });
-
-        ChatView.addMessage('system', '✅ 两篇巩固阅读已生成，点击阅读全文');
-      } catch (err) {
-        ChatView.addMessage('error', `生成失败：${err.message}`);
+    try {
+      const articles = [];
+      for (const [index, batch] of selectedBatches.entries()) {
+        const result = await reviewArticleTool.execute({
+          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
+          difficulty,
+          topic: '复习巩固',
+          wordCount: selectedBatches.length > 1 ? 300 : 350
+        }, {
+          fallbackDifficulty: difficulty,
+          fallbackChallenge: 'support',
+          targetWords: batch,
+          articleFields: { reviewMode: true, usedWords: batch },
+          signal: generationSession.signal,
+          isActive: generationSession.isActive
+        });
+        if (!generationSession.isActive()) return;
+        articles.push(result.article);
+        ChatView.addArticleCard(result.article);
       }
-    } else {
-      const keywords = words.join(', ');
-      ChatView.addMessage('system', `📝 使用今天复习的 ${words.length} 个词汇生成阅读`);
 
-      try {
-        const article = await API.generateArticle(
-          `请生成一篇文章，自然融入以下词汇：${keywords}。`, difficulty, '复习巩固', keywords, 350);
-        const id = await DB.saveArticle(article);
-        ChatView.addArticleCard({ ...article, id });
-        ChatView.addMessage('system', '✅ 巩固阅读已生成，点击阅读全文');
-      } catch (err) {
-        ChatView.addMessage('error', `生成失败：${err.message}`);
-      }
+      ChatView.addMessage('system', `✅ 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}`);
+    } catch (err) {
+      if (generationSession.isActive()) ChatView.addMessage('error', `生成失败：${err.message}`);
+    } finally {
+      const stillActive = generationSession.isActive();
+      generationSession.release();
+      if (stillActive) ChatView.removeArticleGenerationStatus();
     }
   },
 

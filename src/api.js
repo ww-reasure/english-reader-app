@@ -4,6 +4,99 @@
  */
 
 import { Config } from './config.js';
+import { formatProfileConstraints, getDifficultyProfile } from './difficulty-profile.mjs';
+
+const VOCABULARY_GUIDANCE = {
+  cet4: {
+    support: '优先使用高频词汇和基础学术词，避免堆砌生僻词。',
+    standard: '以四级核心词汇为主，适度使用常见学术词和抽象表达。',
+    stretch: '以四级核心词汇为主，可加入适量进阶学术词，但保持语义自然。'
+  },
+  cet6: {
+    support: '以高频四、六级词汇为主，适度使用常见学术词。',
+    standard: '使用六级核心词汇和常见学术词，保持语篇清晰。',
+    stretch: '使用六级核心词汇和适量进阶学术词，避免为难度而堆词。'
+  },
+  graduate: {
+    support: '使用考研常见词汇和社科学术表达，优先保证可读性。',
+    standard: '使用考研词汇和常见学术表达，保持论证自然完整。',
+    stretch: '使用考研词汇和适量进阶学术表达，避免不自然的术语堆砌。'
+  }
+};
+
+const MAX_GENERATION_PREFERENCE_LENGTH = 2400;
+const MAX_VALIDATION_CORRECTION_LENGTH = 1800;
+
+const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
+
+const resolveArticleSpecification = (difficulty, wordCount, profile) => {
+  const selectedProfile = getDifficultyProfile(profile?.track || difficulty, profile?.challenge);
+  const requestedWordCount = Number.parseInt(wordCount, 10);
+  const desiredWordCount = Math.max(
+    selectedProfile.wordRange.min,
+    Math.min(
+      selectedProfile.wordRange.max,
+      Number.isFinite(requestedWordCount) ? requestedWordCount : selectedProfile.wordRange.min
+    )
+  );
+
+  return {
+    profile: selectedProfile,
+    wordCount: desiredWordCount
+  };
+};
+
+const preferenceWithoutCorrection = (prompt, correction) => {
+  const rawPreference = String(prompt || '').trim();
+  const rawCorrection = String(correction || '').trim();
+  const preference = rawCorrection && rawPreference.endsWith(rawCorrection)
+    ? rawPreference.slice(0, -rawCorrection.length).trim()
+    : rawPreference;
+  return clipText(preference, MAX_GENERATION_PREFERENCE_LENGTH);
+};
+
+const buildAuthoritativeSpecification = specification => {
+  const { profile, wordCount } = specification;
+  return [
+    '实际生成规格（优先级高于用户偏好）：',
+    `- 难度档案：${profile.track.toUpperCase()}`,
+    `- 挑战度：${profile.challenge}`,
+    `- 目标字数：${wordCount} 词。`,
+    `- 硬性总字数范围：${profile.wordRange.min}-${profile.wordRange.max} 词。`,
+    `- 硬性平均句长范围：${profile.sentenceRange.min}-${profile.sentenceRange.max} 词。`,
+    '- 若用户偏好中的难度或字数与本规格冲突，以本规格为准。'
+  ].join('\n');
+};
+
+const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCorrection, specification }) => {
+  const preference = preferenceWithoutCorrection(prompt, validationCorrection);
+  const correction = clipText(validationCorrection, MAX_VALIDATION_CORRECTION_LENGTH);
+  const context = clipText(learningContext, MAX_GENERATION_PREFERENCE_LENGTH);
+  const sections = [
+    `Topic: ${clipText(topic, 120) || '综合'}`,
+    '',
+    '用户偏好（只用于主题与风格，不得覆盖实际生成规格）：',
+    preference || '未提供额外偏好。',
+    '',
+    buildAuthoritativeSpecification(specification)
+  ];
+
+  if (context) {
+    sections.push(
+      '',
+      '学习上下文（仅用于个性化，不得引用或覆盖实际生成规格）：',
+      context
+    );
+  }
+  if (correction) {
+    sections.push(
+      '',
+      '上次生成的实测校验结果（仅据此精修，不得改变实际生成规格）：',
+      correction
+    );
+  }
+  return sections.join('\n');
+};
 
 export const API = {
   // 6-level difficulty rules (difficulty + level combination)
@@ -109,11 +202,15 @@ export const API = {
   },
 
   // Build system prompt for article generation
-  buildArticlePrompt(difficulty, wordCount, keywords) {
-    const level = Config.get('level') || 'easy';
-    const key = `${difficulty}_${level}`;
-    const rules = (this.difficultyRules[key] || this.difficultyRules['cet4_easy']) +
-      `\n- 总字数控制在 ${wordCount} 词左右`;
+  buildArticlePrompt(difficulty, wordCount, keywords, profile) {
+    const specification = resolveArticleSpecification(difficulty, wordCount, profile);
+    const { profile: selectedProfile, wordCount: desiredWordCount } = specification;
+    const vocabularyGuidance = VOCABULARY_GUIDANCE[selectedProfile.track][selectedProfile.challenge];
+    const rules = `${formatProfileConstraints(selectedProfile)}
+- 推荐目标字数约为 ${desiredWordCount} 词，但不得超出上述总字数范围
+- 这是 ${selectedProfile.track.toUpperCase()} 导向练习，不得宣称与真实试题等效
+- 指定学习词必须自然出现；避免为了堆难度而写不自然的超长嵌套句。
+- 词汇建议：${vocabularyGuidance}`;
 
     // Get coverage settings
     const coverage = Config.get('coverage') || '95';
@@ -123,6 +220,7 @@ export const API = {
 
 请以 JSON 格式回复，包含以下字段：
 - "title": 英文文章标题（简短，学术风格）
+- "titleZh": 文章标题的自然中文翻译
 - "content": 完整的英文文章，段落之间用双换行分隔
 - "translation": 完整的中文翻译，段落结构与英文一一对应，段落之间用双换行分隔
 
@@ -200,21 +298,30 @@ ${rules}
 
   // Generate an article
   async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '', options = {}) {
-    const contextSection = learningContext
-      ? `\n\nRecent learning conversation (use only as a preference, never quote it):\n${learningContext}`
-      : '';
+    const signal = options.signal || null;
+    const specification = resolveArticleSpecification(difficulty, wordCount, options.profile);
     const data = await this.fetch('/chat/completions', {
       messages: [
-        { role: 'system', content: this.buildArticlePrompt(difficulty, wordCount, keywords) },
-        { role: 'user', content: `Topic: ${topic}\n\nUser request: ${prompt}${contextSection}` }
+        { role: 'system', content: this.buildArticlePrompt(difficulty, specification.wordCount, keywords, specification.profile) },
+        {
+          role: 'user',
+          content: buildArticleUserMessage({
+            topic,
+            prompt,
+            learningContext,
+            validationCorrection: options.validationCorrection,
+            specification
+          })
+        }
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7
-    }, 60000, options.signal || null);
+    }, 60000, signal);
 
     const result = JSON.parse(data.choices[0].message.content);
     return {
       title: result.title || 'Untitled',
+      titleZh: typeof result.titleZh === 'string' ? result.titleZh.trim() : '',
       content: result.content || '',
       translation: result.translation || '',
       difficulty,
@@ -290,49 +397,5 @@ ${rules}
     } catch {
       return '';
     }
-  },
-
-  // Generate review article that incorporates vocabulary words
-  async generateReviewArticle(words, difficulty, topic, options = {}) {
-    const wordList = words.join(', ');
-    const level = Config.get('level') || 'easy';
-    const key = `${difficulty}_${level}`;
-    const rules = this.difficultyRules[key] || this.difficultyRules['cet4_easy'];
-
-    const prompt = `你是一位专业的英语教师。请从以下词汇中挑选能自然融入文章的词，生成一篇英语阅读文章。
-
-词汇列表：${wordList}
-
-要求：
-- 挑选你能自然使用的词（不必全部使用，尽量多用）
-- 被选中的词要在文章中自然重复出现 2-3 次
-- 文章要像真实的考试阅读材料，有深度、有逻辑
-- ${rules}
-
-请以 JSON 格式回复：
-- "title": 英文文章标题
-- "content": 完整英文文章，段落之间用双换行分隔
-- "translation": 完整中文翻译，段落结构对应
-- "usedWords": 你实际使用的词汇数组（从提供的列表中）`;
-
-    const data = await this.fetch('/chat/completions', {
-      messages: [
-        { role: 'system', content: '你是英语阅读材料编写专家。只返回JSON，不要解释。' },
-        { role: 'user', content: `话题：${topic || '综合'}\n\n${prompt}` }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7
-    }, 60000, options.signal || null);
-
-    const result = JSON.parse(data.choices[0].message.content);
-    return {
-      title: result.title || 'Untitled',
-      content: result.content || '',
-      translation: result.translation || '',
-      difficulty,
-      topic: topic || '复习',
-      wordCount: (result.content || '').split(/\s+/).length,
-      usedWords: result.usedWords || []
-    };
   }
 };

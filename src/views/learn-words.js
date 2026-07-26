@@ -13,7 +13,7 @@ import { esc } from '../helpers.js';
 
 export const LearnWordsView = {
   manageMode: false,
-  filterMode: 'all',  // all | new | learning | review | mastered
+  filterMode: 'all',  // all | new | learning (includes relearning) | review | stable
   container: null,
 
   // Render learn words view
@@ -33,7 +33,9 @@ export const LearnWordsView = {
     } else {
       // Filter words
       const filtered = this.filterMode === 'all' ? words
-        : words.filter(w => SpacedRepetition.getStatus(w) === this.filterMode);
+        : words.filter(w => this.filterMode === 'learning'
+          ? SpacedRepetition.getStatus(w) === 'learning' || SpacedRepetition.getStatus(w) === 'relearning'
+          : SpacedRepetition.getStatus(w) === this.filterMode);
 
       const headerActions = this.manageMode
         ? `<button class="btn btn-danger btn-sm" onclick="LearnWordsView.clearAll()">清空全部</button>
@@ -44,9 +46,9 @@ export const LearnWordsView = {
       // Stats
       const stats = {
         new: words.filter(w => SpacedRepetition.getStatus(w) === 'new').length,
-        learning: words.filter(w => SpacedRepetition.getStatus(w) === 'learning').length,
+        learning: words.filter(w => SpacedRepetition.getStatus(w) === 'learning' || SpacedRepetition.getStatus(w) === 'relearning').length,
         review: words.filter(w => SpacedRepetition.getStatus(w) === 'review').length,
-        mastered: words.filter(w => SpacedRepetition.getStatus(w) === 'mastered').length
+        stable: words.filter(w => SpacedRepetition.isStable(w)).length
       };
 
       cards = `
@@ -70,8 +72,8 @@ export const LearnWordsView = {
             onclick="LearnWordsView.setFilter('learning')">📖 ${stats.learning}</button>
           <button class="learn-words-stat-btn ${this.filterMode === 'review' ? 'active' : ''}"
             onclick="LearnWordsView.setFilter('review')">🔄 ${stats.review}</button>
-          <button class="learn-words-stat-btn ${this.filterMode === 'mastered' ? 'active' : ''}"
-            onclick="LearnWordsView.setFilter('mastered')">✅ ${stats.mastered}</button>
+          <button class="learn-words-stat-btn ${this.filterMode === 'stable' ? 'active' : ''}"
+            onclick="LearnWordsView.setFilter('stable')">✅ 长期巩固 ${stats.stable}</button>
         </div>
 
         <div class="learn-words-grid">`;

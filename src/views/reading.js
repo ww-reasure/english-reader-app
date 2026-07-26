@@ -14,6 +14,9 @@ import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
 import { ChatView } from './chat.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
+import { ArticleGenerationTool, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
+
+const reviewArticleTool = new ArticleGenerationTool({ api: API, db: DB });
 
 export const ReadingView = {
   timer: null,
@@ -46,6 +49,18 @@ export const ReadingView = {
   // 安全切段：防空崩溃。云端已清洗杂段,这里只做防空,保留所有 \n\n 段(含真小标题)
   _splitParas(content) {
     return (content || '').split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  },
+
+  _renderArticleTitle(article) {
+    const titleZh = String(article.titleZh || '').trim();
+    return `
+      <div id="readingTitleLookup" class="reading-title-lookup">
+        <h1 class="reading-title" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
+        ${titleZh ? `<div class="reading-title-translation">
+          <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
+          <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
+        </div>` : ''}
+      </div>`;
   },
 
   cleanup() {
@@ -93,13 +108,15 @@ export const ReadingView = {
       container.innerHTML = `
         <div class="reading-container">
           <div class="reading-header">
-            <h1 class="reading-title">${esc(article.title || '文章')}</h1>
+            ${this._renderArticleTitle(article)}
             <div class="reading-actions">
               <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
             </div>
           </div>
           <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
-        </div>`;
+        </div>
+        <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
+      this.initInteractions();
       return;
     }
 
@@ -133,9 +150,11 @@ export const ReadingView = {
       <div class="reading-container">
         <header class="reading-header">
           <p class="page-eyebrow">02 / READING NOTE</p>
-          <h1 class="reading-title">${esc(article.title)}</h1>
+          ${this._renderArticleTitle(article)}
           <div class="reading-meta">
             <span class="badge badge-${article.difficulty}">${difficultyLabel}</span>
+            ${article.challenge ? `<span class="meta-item">${esc(article.challenge === 'support' ? '基础' : article.challenge === 'stretch' ? '进阶' : '标准')}练习</span>` : ''}
+            ${article.difficultyReport?.passed ? `<span class="meta-item">✓ 难度校验通过</span>` : ''}
             <span class="meta-item">${article.wordCount} 词</span>
             <span class="meta-item">${esc(article.topic)}</span>
           </div>
@@ -172,7 +191,8 @@ export const ReadingView = {
 
   initInteractions() {
     const articleBody = document.getElementById('articleBody');
-    if (!articleBody) return;
+    const titleLookupHost = document.getElementById('readingTitleLookup');
+    if (!articleBody && !titleLookupHost) return;
 
     this._globalClickHandler = (e) => {
       const tooltip = document.getElementById('wordTooltip');
@@ -190,13 +210,14 @@ export const ReadingView = {
       const existing = this.clickedWords.find(w => w.stem === stem);
       if (existing) {
         existing.quality = quality;
+        existing.explicitRating = true;
       }
     };
     document.addEventListener('review-rated', this._reviewRatedHandler);
 
-    articleBody.addEventListener('click', async (e) => {
+    const lookupWord = async (e, { allowSentenceAnalysis = false, recordLookup = false } = {}) => {
       // Long press 的 synthetic click 不能触发查词或关闭刚出现的“问 AI”按钮
-      if (AIAnalysis.ignoreNextArticleClick) {
+      if (allowSentenceAnalysis && AIAnalysis.ignoreNextArticleClick) {
         AIAnalysis.ignoreNextArticleClick = false;
         e.stopPropagation();
         return;
@@ -229,7 +250,7 @@ export const ReadingView = {
         const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord);
         if (!shown) return;
 
-        if (!this.clickedWords.some(w => w.stem === stem)) {
+        if (recordLookup && !this.clickedWords.some(w => w.stem === stem)) {
           this.clickedWords.push({
             word: word.toLowerCase(),
             stem,
@@ -237,13 +258,24 @@ export const ReadingView = {
             phonetic: data.phonetic || '',
             freqLevel: data.freqLevel || 'unknown',
             isReviewWord,
-            quality: isReviewWord ? 3 : null // Default to 模糊 for review words
+            quality: isReviewWord ? 3 : null,
+            explicitRating: false
           });
         }
       } catch {
         if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
-    });
+    };
+
+    const titleLookupHandler = e => {
+      e.stopPropagation();
+      lookupWord(e);
+    };
+
+    if (articleBody) {
+      articleBody.addEventListener('click', e => lookupWord(e, { allowSentenceAnalysis: true, recordLookup: true }));
+    }
+    titleLookupHost?.addEventListener('click', titleLookupHandler);
 
     // Audio button click (direct binding in tooltip.js, this is backup)
     this._audioClickHandler = (e) => {
@@ -259,7 +291,7 @@ export const ReadingView = {
     };
     document.addEventListener('click', this._audioClickHandler);
 
-    AIAnalysis.initSelectionDetection(articleBody);
+    if (articleBody) AIAnalysis.initSelectionDetection(articleBody);
   },
 
   // Highlight review words in text
@@ -275,7 +307,7 @@ export const ReadingView = {
       const wordData = this.reviewWordsMap.get(stem);
       if (!wordData) return match;
       const status = SpacedRepetition.getStatus(wordData);
-      const cssClass = status === 'new' ? 'review-new' : status === 'mastered' ? '' : 'review-learning';
+      const cssClass = status === 'new' ? 'review-new' : status === 'stable' ? '' : 'review-learning';
       if (!cssClass) return match; // Don't highlight mastered words
       return `<mark class="review-word ${cssClass}" data-stem="${escAttr(stem)}">${match}</mark>`;
     });
@@ -284,24 +316,30 @@ export const ReadingView = {
   // Update SRS ratings after review reading
   async _updateReviewSRS() {
     const learnWords = await DB.getAllLearnWords();
-    const clickedStems = new Set(this.clickedWords.filter(w => w.isReviewWord).map(w => w.stem));
+    const contextualStems = new Set(
+      [...document.querySelectorAll('#articleBody .review-word')].map(el => el.dataset.stem).filter(Boolean)
+    );
+    const clickedByStem = new Map(
+      this.clickedWords.filter(word => word.isReviewWord && word.explicitRating).map(word => [word.stem, word])
+    );
 
     for (const word of learnWords) {
       const stem = getStemForm(word.word.toLowerCase());
-      if (!this.reviewWordsMap.has(stem)) continue;
+      if (!contextualStems.has(stem)) continue;
 
-      let quality;
-      if (clickedStems.has(stem)) {
-        // User clicked this word - use their rating
-        const clicked = this.clickedWords.find(w => w.stem === stem);
-        quality = clicked?.quality || 3; // Default to 模糊
-      } else {
-        // User didn't click - they recognized it
-        quality = 5;
+      const clicked = clickedByStem.get(stem);
+      if (!clicked) {
+        await DB.addReviewEvent({ wordId: word.id, source: 'reading', contextExposure: true });
+        continue;
       }
 
-      const srsData = SpacedRepetition.calculateNext(word, quality);
-      await DB.updateLearnWordSRS(word.id, srsData);
+      const srsData = SpacedRepetition.calculateNext(word, clicked.quality);
+      await DB.recordLearnWordReview(word.id, srsData, {
+        rating: clicked.quality,
+        source: 'reading',
+        sawAnswer: true,
+        contextExposure: false
+      });
     }
   },
 
@@ -489,24 +527,47 @@ export const ReadingView = {
   // Generate review article from clicked words
   async generateReview() {
     if (!Config.hasApiKey()) { Modal.showApiSettings(); return; }
-    const words = this.clickedWords.map(w => w.word);
-    if (words.length < 2) { alert('查词太少，无法生成'); return; }
+    const allWords = normalizeTargetWords(this.clickedWords.map(w => w.word), Number.POSITIVE_INFINITY);
+    if (allWords.length < 2) { alert('查词太少，无法生成'); return; }
 
     document.getElementById('readingSummary').style.display = 'none';
     location.hash = '#/chat';
     await new Promise(r => setTimeout(r, 100));
 
-    const keywords = words.join(', ');
     const difficulty = this.articleData?.difficulty || 'cet4';
-    ChatView.addMessage('system', `📝 使用本篇查词生成巩固阅读（${words.length} 个词）`);
+    const selectedBatches = chunkTargetWords(allWords).slice(0, 2);
+    const selectedWords = selectedBatches.flat();
+    const deferredCount = Math.max(0, allWords.length - selectedWords.length);
+    ChatView.addMessage('system', `📝 使用本篇查词生成巩固阅读。${deferredCount > 0 ? `本次优先巩固 ${selectedWords.length} / ${allWords.length} 个词，其余 ${deferredCount} 个词将在下次生成时继续处理。` : `本次将巩固全部 ${selectedWords.length} 个词。`}`);
+    const generationSession = ChatView.startArticleGenerationSession();
+    ChatView.showArticleGenerationStatus('正在制作巩固阅读…');
     try {
-      const article = await API.generateArticle(
-        `请生成一篇文章，自然融入以下词汇：${keywords}。`, difficulty, '阅读巩固', keywords, 350);
-      const id = await DB.saveArticle(article);
-      ChatView.addArticleCard({ ...article, id });
-      ChatView.addMessage('system', '✅ 巩固阅读已生成');
+      const articles = [];
+      for (const [index, batch] of selectedBatches.entries()) {
+        const result = await reviewArticleTool.execute({
+          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
+          difficulty,
+          topic: '阅读巩固',
+          wordCount: selectedBatches.length > 1 ? 300 : 350
+        }, {
+          fallbackDifficulty: difficulty,
+          fallbackChallenge: 'support',
+          targetWords: batch,
+          articleFields: { reviewMode: true, usedWords: batch },
+          signal: generationSession.signal,
+          isActive: generationSession.isActive
+        });
+        if (!generationSession.isActive()) return;
+        articles.push(result.article);
+        ChatView.addArticleCard(result.article);
+      }
+      ChatView.addMessage('system', `✅ 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}`);
     } catch (err) {
-      ChatView.addMessage('error', `生成失败：${err.message}`);
+      if (generationSession.isActive()) ChatView.addMessage('error', `生成失败：${err.message}`);
+    } finally {
+      const stillActive = generationSession.isActive();
+      generationSession.release();
+      if (stillActive) ChatView.removeArticleGenerationStatus();
     }
   },
 
@@ -539,6 +600,16 @@ export const ReadingView = {
       btn.textContent = visible ? '隐' : '译';
       btn.classList.toggle('active', visible);
     }
+  },
+
+  toggleTitleTranslation(btn) {
+    const translation = btn?.parentElement?.querySelector('.reading-title-zh');
+    if (!translation) return;
+    const show = translation.style.display === 'none';
+    translation.style.display = show ? 'block' : 'none';
+    btn.textContent = show ? '隐' : '译';
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-expanded', String(show));
   },
 
   async toggleTranslation() {

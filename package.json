@@ -1,6 +1,6 @@
 {
   "name": "english-reader-app",
-  "version": "1.8.5",
+  "version": "1.8.7",
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
@@ -26,11 +26,12 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@capacitor-community/text-to-speech": "^1.0.0",
-    "@capacitor/android": "^8.3.4",
+    "@aparajita/capacitor-secure-storage": "^8.0.0",
+    "@capacitor-community/text-to-speech": "^8.0.2",
+    "@capacitor/android": "^8.4.2",
     "@capacitor/app": "^8.1.1",
-    "@capacitor/cli": "^8.3.4",
-    "@capacitor/core": "^8.3.4",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
     "@fortawesome/fontawesome-free": "^7.3.1"
   },
   "repository": {
@@ -42,6 +43,7 @@
   },
   "homepage": "https://github.com/ww-reasure/english-reader-app#readme",
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "vite": "^8.0.16"
   }
 }

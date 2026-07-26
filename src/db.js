@@ -5,9 +5,14 @@
 
 import { getStemForm } from './helpers.js';
 
+export function abortTransaction(tx, error) {
+  tx.abort();
+  return error;
+}
+
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 6,  // Bumped for RSS article support
+  DB_VERSION: 7,  // v7: immutable review history and scheduler-v2 evidence
 
   // Open database connection with retry
   open(retries = 3) {
@@ -69,6 +74,14 @@ export const DB = {
           if (!store.indexNames.contains('url')) {
             store.createIndex('url', 'url', { unique: false });
           }
+        }
+
+        // v7: keep every explicit review as evidence for future calibration.
+        if (!db.objectStoreNames.contains('reviewEvents')) {
+          const store = db.createObjectStore('reviewEvents', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('wordId', 'wordId');
+          store.createIndex('reviewedAt', 'reviewedAt');
+          store.createIndex('source', 'source');
         }
       };
 
@@ -146,27 +159,25 @@ export const DB = {
     // Support both 'url' and 'sourceUrl' field names
     const articleUrl = serverArticle.url || serverArticle.sourceUrl || '';
     const newContent = (serverArticle.content || '').trim();
+    const serverTitleZh = String(serverArticle.titleZh || '').trim();
     // Check if already exists by URL
     const existing = await this.findArticleByUrl(articleUrl);
 
-    // 已有本地记录: 若本地 content 为空而云端有全文, 补写全文
+    // 已有本地记录: 始终允许补齐云端标题，正文仅在本地为空时补写。
     if (existing) {
       const localEmpty = !(existing.content && existing.content.trim());
+      const fields = {};
+      if (serverTitleZh && serverTitleZh !== String(existing.titleZh || '').trim()) {
+        fields.titleZh = serverTitleZh;
+      }
       if (localEmpty && newContent) {
-        const db = await this.open();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction('articles', 'readwrite');
-          tx.objectStore('articles').put({
-            ...existing,
-            content: serverArticle.content,
-            summary: serverArticle.summary || existing.summary || '',
-            difficulty: serverArticle.difficulty || existing.difficulty,
-            wordCount: serverArticle.wordCount || existing.wordCount,
-            titleZh: serverArticle.titleZh || existing.titleZh || ''
-          });
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-        });
+        fields.content = serverArticle.content;
+        fields.summary = serverArticle.summary || existing.summary || '';
+        fields.difficulty = serverArticle.difficulty || existing.difficulty;
+        fields.wordCount = serverArticle.wordCount || existing.wordCount;
+      }
+      if (Object.keys(fields).length) {
+        await this.updateArticle(existing.id, fields);
       }
       return existing.id;
     }
@@ -319,11 +330,80 @@ export const DB = {
     });
   },
 
+  // Apply a schedule and append the explicit evidence in one transaction.
+  // Existing words are left intact until the user actually reviews them.
+  async recordLearnWordReview(id, srsData, event) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
+      const words = tx.objectStore('learnWords');
+      const events = tx.objectStore('reviewEvents');
+      const getReq = words.get(id);
+      let updatedWord = null;
+      let failure = null;
+
+      getReq.onsuccess = () => {
+        const word = getReq.result;
+        if (!word) {
+          failure = abortTransaction(tx, new Error('学习词不存在'));
+          return;
+        }
+        updatedWord = { ...word, ...srsData };
+        words.put(updatedWord);
+        events.add({
+          wordId: id,
+          reviewedAt: Date.now(),
+          rating: event.rating,
+          source: event.source || 'flashcard',
+          sawAnswer: Boolean(event.sawAnswer),
+          previousInterval: Number(word.interval) || 0,
+          nextInterval: Number(srsData.interval) || 0,
+          previousState: word.state || (!word.reviewCount ? 'new' : 'legacy'),
+          nextState: srsData.state || 'legacy',
+          schedulerVersion: srsData.schedulerVersion || 1,
+          ...event
+        });
+      };
+      tx.oncomplete = () => resolve(updatedWord);
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('复习记录保存失败'));
+    });
+  },
+
+  async getReviewEventsForWord(wordId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('reviewEvents', 'readonly');
+      const req = tx.objectStore('reviewEvents').index('wordId').getAll(wordId);
+      req.onsuccess = () => resolve(req.result.sort((a, b) => b.reviewedAt - a.reviewedAt));
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  // Contextual exposure is useful analytics, but never changes an SRS schedule.
+  async addReviewEvent(event) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('reviewEvents', 'readwrite');
+      const req = tx.objectStore('reviewEvents').add({
+        reviewedAt: Date.now(),
+        rating: null,
+        source: 'reading',
+        sawAnswer: false,
+        schedulerVersion: 2,
+        ...event
+      });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
   async clearLearnWords() {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('learnWords', 'readwrite');
+      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
       tx.objectStore('learnWords').clear();
+      tx.objectStore('reviewEvents').clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

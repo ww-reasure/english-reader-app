@@ -220,6 +220,10 @@ export const ReadingListView = {
     if (article.id) {
       const existing = await DB.findArticleByUrl(article.sourceUrl || article.url || '');
       if (existing && existing.content) {
+        const titleZh = String(article.titleZh || '').trim();
+        if (titleZh && titleZh !== String(existing.titleZh || '').trim()) {
+          await DB.updateArticle(existing.id, { titleZh });
+        }
         location.hash = `#/reading/${existing.id}`;
         return;
       }

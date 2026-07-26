@@ -14,6 +14,8 @@ test('composer routes explicit article requests into the learning-reading flow',
   assert.equal(intentModule.classifyComposerIntent('我想读一篇旅行主题的英语阅读'), 'generate');
   assert.equal(intentModule.classifyComposerIntent('给我一篇考研英语阅读练习'), 'generate');
   assert.equal(intentModule.classifyComposerIntent('请写一篇关于 AI 教育的英文文章'), 'generate');
+  assert.equal(intentModule.classifyComposerIntent('Generate a graduate reading passage of 1000 words.'), 'generate');
+  assert.equal(intentModule.classifyComposerIntent('Please write an English article about ocean protection.'), 'generate');
 });
 
 test('composer keeps questions about reading generation in the chat flow', () => {
@@ -21,4 +23,6 @@ test('composer keeps questions about reading generation in the chat flow', () =>
   assert.equal(intentModule.classifyComposerIntent('怎么生成一篇适合我的文章？'), 'chat');
   assert.equal(intentModule.classifyComposerIntent('为什么文章生成失败？'), 'chat');
   assert.equal(intentModule.classifyComposerIntent('我今天最应该复习什么？'), 'chat');
+  assert.equal(intentModule.classifyComposerIntent('How do I generate a suitable English reading passage?'), 'chat');
+  assert.equal(intentModule.classifyComposerIntent('Why did my article generation fail?'), 'chat');
 });

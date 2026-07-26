@@ -1,6 +1,11 @@
 import { LEARNING_TOOLS } from './learning-agent.js';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
+const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
+const generationToolFailure = () => ({
+  type: 'generation_failure',
+  failure: { message: '文章定制暂时失败，请重新生成。', reason: 'tool_error' }
+});
 
 export class ChatService {
   constructor({ api, agent, builder }) {
@@ -43,13 +48,37 @@ export class ChatService {
       const artifacts = [];
       const toolRunner = executeTool || (async (name, args) => ({ result: await this.agent.execute(name, args) }));
       for (let round = 0; round < 3 && reply.tool_calls?.length; round += 1) {
-        const toolResults = await Promise.all(reply.tool_calls.map(async call => {
-          const handled = await toolRunner(call.function.name, JSON.parse(call.function.arguments || '{}'), { signal: controller.signal });
+        const runToolCall = async call => {
+          const name = call?.function?.name;
+          let handled;
+          try {
+            handled = await toolRunner(name, JSON.parse(call?.function?.arguments || '{}'), { signal: controller.signal });
+          } catch (error) {
+            if (!isReadingGenerationCall(call) || controller.signal.aborted) throw error;
+            handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+          }
           if (handled.artifact) artifacts.push(handled.artifact);
-          return { tool: call.function.name, result: handled.result };
-        }));
+          return { tool: name, result: handled.result };
+        };
+        const generationCall = reply.tool_calls.find(isReadingGenerationCall);
+        if (generationCall) {
+          const toolResult = await runToolCall(generationCall);
+          if (artifacts.some(item => item.type === 'article')) {
+            return { content: '已生成一篇定制阅读，点击卡片开始阅读。', artifacts };
+          }
+          if (artifacts.some(item => item.type === 'generation_failure')) {
+            return { content: '', artifacts };
+          }
+          reply = await request({ toolResults: [toolResult] });
+          continue;
+        }
+
+        const toolResults = await Promise.all(reply.tool_calls.map(runToolCall));
         if (artifacts.some(item => item.type === 'article')) {
           return { content: '已生成一篇定制阅读，点击卡片开始阅读。', artifacts };
+        }
+        if (artifacts.some(item => item.type === 'generation_failure')) {
+          return { content: '', artifacts };
         }
         reply = await request({ toolResults });
       }

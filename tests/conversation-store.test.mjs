@@ -42,3 +42,26 @@ test('keeps recent messages and expires stale article sessions', async () => {
   store.pruneExpiredArticleSessions(7 * 86400000);
   assert.equal(store.hasSession('reading:8'), false);
 });
+
+test('replaces and removes a persisted generation failure by its stable id', async () => {
+  const { ConversationStore } = await loadStore();
+  const store = new ConversationStore(memory(), () => 1000);
+
+  store.append('home', { id: 'request-1', role: 'user', kind: 'text', content: '生成一篇阅读' });
+  store.append('home', {
+    id: 'failure-1',
+    role: 'assistant',
+    kind: 'generation_failure',
+    failure: { message: '初次校验失败' }
+  });
+
+  assert.equal(store.replaceMessage('home', message => message.id === 'failure-1', message => ({
+    ...message,
+    failure: { message: '重试后校验失败' }
+  })), true);
+  assert.equal(store.getSession('home').messages.length, 2);
+  assert.equal(store.getSession('home').messages[1].failure.message, '重试后校验失败');
+
+  assert.equal(store.removeMessages('home', message => message.id === 'failure-1'), 1);
+  assert.deepEqual(store.getSession('home').messages.map(message => message.id), ['request-1']);
+});

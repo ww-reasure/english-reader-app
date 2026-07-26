@@ -67,6 +67,24 @@ export class ConversationStore {
     });
   }
 
+  replaceMessage(key, predicate, replacement) {
+    const session = this.getSession(key);
+    const index = session.messages.findIndex(predicate);
+    if (index < 0) return false;
+    const messages = [...session.messages];
+    messages[index] = replacement(messages[index]);
+    this.replaceSession(key, { ...session, updatedAt: this.now(), messages });
+    return true;
+  }
+
+  removeMessages(key, predicate) {
+    const session = this.getSession(key);
+    const messages = session.messages.filter(message => !predicate(message));
+    const removed = session.messages.length - messages.length;
+    if (removed) this.replaceSession(key, { ...session, updatedAt: this.now(), messages });
+    return removed;
+  }
+
   compact(key, keep) {
     const session = this.getSession(key);
     const recent = session.messages.slice(-keep);

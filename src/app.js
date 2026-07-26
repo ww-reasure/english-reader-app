@@ -4,6 +4,7 @@
  */
 
 import { Theme } from './theme.js';
+import { Config } from './config.js';
 import { Modal } from './components/modal.js';
 import { Router } from './router.js';
 import { esc } from './helpers.js';
@@ -22,6 +23,7 @@ export const App = {
   async init() {
     try {
       // Initialize modules
+      await Config.initialize();
       Theme.init();
 
       // Start router

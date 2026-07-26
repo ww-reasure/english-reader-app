@@ -1,6 +1,6 @@
 /**
  * Assessment View
- * Vocabulary level test through reading + self-assessment
+ * Reading calibration through comprehension, pace, lookup behaviour and confidence
  * Based on Krashen's i+1 theory and Nation's 98% coverage threshold
  */
 
@@ -11,6 +11,9 @@ import { Tooltip } from '../components/tooltip.js';
 import { Dictionary } from '../dictionary.js';
 import { AudioCache } from '../audio-cache.js';
 import { Modal } from '../components/modal.js';
+import { buildReadingProfile } from '../reading-profile.mjs';
+import { formatProfileConstraints, getDifficultyProfile, validateArticle } from '../difficulty-profile.mjs';
+import { hasCompleteAnswers, normalizeQuestionSet } from '../assessment-questions.mjs';
 
 export const AssessmentView = {
   // Current assessment state
@@ -22,12 +25,17 @@ export const AssessmentView = {
     secondArticleError: '',
     clickedWords: [],      // words user clicked during reading
     selfAssessment: [50, 50],  // per-article self-assessment
-    startTime: 0,
-    readingTime: 0
+    articleReadStartedAt: 0,
+    readingDurations: [0, 0],
+    readingTime: 0,
+    quizAnswers: [{}, {}],
+    assessmentRunId: 0,
+    generationController: null
   },
 
   // Reset state
   reset() {
+    const assessmentRunId = (this.state?.assessmentRunId || 0) + 1;
     this.cleanup();
     this.state = {
       step: 'select',
@@ -37,9 +45,27 @@ export const AssessmentView = {
       secondArticleError: '',
       clickedWords: [],
       selfAssessment: [50, 50],
-      startTime: 0,
-      readingTime: 0
+      articleReadStartedAt: 0,
+      readingDurations: [0, 0],
+      readingTime: 0,
+      quizAnswers: [{}, {}],
+      assessmentRunId,
+      generationController: null
     };
+  },
+
+  beginAssessmentRun() {
+    this.state.generationController?.abort();
+    const controller = new AbortController();
+    this.state.assessmentRunId += 1;
+    this.state.generationController = controller;
+    return { runId: this.state.assessmentRunId, controller };
+  },
+
+  isRunActive(runId, controller) {
+    return this.state.assessmentRunId === runId
+      && this.state.generationController === controller
+      && !controller.signal.aborted;
   },
 
   // Render assessment page
@@ -59,7 +85,7 @@ export const AssessmentView = {
           <p class="page-eyebrow">05 / BASELINE</p>
           <h1 class="page-title app-route-heading">阅读水平测评</h1>
           <p class="assessment-desc">
-            用两篇短文校准你的阅读起点；结果会推荐合适的难度与新词比例。
+            用两篇短文和理解题校准你的阅读起点；结果会推荐合适的难度与新词比例。
           </p>
         </div>
 
@@ -71,21 +97,21 @@ export const AssessmentView = {
               <input type="radio" name="assessExam" value="cet4" checked>
               <span class="settings-radio-label">
                 <span class="settings-radio-title">四级 (CET-4)</span>
-                <span class="settings-radio-desc">大学英语四级考试，词汇量约 4500</span>
+                <span class="settings-radio-desc">大学英语四级导向的阅读语篇</span>
               </span>
             </label>
             <label class="settings-radio">
               <input type="radio" name="assessExam" value="cet6">
               <span class="settings-radio-label">
                 <span class="settings-radio-title">六级 (CET-6)</span>
-                <span class="settings-radio-desc">大学英语六级考试，词汇量约 6000（默认已掌握四级词汇）</span>
+                <span class="settings-radio-desc">大学英语六级导向的阅读语篇</span>
               </span>
             </label>
             <label class="settings-radio">
               <input type="radio" name="assessExam" value="graduate">
               <span class="settings-radio-label">
                 <span class="settings-radio-title">考研</span>
-                <span class="settings-radio-desc">研究生入学考试，词汇量约 5500（默认已掌握四级+六级词汇）</span>
+                <span class="settings-radio-desc">研究生入学考试导向的阅读语篇</span>
               </span>
             </label>
           </div>
@@ -96,8 +122,8 @@ export const AssessmentView = {
           <ol>
             <li>系统生成 2 篇目标等级的文章（一易一难）</li>
             <li>逐篇阅读，遇到不认识的单词<strong>点击查看翻译</strong></li>
-            <li>阅读完成后，系统显示全文翻译，你<strong>评估自己的理解程度</strong></li>
-            <li>系统根据你的查词行为和自评，计算推荐设置</li>
+            <li>阅读完成后，系统显示全文翻译，完成<strong>阅读理解题</strong>并评估理解程度</li>
+            <li>系统根据理解题、阅读速度、查词行为和自评，计算推荐设置</li>
           </ol>
           <p class="assessment-info-note">⏱ 预计用时 3-5 分钟</p>
         </div>
@@ -117,9 +143,15 @@ export const AssessmentView = {
     }
 
     const exam = document.querySelector('input[name="assessExam"]:checked')?.value || 'cet4';
+    const { runId, controller } = this.beginAssessmentRun();
     this.state.targetExam = exam;
     this.state.clickedWords = [];
     this.state.articles = [];
+    this.state.secondArticleError = '';
+    this.state.currentArticle = 0;
+    this.state.readingDurations = [0, 0];
+    this.state.readingTime = 0;
+    this.state.quizAnswers = [{}, {}];
 
     // Show loading
     this.container.innerHTML = `
@@ -133,7 +165,8 @@ export const AssessmentView = {
 
     try {
       // Generate article 1 (easy) first
-      const article1 = await this.generateAssessmentArticle(exam, 'easy');
+      const article1 = await this.generateAssessmentArticle(exam, 'easy', { signal: controller.signal });
+      if (!this.isRunActive(runId, controller)) return;
       this.state.articles.push(article1);
 
       // Start reading article 1 immediately
@@ -141,13 +174,19 @@ export const AssessmentView = {
       this.renderReadingStep();
 
       // Generate article 2 (hard) in background
-      this.generateAssessmentArticle(exam, 'hard').then(article2 => {
+      this.generateAssessmentArticle(exam, 'hard', { signal: controller.signal }).then(article2 => {
+        if (!this.isRunActive(runId, controller)) return;
         this.state.articles.push(article2);
         this.state.secondArticleError = '';
       }).catch((err) => {
+        if (!this.isRunActive(runId, controller)) return;
         this.state.secondArticleError = err.message || '网络或 API 限流';
+      }).finally(() => {
+        if (this.state.generationController === controller) this.state.generationController = null;
       });
     } catch (err) {
+      if (!this.isRunActive(runId, controller)) return;
+      this.state.generationController = null;
       this.container.innerHTML = `
         <div class="assessment-container">
           <div class="empty-state">
@@ -160,18 +199,18 @@ export const AssessmentView = {
   },
 
   // Generate assessment article with AI
-  async generateAssessmentArticle(exam, level) {
+  async generateAssessmentArticle(exam, level, { signal = null } = {}) {
     const levelLabel = level === 'easy' ? '易' : '难';
-    const difficultyKey = `${exam}_${level}`;
+    const challenge = level === 'easy' ? 'support' : 'stretch';
+    const profile = getDifficultyProfile(exam, challenge);
 
     const prompt = `你是一位英语考试辅导教师。请生成一篇用于词汇水平测试的英文阅读文章。
 
 难度要求：
-${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
+${formatProfileConstraints(profile)}
 
 特殊要求：
 - 主题选择通用话题（科技/生活/文化/教育/健康），避免专业术语和文化背景知识
-- 文章总词数控制在 280-320 词
 - 文章中自然包含以下类型的词汇：
   * 5-8 个高频词（常见基础词汇）
   * 5-8 个中频词（有一定难度的学术词）
@@ -183,33 +222,54 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 {
   "title": "英文标题",
   "content": "英文文章，段落之间用双换行分隔",
-  "translation": "中文翻译，段落结构与英文一一对应，段落之间用双换行分隔"
+  "translation": "中文翻译，段落结构与英文一一对应，段落之间用双换行分隔",
+  "questions": [
+    { "question": "英文理解题", "options": ["A", "B", "C", "D"], "answer": 0 },
+    { "question": "英文理解题", "options": ["A", "B", "C", "D"], "answer": 1 },
+    { "question": "英文理解题", "options": ["A", "B", "C", "D"], "answer": 2 }
+  ]
 }`;
 
-    const data = await API.fetch('/chat/completions', {
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: `请生成一篇 ${DIFFICULTY_LABELS[exam]}（${levelLabel}）难度的测试文章` }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7
-    });
-
-    const result = JSON.parse(data.choices[0].message.content);
-    return {
-      title: result.title || 'Untitled',
-      content: result.content || '',
-      translation: result.translation || '',
-      difficulty: exam,
-      level: level,
-      wordCount: (result.content || '').split(/\s+/).length
-    };
+    let validation;
+    let questionValidation;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const retryHint = attempt === 0
+        ? `请生成一篇 ${DIFFICULTY_LABELS[exam]}（${levelLabel}）难度的测试文章`
+        : `上次输出未通过校验（${[
+          ...(validation?.deviations || []).map(item => item.code),
+          ...(questionValidation?.valid ? [] : ['questions'])
+        ].join('、')}）。请调整后重新生成，严格遵守所有要求。`;
+      const data = await API.fetch('/chat/completions', {
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: retryHint }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7
+      }, 60000, signal);
+      const result = JSON.parse(data.choices[0].message.content);
+      validation = validateArticle(result.content || '', profile);
+      questionValidation = normalizeQuestionSet(result.questions);
+      if (!validation.passed || !questionValidation.valid) continue;
+      return {
+        title: result.title || 'Untitled',
+        content: result.content || '',
+        translation: result.translation || '',
+        questions: questionValidation.questions,
+        difficulty: exam,
+        level,
+        challenge,
+        difficultyReport: validation,
+        wordCount: validation.metrics.wordCount
+      };
+    }
+    throw new Error('测试文章或阅读理解题未通过校验，请重试');
   },
 
   // Step 2: Reading step
   renderReadingStep() {
     this.state.step = 'reading';
-    this.state.startTime = Date.now();
+    this.state.articleReadStartedAt = Date.now();
     const article = this.state.articles[this.state.currentArticle];
     const enParas = article.content.split(/\n\n+/).filter(p => p.trim());
     const levelLabel = article.level === 'easy' ? '易' : '难';
@@ -335,6 +395,11 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
   // Clean up event listeners
   cleanup() {
+    if (this.state) {
+      this.state.generationController?.abort();
+      this.state.generationController = null;
+      this.state.assessmentRunId += 1;
+    }
     if (this._globalClickHandler) {
       document.removeEventListener('click', this._globalClickHandler);
       this._globalClickHandler = null;
@@ -352,7 +417,11 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
   // Finish reading current article
   async finishReading() {
+    const runId = this.state.assessmentRunId;
     Tooltip.hide();
+    const articleIndex = this.state.currentArticle;
+    this.state.readingDurations[articleIndex] = Math.max(1, Math.round((Date.now() - this.state.articleReadStartedAt) / 1000));
+    this.state.readingTime = this.state.readingDurations.reduce((total, seconds) => total + seconds, 0);
 
     if (this.state.currentArticle === 0) {
       // Check if article 2 is ready
@@ -369,6 +438,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
         // Wait for article 2 (it's already generating in background, with 60s timeout)
         const waitStart = Date.now();
         while (this.state.articles.length < 2) {
+          if (this.state.assessmentRunId !== runId) return;
           if (this.state.secondArticleError || Date.now() - waitStart > 60000) {
             const reason = esc(this.state.secondArticleError || '网络或 API 限流');
             this.container.innerHTML = `
@@ -384,12 +454,12 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
           await new Promise(r => setTimeout(r, 500));
         }
       }
+      if (this.state.assessmentRunId !== runId) return;
       // Move to article 2
       this.state.currentArticle = 1;
       this.renderReadingStep();
     } else {
       // Both articles done, move to self-assessment
-      this.state.readingTime = Math.round((Date.now() - this.state.startTime) / 1000);
       this.renderSelfAssessStep();
     }
   },
@@ -401,6 +471,10 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       this.renderReadingStep();
       return;
     }
+    const runId = this.state.assessmentRunId;
+    this.state.generationController?.abort();
+    const controller = new AbortController();
+    this.state.generationController = controller;
     this.state.secondArticleError = '';
     this.container.innerHTML = `
       <div class="assessment-container">
@@ -409,13 +483,15 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
           <p>正在重新生成第 2 篇测试文章...</p>
           <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（难）</p>
         </div>
-      </div>`;
+    </div>`;
     try {
-      const article = await this.generateAssessmentArticle(this.state.targetExam, 'hard');
+      const article = await this.generateAssessmentArticle(this.state.targetExam, 'hard', { signal: controller.signal });
+      if (!this.isRunActive(runId, controller)) return;
       this.state.articles.push(article);
       this.state.currentArticle = 1;
       this.renderReadingStep();
     } catch (err) {
+      if (!this.isRunActive(runId, controller)) return;
       this.state.secondArticleError = err.message || '网络或 API 限流';
       const reason = esc(this.state.secondArticleError);
       this.container.innerHTML = `
@@ -424,8 +500,10 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
             <p>第二篇文章生成失败（${reason}）。</p>
             <button class="btn btn-primary" onclick="AssessmentView.retrySecondArticle()">再次重试</button>
             <a href="#/chat" class="btn btn-outline">返回</a>
-          </div>
-        </div>`;
+        </div>
+      </div>`;
+    } finally {
+      if (this.state.generationController === controller) this.state.generationController = null;
     }
   },
 
@@ -446,6 +524,12 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       const enParas = article.content.split(/\n\n+/).filter(p => p.trim());
       const zhParas = (article.translation || '').split(/\n\n+/).filter(p => p.trim());
       const articleStats = i === 0 ? stats1 : stats2;
+      const questionsHTML = (article.questions || []).map((question, questionIndex) => `
+        <fieldset class="assessment-question">
+          <legend>${questionIndex + 1}. ${esc(question.question)}</legend>
+          ${question.options.map((option, optionIndex) => `
+            <label><input type="radio" name="assessmentQuestion-${i}-${questionIndex}" value="${optionIndex}"> ${esc(option)}</label>`).join('')}
+        </fieldset>`).join('');
 
       let parasHTML = '';
       enParas.forEach((p, j) => {
@@ -465,6 +549,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
             <span>低频：${articleStats.lowFreqCount}</span>
           </div>
           <div class="assess-article-content">${parasHTML}</div>
+          ${questionsHTML ? `<div class="assessment-questions"><h4>阅读理解</h4>${questionsHTML}</div>` : ''}
           <div class="assess-self-rate assess-self-rate-inline">
             <h3>🤔 你对这篇（${levelLabel}）的理解程度：</h3>
             <div class="slider-container">
@@ -564,100 +649,75 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
       const slider = document.getElementById('selfAssessSlider' + i);
       if (slider) this.state.selfAssessment[i] = parseInt(slider.value);
     }
+    this.readQuizAnswers();
+    const allQuestionsAnswered = this.state.articles.every((article, articleIndex) =>
+      hasCompleteAnswers(article.questions, this.state.quizAnswers[articleIndex])
+    );
+    if (!allQuestionsAnswered) {
+      this.showIncompleteQuestionMessage();
+      return;
+    }
     this.state.step = 'result';
 
     const result = this.calculateResult();
     this.renderResultStep(result);
   },
 
-  // Calculate assessment result (per-article weighted)
+  showIncompleteQuestionMessage() {
+    const actions = this.container?.querySelector('.assessment-actions');
+    if (!actions || document.getElementById('assessmentQuizError')) return;
+    actions.insertAdjacentHTML('beforebegin', `
+      <div id="assessmentQuizError" class="assessment-info-box" role="alert">
+        请完成全部阅读理解题后查看结果
+      </div>`);
+  },
+
+  readQuizAnswers() {
+    this.state.quizAnswers = this.state.articles.map((article, articleIndex) =>
+      Object.fromEntries((article.questions || []).map((_, questionIndex) => {
+        const selected = document.querySelector(`input[name="assessmentQuestion-${articleIndex}-${questionIndex}"]:checked`);
+        return [questionIndex, selected ? Number.parseInt(selected.value, 10) : null];
+      }))
+    );
+  },
+
+  // Calculate a transparent reading profile from observable assessment signals.
   calculateResult() {
     const stats = this.calculateStats();
-    const exam = this.state.targetExam;
-
-    // Base vocabulary for each exam level
-    const baseVocab = { cet4: 2000, cet6: 4000, graduate: 5500 };
-
-    // Calculate per-article objective and self rates
-    const articleRates = this.state.articles.map((article, i) => {
+    const attempts = this.state.articles.map((article, i) => {
       const aStats = this.calculateStatsForArticle(i);
-      const totalWords = article.wordCount;
-
-      // Weighted unknown rate for this article
-      const weightedUnknown = aStats.highFreqCount * 3 + aStats.midFreqCount * 1.5 + aStats.lowFreqCount * 0.5;
-      const maxWeight = totalWords * 0.02 * 3;
-      const objectiveRate = Math.max(0, Math.min(1, 1 - (weightedUnknown / Math.max(maxWeight, 1))));
-
-      // Self-assessment for this article
-      const selfRate = (this.state.selfAssessment[i] || 50) / 100;
-
-      // Combined (objective 60%, self 40%)
-      const combined = objectiveRate * 0.6 + selfRate * 0.4;
-
-      return { objectiveRate, selfRate, combined, level: article.level };
+      const questions = article.questions || [];
+      const answers = this.state.quizAnswers[i] || {};
+      return {
+        wordCount: article.wordCount,
+        elapsedSeconds: this.state.readingDurations[i] || 0,
+        comprehensionCorrect: questions.filter((question, questionIndex) => answers[questionIndex] === question.answer).length,
+        comprehensionTotal: questions.length,
+        explicitLookups: aStats.totalClicked,
+        confidence: 1 + ((this.state.selfAssessment[i] || 50) / 100) * 4
+      };
     });
-
-    // Easy article weighted 30%, hard article weighted 70%
-    // (hard article is more diagnostic)
-    const easyRate = articleRates.find(r => r.level === 'easy') || articleRates[0];
-    const hardRate = articleRates.find(r => r.level === 'hard') || articleRates[1] || articleRates[0];
-    const finalRate = easyRate.combined * 0.3 + hardRate.combined * 0.7;
-
-    // Estimate vocabulary
-    const estimatedVocab = Math.round(baseVocab[exam] * (0.4 + finalRate * 0.8));
+    const readingProfile = buildReadingProfile(attempts);
+    const perArticleProfiles = attempts.map(attempt => buildReadingProfile([attempt]));
 
     // Determine frequency profile
     const highFreqRate = stats.highFreqCount <= 2 ? 'excellent' : stats.highFreqCount <= 5 ? 'good' : 'weak';
     const midFreqRate = stats.midFreqCount <= 5 ? 'excellent' : stats.midFreqCount <= 10 ? 'good' : 'weak';
-
-    // Recommend difficulty based on final rate
-    let recommendedDifficulty = exam;
-    let recommendedLevel = 'easy';
-    if (finalRate >= 0.90) {
-      recommendedLevel = 'hard';
-    } else if (finalRate >= 0.70) {
-      recommendedLevel = 'easy';
-    } else {
-      if (exam === 'graduate') {
-        recommendedDifficulty = 'cet6';
-        recommendedLevel = finalRate >= 0.50 ? 'easy' : 'hard';
-      } else if (exam === 'cet6') {
-        recommendedDifficulty = 'cet4';
-        recommendedLevel = 'hard';
-      } else {
-        recommendedLevel = 'easy';
-      }
-    }
-
-    // Recommend coverage
-    let recommendedCoverage, recommendedNewWordPercent;
-    if (finalRate >= 0.95) {
-      recommendedCoverage = 98;
-      recommendedNewWordPercent = 2;
-    } else if (finalRate >= 0.85) {
-      recommendedCoverage = 95;
-      recommendedNewWordPercent = 5;
-    } else if (finalRate >= 0.70) {
-      recommendedCoverage = 90;
-      recommendedNewWordPercent = 10;
-    } else {
-      recommendedCoverage = 85;
-      recommendedNewWordPercent = 15;
-    }
+    const recommendedDifficulty = readingProfile.recommendedTrack === 'support' ? 'cet4' : readingProfile.recommendedTrack;
+    const recommendedLevel = readingProfile.recommendedTrack === 'support' || readingProfile.averageConfidence < 3 ? 'easy' : 'hard';
+    const recommendedCoverage = readingProfile.recommendedTrack === 'support' ? 90 : readingProfile.lookupRate > 25 ? 92 : 95;
+    const recommendedNewWordPercent = 100 - recommendedCoverage;
 
     return {
-      estimatedVocab,
-      finalRate: Math.round(finalRate * 100),
-      easyRate: Math.round(easyRate.combined * 100),
-      hardRate: Math.round(hardRate.combined * 100),
+      readingProfile,
+      perArticleProfiles,
       highFreqRate,
       midFreqRate,
       stats,
       recommendedDifficulty,
       recommendedLevel,
       recommendedCoverage,
-      recommendedNewWordPercent,
-      exam
+      recommendedNewWordPercent
     };
   },
 
@@ -682,14 +742,14 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
           <div class="result-main">
             <div class="result-vocab">
-              <span class="result-vocab-num">${result.estimatedVocab}</span>
-              <span class="result-vocab-label">预估词汇量</span>
+              <span class="result-vocab-num">${result.readingProfile.averageWpm}</span>
+              <span class="result-vocab-label">平均阅读速度（词/分钟）</span>
             </div>
             <div class="result-bar-container">
               <div class="result-bar">
-                <div class="result-bar-fill" style="width: ${Math.min(100, result.finalRate)}%"></div>
+                <div class="result-bar-fill" style="width: ${Math.min(100, result.readingProfile.comprehensionAccuracy ?? 0)}%"></div>
               </div>
-              <span class="result-bar-text">综合理解率 ${result.finalRate}%</span>
+              <span class="result-bar-text">理解题正确率 ${result.readingProfile.comprehensionAccuracy ?? '暂无'}${result.readingProfile.comprehensionAccuracy === null ? '' : '%'}</span>
             </div>
           </div>
 
@@ -706,24 +766,24 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
             </div>
             <div class="result-detail-item">
               <span class="result-detail-icon">📝</span>
-              <span class="result-detail-label">查词总数</span>
-              <span class="result-detail-value">${result.stats.totalClicked} 个</span>
+              <span class="result-detail-label">显式查词率</span>
+              <span class="result-detail-value">${result.readingProfile.lookupRate} / 千词</span>
             </div>
             <div class="result-detail-item">
               <span class="result-detail-icon">⏱</span>
-              <span class="result-detail-label">阅读用时</span>
-              <span class="result-detail-value">${Math.floor(this.state.readingTime / 60)}分${this.state.readingTime % 60}秒</span>
+              <span class="result-detail-label">自评信心</span>
+              <span class="result-detail-value">${result.readingProfile.averageConfidence} / 5</span>
             </div>
           </div>
 
           <div class="result-per-article">
             <div class="result-per-article-item">
               <span>第 1 篇（易）理解率</span>
-              <strong>${result.easyRate}%</strong>
+              <strong>${result.perArticleProfiles[0]?.comprehensionAccuracy ?? '暂无'}${result.perArticleProfiles[0]?.comprehensionAccuracy === null ? '' : '%'}</strong>
             </div>
             <div class="result-per-article-item">
               <span>第 2 篇（难）理解率</span>
-              <strong>${result.hardRate}%</strong>
+              <strong>${result.perArticleProfiles[1]?.comprehensionAccuracy ?? '暂无'}${result.perArticleProfiles[1]?.comprehensionAccuracy === null ? '' : '%'}</strong>
             </div>
           </div>
 
@@ -749,6 +809,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
             <ul>
               <li><strong>新词比例 ${result.recommendedNewWordPercent}%</strong>：每100个词中约 ${result.recommendedNewWordPercent} 个是新词，其余 ${result.recommendedCoverage}% 为你已掌握的词汇</li>
               <li>基于 Nation 的词汇覆盖率研究，${result.recommendedCoverage}% 覆盖率适合舒适阅读</li>
+              <li>本报告只汇总理解题、阅读速度、显式查词与自评信心；不会由这些行为推算你的词汇总量</li>
               <li>这些设置可以在「设置」页面随时手动调整</li>
             </ul>
           </div>
@@ -768,7 +829,7 @@ ${API.difficultyRules[difficultyKey] || API.difficultyRules['cet4_easy']}
 
     // Save assessment result
     Config.set('assessment_done', 'true');
-    Config.set('assessment_vocab', result.estimatedVocab.toString());
+    Config.set('assessment_profile', JSON.stringify(result.readingProfile));
     Config.set('assessment_date', new Date().toISOString());
 
     // Apply recommended settings (coverage derived from new_word_percent)

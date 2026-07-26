@@ -4,7 +4,7 @@
  */
 
 import { Config } from '../config.js';
-import { DIFFICULTY_LABELS, esc, shuffleArray } from '../helpers.js';
+import { DIFFICULTY_LABELS, esc } from '../helpers.js';
 import { DB } from '../db.js';
 import { API } from '../api.js';
 import { Modal } from '../components/modal.js';
@@ -17,7 +17,14 @@ import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
 import { classifyComposerIntent } from '../components/composer-intent.js';
 import { renderLearningMarkdown } from '../components/rich-text.js';
-import { ArticleGenerationTool, GENERATE_READING_TOOL } from '../components/article-generation-tool.js';
+import { ArticleGenerationTool, GENERATE_READING_TOOL, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
+import { resolveGenerationRequest } from '../components/generation-request.js';
+import {
+  createGenerationFailure as makeGenerationFailure,
+  isCancelledGenerationRequest,
+  normalizeGenerationFailure as hydrateGenerationFailure
+} from '../components/generation-failure.mjs';
+import { HomeRequestGate } from '../components/home-request-gate.mjs';
 
 const conversationStore = new ConversationStore();
 const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
@@ -25,10 +32,26 @@ const contextBuilder = new ContextBuilder();
 const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder });
 const articleGenerationTool = new ArticleGenerationTool({
   api: API,
-  db: DB,
-  pickWords: words => shuffleArray(words).slice(0, 8)
+  db: DB
 });
 const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, GENERATE_READING_TOOL];
+const homeRequestGate = new HomeRequestGate();
+let generationFailureSequence = 0;
+const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
+const cancelledRequest = () => {
+  const error = new Error('请求已取消');
+  error.name = 'AbortError';
+  return error;
+};
+const generationProgressLabel = ({ phase } = {}) => ({
+  drafting: '正在撰写文章…',
+  checking: '正在检查难度…',
+  refining: '正在按校验结果精修…'
+}[phase] || '文章定制中…');
+const generationAdjustmentMessage = adjustment => {
+  const { requested, resolved, range } = adjustment;
+  return `已按当前难度档案将篇幅从 ${requested} 词调整为 ${resolved} 词（允许范围 ${range.min}-${range.max} 词）。`;
+};
 
 // Chat history persistence
 export const ChatHistory = {
@@ -199,6 +222,8 @@ export const ChatView = {
       session.messages.forEach(message => {
         if (message.kind === 'article') {
           this.addArticleCardToDOM(message.article);
+        } else if (message.kind === 'generation_failure') {
+          this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
         } else {
           this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
         }
@@ -263,18 +288,43 @@ export const ChatView = {
   clearHistory() {
     if (!confirm('清除本次对话的上下文和显示记录？已保存的阅读文章不受影响。')) return;
     this.homeEpoch += 1;
-    chatService.cancel('home');
-    this._generationController?.abort();
-    this._generationController = null;
-    this.resetGenerateButton();
-    this.isReviewGenerating = false;
-    this.removeThinking();
-    this.removeArticleGenerationStatus();
+    this.beginHomeRequest();
     conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
+  },
+
+  beginHomeRequest() {
+    const requestVersion = homeRequestGate.begin();
+    chatService.cancel('home');
+    this._generationController?.abort();
+    this._generationController = null;
+    this.isReviewGenerating = false;
+    this.resetGenerateButton();
+    this.removeThinking();
+    this.removeArticleGenerationStatus();
+    return requestVersion;
+  },
+
+  isHomeRequestActive(epoch, requestVersion) {
+    return this.homeEpoch === epoch && homeRequestGate.isCurrent(requestVersion);
+  },
+
+  startArticleGenerationSession(requestVersion = homeRequestGate.version) {
+    this._generationController?.abort();
+    const controller = new AbortController();
+    const epoch = this.homeEpoch;
+    this._generationController = controller;
+
+    return {
+      signal: controller.signal,
+      isActive: () => this._generationController === controller && !controller.signal.aborted && this.isHomeRequestActive(epoch, requestVersion),
+      release: () => {
+        if (this._generationController === controller) this._generationController = null;
+      }
+    };
   },
 
   resetGenerateButton() {
@@ -378,10 +428,12 @@ export const ChatView = {
     }
 
     const epoch = this.homeEpoch;
+    const requestVersion = this.beginHomeRequest();
+    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
     this.appendConversation({ role: 'user', kind: 'text', content: value });
     input.value = '';
     if (classifyComposerIntent(value) === 'generate') {
-      return this.handleGenerate({ prompt: value, alreadyAdded: true });
+      return this.handleGenerate({ prompt: value, alreadyAdded: true, requestVersion });
     }
     this.showThinking();
     try {
@@ -392,37 +444,74 @@ export const ChatView = {
         userMessage: value,
         kind: 'home',
         tools: HOME_LEARNING_TOOLS,
-        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch)
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, value, requestVersion)
       });
+      if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
-      if (epoch !== this.homeEpoch) return;
-      this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+      if (reply.content) {
+        this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+      }
       reply.artifacts.forEach(artifact => {
         if (artifact.type === 'article') this.addArticleCard(artifact.article);
+        if (artifact.type === 'generation_failure') this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, value));
       });
     } catch (error) {
+      if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
-      if (epoch === this.homeEpoch) {
-        this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答：' + error.message });
-      }
+      this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答，请稍后重试。' });
     }
   },
 
-  async executeHomeTool(name, args, { signal }, epoch) {
+  async executeHomeTool(name, args = {}, { signal } = {}, epoch, userRequest = '', requestVersion) {
     if (name !== 'generate_reading') {
       return { result: await learningAgent.execute(name, args) };
     }
-    this.showArticleGenerationStatus();
-    const { article, metadata } = await articleGenerationTool.execute(args, {
-      fallbackDifficulty: document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4',
-      fallbackTopic: this.getTopic(),
-      learningContext: this.buildGenerationContext(),
-      signal,
-      isActive: () => epoch === this.homeEpoch
+    if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
+    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const request = String(userRequest || args.request || '请根据当前学习情况生成一篇英语阅读文章。').trim();
+    const generation = resolveGenerationRequest({
+      request,
+      selectedDifficulty,
+      legacyLevel: Config.get('level'),
+      toolDifficulty: args.difficulty,
+      toolWordCount: args.wordCount
     });
-    return { result: metadata, artifact: { type: 'article', article } };
+    const topic = String(args.topic || this.getTopic() || 'general').trim() || 'general';
+
+    if (generation.adjustment) this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
+    this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
+    try {
+      const { article, metadata } = await articleGenerationTool.execute({
+        request: generation.request,
+        difficulty: generation.difficulty,
+        challenge: generation.challenge,
+        topic,
+        wordCount: generation.wordCount
+      }, {
+        fallbackDifficulty: generation.difficulty,
+        fallbackChallenge: generation.challenge,
+        fallbackTopic: topic,
+        legacyLevel: Config.get('level'),
+        learningContext: this.buildGenerationContext(),
+        signal,
+        isActive: () => this.isHomeRequestActive(epoch, requestVersion) && !signal?.aborted,
+        onProgress: progress => {
+          if (this.isHomeRequestActive(epoch, requestVersion) && !signal?.aborted) {
+            this.showArticleGenerationStatus(generationProgressLabel(progress));
+          }
+        }
+      });
+      return { result: metadata, artifact: { type: 'article', article } };
+    } catch (error) {
+      if (isCancelledGenerationRequest(error) || signal?.aborted) throw error;
+      const failure = this.createGenerationFailure(error, generation, topic);
+      return {
+        result: { status: failure.reason, summary: failure.message },
+        artifact: { type: 'generation_failure', failure }
+      };
+    }
   },
 
   buildGenerationContext() {
@@ -446,7 +535,7 @@ export const ChatView = {
   },
 
   // Handle article generation
-  async handleGenerate({ prompt: providedPrompt, alreadyAdded = false } = {}) {
+  async handleGenerate({ prompt: providedPrompt, alreadyAdded = false, providedGeneration = null, topicOverride = '', suppressAdjustmentNotice = false, requestVersion = null, retryFailureId = '' } = {}) {
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
@@ -455,16 +544,25 @@ export const ChatView = {
     const generateButton = document.getElementById('generateBtn');
     if (generateButton?.disabled) return;
 
-    const prompt = providedPrompt ?? document.getElementById('promptInput').value.trim();
-    const difficulty = document.getElementById('difficultySelect').value;
-    const topic = this.getTopic();
-    const epoch = this.homeEpoch;
-    const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[difficulty]}难度的英语阅读文章。`;
+    const activeRequestVersion = requestVersion ?? this.beginHomeRequest();
+    const prompt = providedPrompt ?? providedGeneration?.request ?? document.getElementById('promptInput').value.trim();
+    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[selectedDifficulty]}难度的英语阅读文章。`;
+    const generation = providedGeneration || resolveGenerationRequest({
+      request: effectivePrompt,
+      selectedDifficulty,
+      legacyLevel: Config.get('level')
+    });
+    const difficulty = generation.difficulty;
+    const topic = topicOverride || this.getTopic();
 
     if (!alreadyAdded) {
       this.addMessage('user', prompt
         ? prompt
         : `请随机生成一篇${DIFFICULTY_LABELS[difficulty]}难度的英语阅读文章。`);
+    }
+    if (generation.adjustment && !suppressAdjustmentNotice) {
+      this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
     }
 
     if (generateButton) {
@@ -476,25 +574,32 @@ export const ChatView = {
     // Clear input immediately
     const promptInput = document.getElementById('promptInput');
     if (promptInput) promptInput.value = '';
-    const controller = new AbortController();
-    this._generationController?.abort();
-    this._generationController = controller;
-    this.showArticleGenerationStatus();
+    const generationSession = this.startArticleGenerationSession(activeRequestVersion);
+    this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
 
     try {
       const { article: articleWithId, keywords } = await articleGenerationTool.execute({
-        request: effectivePrompt,
+        request: generation.request,
         difficulty,
+        challenge: generation.challenge,
         topic,
-        wordCount: 400
+        wordCount: generation.wordCount
       }, {
         fallbackDifficulty: difficulty,
+        fallbackChallenge: generation.challenge,
         fallbackTopic: topic,
+        legacyLevel: Config.get('level'),
         learningContext: this.buildGenerationContext(),
-        signal: controller.signal,
-        isActive: () => epoch === this.homeEpoch
+        signal: generationSession.signal,
+        isActive: generationSession.isActive,
+        onProgress: progress => {
+          if (generationSession.isActive()) {
+            this.showArticleGenerationStatus(generationProgressLabel(progress));
+          }
+        }
       });
-      if (epoch !== this.homeEpoch) return;
+      if (!generationSession.isActive()) return;
+      if (retryFailureId) this.removeGenerationFailure(retryFailureId);
 
       // Check if we're still on the chat page
       const chatMessages = document.getElementById('chatMessages');
@@ -508,17 +613,35 @@ export const ChatView = {
         PendingArticles.add(articleWithId, keywords);
       }
     } catch (err) {
-      const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages && epoch === this.homeEpoch) {
-        this.addMessage('error', `错误：${err.message}`);
-      }
+      if (!generationSession.isActive()) return;
+      if (isCancelledGenerationRequest(err)) return;
+      const failure = this.createGenerationFailure(err, generation, topic);
+      if (retryFailureId) this.replaceGenerationFailure(retryFailureId, failure);
+      else this.addGenerationFailure(failure);
     } finally {
-      if (this._generationController === controller) {
-        this._generationController = null;
+      if (generationSession.isActive()) {
         this.resetGenerateButton();
         this.removeArticleGenerationStatus();
       }
+      if (retryFailureId) this.setGenerationFailureRetryState(retryFailureId, false);
+      generationSession.release();
     }
+  },
+
+  publishReviewArticles(articles, generationSession) {
+    if (!generationSession.isActive()) return false;
+    const chatMessages = document.getElementById('chatMessages');
+    if (chatMessages) {
+      articles.forEach(article => this.addArticleCard(article));
+    } else {
+      articles.forEach(article => PendingArticles.add(article, article.usedWords));
+    }
+    return true;
+  },
+
+  async discardReviewArticles(articles = []) {
+    const ids = [...new Set(articles.map(article => article?.id).filter(Boolean))];
+    await Promise.all(ids.map(id => DB.deleteArticle(id).catch(() => {})));
   },
 
   // Handle review reading generation
@@ -528,66 +651,79 @@ export const ChatView = {
       return;
     }
 
-    // Collect review words: due words + non-mastered learn words
-    const allLearnWords = await DB.getAllLearnWords();
-    const dueWords = SpacedRepetition.getDueWords(allLearnWords);
-    const nonMastered = allLearnWords.filter(w => SpacedRepetition.getStatus(w) !== 'mastered');
+    const epoch = this.homeEpoch;
+    const requestVersion = this.beginHomeRequest();
 
-    // Merge and dedup
-    const wordSet = new Set();
-    const reviewWords = [];
-    [...dueWords, ...nonMastered].forEach(w => {
-      if (!wordSet.has(w.word)) {
-        wordSet.add(w.word);
-        reviewWords.push(w.word);
-      }
-    });
+    // Keep due words first, then supplement them with words that are not stable yet.
+    const allLearnWords = await DB.getAllLearnWords();
+    if (!this.isHomeRequestActive(epoch, requestVersion)) return;
+    const dueWords = SpacedRepetition.getDueWords(allLearnWords);
+    const nonStableWords = allLearnWords.filter(w => !SpacedRepetition.isStable(w));
+    const reviewWords = normalizeTargetWords(
+      [...dueWords, ...nonStableWords].map(word => word.word),
+      Number.POSITIVE_INFINITY
+    );
 
     if (reviewWords.length === 0) {
       this.addMessage('system', '没有待复习的单词。先导入单词或在阅读中收藏单词。');
       return;
     }
 
-    const difficulty = document.getElementById('difficultySelect').value;
+    const difficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
     const topic = this.getTopic();
-    const epoch = this.homeEpoch;
-    const controller = new AbortController();
-    this._generationController?.abort();
-    this._generationController = controller;
+    const selectedBatches = chunkTargetWords(reviewWords).slice(0, 2);
+    const selectedWords = selectedBatches.flat();
+    const deferredCount = Math.max(0, reviewWords.length - selectedWords.length);
+    const generationSession = this.startArticleGenerationSession(requestVersion);
     this.isReviewGenerating = true;
+    const isReviewSessionActive = generationSession.isActive;
 
-    this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词`);
+    this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词${deferredCount > 0 ? `\n本次优先巩固 ${selectedWords.length} / ${reviewWords.length} 个词，其余 ${deferredCount} 个词待下次处理。` : ''}`);
     this.showArticleGenerationStatus('正在制作复习阅读…');
 
+    let articles = [];
     try {
-      const article = await API.generateReviewArticle(reviewWords, difficulty, topic, { signal: controller.signal });
-      if (controller.signal.aborted || epoch !== this.homeEpoch) return;
-      const id = await DB.saveArticle({ ...article, reviewMode: true });
-      if (controller.signal.aborted || epoch !== this.homeEpoch) {
-        await DB.deleteArticle(id);
-        return;
+      for (const [index, batch] of selectedBatches.entries()) {
+        const result = await articleGenerationTool.execute({
+          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
+          difficulty,
+          topic,
+          wordCount: selectedBatches.length > 1 ? 300 : 350
+        }, {
+          fallbackDifficulty: difficulty,
+          fallbackTopic: topic,
+          fallbackChallenge: 'support',
+          learningContext: this.buildGenerationContext(),
+          signal: generationSession.signal,
+          isActive: isReviewSessionActive,
+          targetWords: batch,
+          articleFields: { reviewMode: true, usedWords: batch }
+        });
+        articles.push(result.article);
       }
-      const articleWithId = { ...article, id, reviewMode: true };
+      if (!isReviewSessionActive()) return;
 
-      const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages && epoch === this.homeEpoch) {
-        this.addArticleCard(articleWithId);
-        const usedCount = article.usedWords?.length || 0;
-        this.addMessage('system', `📝 已从 ${reviewWords.length} 个待复习词中挑选 ${usedCount} 个融入文章，点击阅读开始复习`);
-      } else {
-        PendingArticles.add(articleWithId);
+      if (this.publishReviewArticles(articles, generationSession)) {
+        this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个待复习词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}点击阅读开始复习。`);
       }
     } catch (err) {
+      if (!isReviewSessionActive()) return;
       const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages && epoch === this.homeEpoch) {
-        this.addMessage('error', `错误：${err.message}`);
+      if (articles.length) {
+        if (this.publishReviewArticles(articles, generationSession) && chatMessages) {
+          this.addMessage('error', `已生成 ${articles.length} 篇巩固阅读，其余文章暂时无法完成，请稍后重试。`);
+        }
+      } else if (chatMessages) {
+        this.addMessage('error', '文章定制暂时失败，请稍后重试。');
       }
     } finally {
-      if (this._generationController === controller) {
-        this._generationController = null;
+      const isCurrentReviewSession = isReviewSessionActive();
+      if (!isCurrentReviewSession && articles.length) await this.discardReviewArticles(articles);
+      if (isCurrentReviewSession) {
         this.removeArticleGenerationStatus();
+        this.isReviewGenerating = false;
       }
-      this.isReviewGenerating = false;
+      generationSession.release();
     }
   },
 
@@ -596,6 +732,8 @@ export const ChatView = {
     conversationStore.compact('home', 16);
     if (message.kind === 'article') {
       this.addArticleCardToDOM(message.article);
+    } else if (message.kind === 'generation_failure') {
+      this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       this.addMessageToDOM(type, message.content);
@@ -620,7 +758,13 @@ export const ChatView = {
   showArticleGenerationStatus(label = '文章定制中…') {
     this.removeThinking();
     const container = document.getElementById('chatMessages');
-    if (!container || document.getElementById('articleGenerationStatus')) return;
+    if (!container) return;
+    const existing = document.getElementById('articleGenerationStatus');
+    if (existing) {
+      const labelNode = existing.querySelector('span');
+      if (labelNode) labelNode.textContent = label;
+      return;
+    }
     const status = document.createElement('div');
     status.id = 'articleGenerationStatus';
     status.className = 'message ai-message chat-thinking article-generation-status';
@@ -649,6 +793,105 @@ export const ChatView = {
     if (article.content) {
       AudioCache.preloadWords(article.content).catch(() => {});
     }
+  },
+
+  createGenerationFailure(error, generation, topic) {
+    return makeGenerationFailure(error, generation, topic);
+  },
+
+  normalizeGenerationFailure(failure, userRequest) {
+    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const fallbackGeneration = resolveGenerationRequest({
+      request: String(userRequest || '请根据当前学习情况生成一篇英语阅读文章。').trim(),
+      selectedDifficulty,
+      legacyLevel: Config.get('level')
+    });
+    return hydrateGenerationFailure(failure, fallbackGeneration, this.getTopic());
+  },
+
+  addGenerationFailure(failure) {
+    const failureId = nextGenerationFailureId();
+    this.appendConversation({ id: failureId, role: 'assistant', kind: 'generation_failure', failure });
+    return failureId;
+  },
+
+  findGenerationFailureElement(failureId) {
+    return [...document.querySelectorAll('.generation-failure-message')]
+      .find(element => element.dataset.failureId === String(failureId));
+  },
+
+  setGenerationFailureRetryState(failureId, retrying) {
+    const element = this.findGenerationFailureElement(failureId);
+    if (!element) return;
+    element.dataset.retrying = retrying ? 'true' : 'false';
+    element.querySelector('.generation-retry-btn')?.toggleAttribute('disabled', retrying);
+  },
+
+  renderGenerationFailureToDOM(div, failure, failureId) {
+    const stableId = String(failureId || nextGenerationFailureId());
+    const message = String(failure?.message || '文章未通过难度校验，请重新生成。').trim();
+    const generation = failure?.generation;
+    const canRetry = generation?.request && generation?.difficulty && generation?.challenge && Number(generation?.wordCount) > 0;
+    div.dataset.failureId = stableId;
+    div.dataset.retrying = 'false';
+    div.innerHTML = `
+      <section class="generation-failure-card" aria-label="文章生成失败">
+        <div class="generation-failure-copy">
+          <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+          <div><strong>文章需要重新定制</strong><p>${esc(message)}</p></div>
+        </div>
+        ${canRetry ? '<button class="btn btn-outline btn-sm generation-retry-btn" type="button">重新生成</button>' : ''}
+      </section>`;
+    const retryButton = div.querySelector('.generation-retry-btn');
+    if (retryButton) {
+      retryButton.addEventListener('click', () => {
+        if (div.dataset.retrying === 'true') return;
+        this.setGenerationFailureRetryState(stableId, true);
+        void this.handleGenerate({
+          prompt: generation.request,
+          alreadyAdded: true,
+          providedGeneration: generation,
+          topicOverride: failure?.topic,
+          suppressAdjustmentNotice: true,
+          retryFailureId: stableId
+        }).catch(() => {}).finally(() => this.setGenerationFailureRetryState(stableId, false));
+      });
+    }
+  },
+
+  addGenerationFailureToDOM(failure, failureId = '') {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'message ai-message generation-failure-message';
+    this.renderGenerationFailureToDOM(div, failure, failureId);
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  replaceGenerationFailure(failureId, failure) {
+    const stableId = String(failureId);
+    const replaced = conversationStore.replaceMessage('home', message => (
+      message.kind === 'generation_failure'
+      && (message.id === stableId || String(message.createdAt) === stableId)
+    ), message => ({ ...message, id: stableId, failure }));
+    const element = this.findGenerationFailureElement(stableId);
+    if (!replaced) {
+      conversationStore.append('home', { id: stableId, role: 'assistant', kind: 'generation_failure', failure });
+      conversationStore.compact('home', 16);
+    }
+    if (element) this.renderGenerationFailureToDOM(element, failure, stableId);
+    else this.addGenerationFailureToDOM(failure, stableId);
+    return replaced;
+  },
+
+  removeGenerationFailure(failureId) {
+    const stableId = String(failureId);
+    conversationStore.removeMessages('home', message => (
+      message.kind === 'generation_failure'
+      && (message.id === stableId || String(message.createdAt) === stableId)
+    ));
+    this.findGenerationFailureElement(stableId)?.remove();
   },
 
   // Add message to DOM only (no history save)
@@ -692,9 +935,12 @@ export const ChatView = {
 
   cleanup() {
     this.homeEpoch += 1;
+    homeRequestGate.invalidate();
     chatService.cancel('home');
     this._generationController?.abort();
     this._generationController = null;
+    this.isReviewGenerating = false;
+    this.resetGenerateButton();
     this.removeThinking();
     this.removeArticleGenerationStatus();
     const clearContextButton = document.getElementById('appClearContextBtn');

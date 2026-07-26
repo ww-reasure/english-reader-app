@@ -1,11 +1,21 @@
 /**
  * Configuration Module
- * Manages application settings using localStorage
+ * Manages application settings with Android secure storage and a WebView fallback.
  */
+
+import { Capacitor } from '@capacitor/core';
+import { SecureStorage } from '@aparajita/capacitor-secure-storage';
+import { createConfigStorage } from './config-storage.mjs';
 
 export const ARTICLE_SERVER_URL = 'https://ww-d3g9m97i69d544809.service.tcloudbase.com';
 
 export const Config = {
+  storage: createConfigStorage({
+    webStorage: globalThis.localStorage,
+    nativeStorage: SecureStorage,
+    isNative: Capacitor.isNativePlatform()
+  }),
+
   // Default values
   defaults: {
     api_key: '',
@@ -19,14 +29,18 @@ export const Config = {
     assessment_done: 'false'
   },
 
-  // Get a setting value
-  get(key) {
-    return localStorage.getItem(key) || this.defaults[key] || '';
+  async initialize() {
+    await this.storage.initialize();
   },
 
-  // Set a setting value
+  // Get a setting value from the initialized in-memory cache.
+  get(key) {
+    return this.storage.get(key) || this.defaults[key] || '';
+  },
+
+  // Persist asynchronously while preserving the synchronous caller API.
   set(key, value) {
-    localStorage.setItem(key, value);
+    void this.storage.set(key, value);
   },
 
   // Check if API key exists

@@ -23,3 +23,16 @@ test('legacy Capacitor libraries receive an Android namespace only when missing'
   assert.match(withAndroidNamespace(missing, 'com.example.legacy'), /namespace 'com\.example\.legacy'/);
   assert.equal(withAndroidNamespace(present, 'com.example.legacy'), present);
 });
+
+test('APK build preflight rejects stale version.json metadata before Gradle runs', () => {
+  const { assertBuildReleaseMetadata } = require('../scripts/build-apk.js');
+
+  assert.throws(
+    () => assertBuildReleaseMetadata(
+      { version: '1.8.5' },
+      'versionCode 31\nversionName "1.8.5"',
+      { version: '1.7.1', versionCode: 25 }
+    ),
+    /version\.json/
+  );
+});

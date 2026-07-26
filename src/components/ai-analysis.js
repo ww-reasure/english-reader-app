@@ -25,6 +25,9 @@ const chatService = new ChatService({
   builder: new ContextBuilder()
 });
 
+const MAX_SELECTED_EXCERPT_LENGTH = 600;
+const normalizeSelectedExcerpt = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTED_EXCERPT_LENGTH);
+
 export const AIAnalysis = {
   currentText: '',
   longPressTimer: null,
@@ -33,6 +36,13 @@ export const AIAnalysis = {
   analysisCache: new SentenceAnalysisCache(),
   articleContext: null,
   _outsideClickHandler: null,
+  analysisRequestId: 0,
+  activeFollowupKey: null,
+  selectedDetailExcerpt: '',
+  _detailSelectionChangeHandler: null,
+  _detailSelectionAction: null,
+  _detailSelectionModal: null,
+  _followUpController: null,
 
   setArticleContext(article, paragraph = '') {
     this.articleContext = {
@@ -43,18 +53,54 @@ export const AIAnalysis = {
   },
 
   clearArticleContext() {
-    if (this.activeFollowupKey) chatService.cancel(this.activeFollowupKey);
-    this.activeFollowupKey = null;
+    this.closeResultModal();
     this.articleContext = null;
     this.hideButton();
     this._removeOutsideClickHandler();
   },
 
+  getParagraphFromNode(node) {
+    const element = node?.nodeType === 3 ? node.parentElement : node;
+    return element?.closest?.('.paragraph-pair')?.querySelector('.en-paragraph')?.textContent?.trim() || '';
+  },
+
   updateParagraphContext(node) {
     if (!this.articleContext || !node) return;
-    const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    const paragraph = element?.closest('.paragraph-pair')?.querySelector('.en-paragraph')?.textContent?.trim();
+    const paragraph = this.getParagraphFromNode(node);
     if (paragraph) this.articleContext.paragraph = paragraph;
+  },
+
+  createAnalysisContextSnapshot(node = null) {
+    if (!this.articleContext || this.articleContext.id == null) return null;
+    return {
+      id: this.articleContext.id,
+      title: this.articleContext.title || '当前文章',
+      paragraph: this.getParagraphFromNode(node) || this.articleContext.paragraph || ''
+    };
+  },
+
+  invalidateAnalysisRequest() {
+    this.analysisRequestId += 1;
+    return this.analysisRequestId;
+  },
+
+  isCurrentAnalysisRequest(requestId) {
+    return requestId === this.analysisRequestId;
+  },
+
+  _removeResultModal() {
+    this.clearDetailSelection();
+    Tooltip.hide();
+    const existing = document.getElementById('aiResultModal');
+    if (existing) existing.remove();
+    this._followUpController = null;
+  },
+
+  closeResultModal() {
+    this.invalidateAnalysisRequest();
+    if (this.activeFollowupKey) chatService.cancel(this.activeFollowupKey);
+    this.activeFollowupKey = null;
+    this._removeResultModal();
   },
 
   _removeOutsideClickHandler() {
@@ -96,27 +142,30 @@ export const AIAnalysis = {
   async analyze(sentence) {
     this.hideButton();
     Tooltip.hide();
+    if (this.activeFollowupKey) chatService.cancel(this.activeFollowupKey);
+    this.activeFollowupKey = null;
+    const requestId = this.invalidateAnalysisRequest();
+    const analysisContext = this.createAnalysisContextSnapshot();
     const cached = this.analysisCache.get(sentence);
     const isResolved = typeof cached === 'string';
-    this.showResult(sentence, isResolved ? cached : '正在分析...', !isResolved);
+    this.showResult(sentence, isResolved ? cached : '正在分析...', !isResolved, analysisContext);
 
     try {
       const result = await this.analysisCache.getOrCreate(sentence, () => API.analyzeSentence(sentence));
-      this.showResult(sentence, result, false);
+      if (this.isCurrentAnalysisRequest(requestId)) this.showResult(sentence, result, false, analysisContext);
     } catch (err) {
-      this.showResult(sentence, `分析失败：${err.message}`, false);
+      if (this.isCurrentAnalysisRequest(requestId)) this.showResult(sentence, `分析失败：${err.message}`, false, analysisContext);
     }
   },
 
   // Show analysis result in modal
-  showResult(sentence, content, isLoading) {
-    const existing = document.getElementById('aiResultModal');
-    if (existing) existing.remove();
+  showResult(sentence, content, isLoading, analysisContext = this.createAnalysisContextSnapshot()) {
+    this._removeResultModal();
 
     const overlay = document.createElement('div');
     overlay.id = 'aiResultModal';
     overlay.className = 'modal-overlay';
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.onclick = (e) => { if (e.target === overlay) this.closeResultModal(); };
 
     const modal = document.createElement('div');
     modal.className = 'modal modal-wide';
@@ -127,10 +176,14 @@ export const AIAnalysis = {
       <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
         ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
       </div>
-      ${!isLoading && this.articleContext?.id != null ? `
+      ${!isLoading && analysisContext?.id != null ? `
       <section class="ai-followup" aria-label="继续追问">
         <button id="aiFollowupToggle" class="btn btn-outline btn-sm" type="button">继续追问</button>
         <div id="aiFollowupPanel" class="ai-followup-panel" hidden>
+          <div id="aiFollowupExcerpt" class="ai-followup-excerpt" hidden>
+            <span class="ai-followup-excerpt-label">追问引用</span>
+            <p id="aiFollowupExcerptText"></p>
+          </div>
           <div id="aiFollowupMessages" class="ai-followup-messages" aria-live="polite"></div>
           <div class="ai-followup-composer">
             <textarea id="aiFollowupInput" rows="2" placeholder="继续问这句话的语法、词义或表达…" aria-label="继续追问"></textarea>
@@ -139,50 +192,153 @@ export const AIAnalysis = {
         </div>
       </section>` : ''}
       <div class="modal-actions">
-        <button class="btn" onclick="document.getElementById('aiResultModal').remove()">关闭</button>
+        <button id="aiResultClose" class="btn" type="button">关闭</button>
       </div>`;
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    modal.querySelector('#aiResultClose')?.addEventListener('click', () => this.closeResultModal());
     this.bindWordLookup(modal);
-    this.bindFollowUp(modal, sentence, content);
+    this.bindFollowUp(modal, sentence, content, analysisContext);
+    this.bindDetailSelection(modal, analysisContext);
   },
 
   // Reuse the reading-page dictionary card inside the analysis modal.
   bindWordLookup(modal) {
-    const sentence = modal.querySelector('.ai-lookup-sentence');
-    if (!sentence) return;
+    const lookupTargets = modal.querySelectorAll('.ai-lookup-sentence, .ai-result-content');
+    lookupTargets.forEach(target => {
+      target.addEventListener('click', async (e) => {
+        // A native text selection is an intentional follow-up action, never a word lookup.
+        if (this.getSelectedDetailExcerpt(modal)) {
+          e.stopPropagation();
+          return;
+        }
+        if (Tooltip.isVisible()) {
+          e.stopPropagation();
+          Tooltip.hide();
+          return;
+        }
 
-    sentence.addEventListener('click', async (e) => {
-      if (Tooltip.isVisible()) {
+        const word = Tooltip.getWordAtPoint(e);
+        if (!word) return;
+
         e.stopPropagation();
-        Tooltip.hide();
-        return;
-      }
-
-      const word = Tooltip.getWordAtPoint(e);
-      if (!word) return;
-
-      e.stopPropagation();
-      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
-      try {
-        const data = await Dictionary.lookup(word);
-        await Tooltip.show(lookupId, e.clientX, e.clientY, data);
-      } catch {
-        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
-      }
+        const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
+        try {
+          const data = await Dictionary.lookup(word);
+          await Tooltip.show(lookupId, e.clientX, e.clientY, data);
+        } catch {
+          if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
+        }
+      });
     });
   },
 
-  bindFollowUp(modal, sentence, analysis) {
+  getSelectedDetailExcerpt(modal) {
+    const detail = modal.querySelector('.ai-result-content');
+    const selection = window.getSelection?.();
+    if (!detail || !selection || selection.isCollapsed || !selection.rangeCount) return '';
+    try {
+      const range = selection.getRangeAt(0);
+      const belongsToDetail = node => {
+        const element = node?.nodeType === 3 ? node.parentElement : node;
+        return !!element && (element === detail || detail.contains(element));
+      };
+      if (!belongsToDetail(range.startContainer) || !belongsToDetail(range.endContainer)) return '';
+      return normalizeSelectedExcerpt(selection.toString());
+    } catch {
+      return '';
+    }
+  },
+
+  clearDetailSelection() {
+    if (this._detailSelectionChangeHandler) document.removeEventListener('selectionchange', this._detailSelectionChangeHandler);
+    this._detailSelectionChangeHandler = null;
+    this._detailSelectionModal = null;
+    this._detailSelectionAction?.remove();
+    this._detailSelectionAction = null;
+    this.selectedDetailExcerpt = '';
+  },
+
+  showDetailSelectionAction(modal, excerpt) {
+    const selection = window.getSelection?.();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect?.();
+    if (!rect) return;
+
+    this._detailSelectionAction?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ai-detail-selection-btn';
+    button.textContent = '追问所选内容';
+    button.addEventListener('pointerdown', event => event.preventDefault());
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.openFollowUpPanel(modal, excerpt);
+      this._detailSelectionAction?.remove();
+      this._detailSelectionAction = null;
+      window.getSelection?.().removeAllRanges?.();
+    });
+
+    const buttonTop = rect.bottom + 8 > window.innerHeight - 48
+      ? Math.max(12, rect.top - 46)
+      : Math.max(12, rect.bottom + 8);
+    button.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - 148)) + 'px';
+    button.style.top = buttonTop + 'px';
+    document.body.appendChild(button);
+    this._detailSelectionAction = button;
+  },
+
+  bindDetailSelection(modal, analysisContext) {
+    const detail = modal.querySelector('.ai-result-content');
+    if (!detail || analysisContext?.id == null) return;
+    this.clearDetailSelection();
+    this._detailSelectionModal = modal;
+    const updateSelection = () => {
+      if (this._detailSelectionModal !== modal) return;
+      const excerpt = this.getSelectedDetailExcerpt(modal);
+      if (!excerpt) {
+        this._detailSelectionAction?.remove();
+        this._detailSelectionAction = null;
+        return;
+      }
+      this.selectedDetailExcerpt = excerpt;
+      this.showDetailSelectionAction(modal, excerpt);
+    };
+    const scheduleSelectionUpdate = () => setTimeout(updateSelection, 0);
+    this._detailSelectionChangeHandler = updateSelection;
+    document.addEventListener('selectionchange', updateSelection);
+    detail.addEventListener('mouseup', scheduleSelectionUpdate);
+    detail.addEventListener('touchend', scheduleSelectionUpdate, { passive: true });
+  },
+
+  openFollowUpPanel(modal, excerpt = '') {
+    const controller = this._followUpController;
+    if (!controller || controller.modal !== modal) return;
+    const selectedExcerpt = normalizeSelectedExcerpt(excerpt || this.selectedDetailExcerpt);
+    if (selectedExcerpt) {
+      this.selectedDetailExcerpt = selectedExcerpt;
+      controller.excerpt.hidden = false;
+      controller.excerptText.textContent = selectedExcerpt;
+    }
+    controller.panel.hidden = false;
+    controller.renderHistory();
+    controller.input.focus();
+  },
+
+  bindFollowUp(modal, sentence, analysis, analysisContext) {
     const toggle = modal.querySelector('#aiFollowupToggle');
     const panel = modal.querySelector('#aiFollowupPanel');
     const input = modal.querySelector('#aiFollowupInput');
     const send = modal.querySelector('#aiFollowupSend');
-    if (!toggle || !panel || !input || !send || this.articleContext?.id == null) return;
+    const excerpt = modal.querySelector('#aiFollowupExcerpt');
+    const excerptText = modal.querySelector('#aiFollowupExcerptText');
+    if (!toggle || !panel || !input || !send || !excerpt || !excerptText || analysisContext?.id == null) return;
 
     const normalizedSentence = String(sentence || '').trim().replace(/\s+/g, ' ').slice(0, 260);
-    const key = 'reading:' + this.articleContext.id + ':' + encodeURIComponent(normalizedSentence);
+    const key = 'reading:' + analysisContext.id + ':' + encodeURIComponent(normalizedSentence);
     this.activeFollowupKey = key;
     const renderHistory = () => {
       const list = modal.querySelector('#aiFollowupMessages');
@@ -194,12 +350,10 @@ export const AIAnalysis = {
       });
     };
 
+    this._followUpController = { modal, panel, input, excerpt, excerptText, renderHistory };
     toggle.addEventListener('click', () => {
-      panel.hidden = !panel.hidden;
-      if (!panel.hidden) {
-        renderHistory();
-        input.focus();
-      }
+      if (panel.hidden) this.openFollowUpPanel(modal);
+      else panel.hidden = true;
     });
 
     const submit = async () => {
@@ -211,7 +365,8 @@ export const AIAnalysis = {
       }
 
       const list = modal.querySelector('#aiFollowupMessages');
-      const context = this.articleContext;
+      const context = analysisContext;
+      const selectedExcerpt = this.selectedDetailExcerpt;
       const session = conversationStore.getSession(key);
       input.value = '';
       send.disabled = true;
@@ -224,10 +379,10 @@ export const AIAnalysis = {
           session,
           userMessage: question,
           kind: 'reading',
-          pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph, analysis }
+          pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph, analysis, selectedExcerpt }
         });
         list.querySelector('.ai-followup-thinking')?.remove();
-        conversationStore.append(key, { role: 'user', kind: 'text', content: question });
+        conversationStore.append(key, { role: 'user', kind: 'text', content: question, selectedExcerpt });
         conversationStore.append(key, { role: 'assistant', kind: 'text', content: reply.content });
         conversationStore.compact(key, 8);
         this.addFollowUpBubble(list, 'assistant', reply.content);
@@ -418,7 +573,7 @@ export const AIAnalysis = {
       if (text.length > 3 && /[a-zA-Z]/.test(text)) {
         try {
           const range = selection.getRangeAt(0);
-          this.updateParagraphContext(range.commonAncestorContainer);
+          this.updateParagraphContext(range.startContainer);
           const rect = range.getBoundingClientRect();
           this.showButton(rect.left + rect.width / 2, rect.bottom, text);
         } catch {

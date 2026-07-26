@@ -23,3 +23,47 @@ test('uses the Android release version when package metadata is stale', () => {
 
   assert.equal(getReleaseVersion('2.0.0', 'versionCode 25\nversionName "1.7.1"'), '1.7.1');
 });
+
+test('synchronizes version.json with the Android release metadata', () => {
+  const { withVersionManifest } = require('../scripts/bump-version.js');
+  const manifest = {
+    version: '1.8.5',
+    versionCode: 31,
+    buildDate: '2026-07-24',
+    changes: ['existing release notes stay intact']
+  };
+
+  assert.deepEqual(withVersionManifest(manifest, '1.8.6', 32, '2026-07-25'), {
+    ...manifest,
+    version: '1.8.6',
+    versionCode: 32,
+    buildDate: '2026-07-25'
+  });
+});
+
+test('rejects release metadata when any version source diverges', () => {
+  const { assertReleaseMetadata } = require('../scripts/bump-version.js');
+
+  assert.throws(
+    () => assertReleaseMetadata(
+      { version: '1.8.5' },
+      'versionCode 31\nversionName "1.8.5"',
+      { version: '1.7.1', versionCode: 25 }
+    ),
+    /version\.json/
+  );
+});
+
+test('rejects release metadata when package-lock differs from the release version', () => {
+  const { assertReleaseMetadata } = require('../scripts/bump-version.js');
+
+  assert.throws(
+    () => assertReleaseMetadata(
+      { version: '1.8.5' },
+      'versionCode 31\nversionName "1.8.5"',
+      { version: '1.8.5', versionCode: 31 },
+      { version: '1.8.4', packages: { '': { version: '1.8.4' } } }
+    ),
+    /package-lock\.json/
+  );
+});
