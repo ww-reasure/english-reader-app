@@ -1,8 +1,59 @@
 const KEY = 'learningConversationsV2';
-const VERSION = 2;
+const VERSION = 3;
+const MAX_HOME_ACTIVITIES = 50;
 
-const emptySession = now => ({ updatedAt: now(), summary: '', messages: [] });
+const emptySession = now => ({ updatedAt: now(), summary: '', messages: [], activities: [] });
 const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+
+const legacyActivityFromMessage = message => {
+  if (message?.kind === 'article') {
+    const article = message.article || {};
+    return {
+      type: 'generation',
+      status: 'success',
+      startedAt: message.createdAt,
+      completedAt: message.createdAt,
+      elapsedMs: null,
+      article: {
+        id: article.id,
+        title: clip(article.title, 160),
+        difficulty: clip(article.difficulty, 32),
+        wordCount: Number.isFinite(Number(article.wordCount)) ? Number(article.wordCount) : 0
+      },
+      source: 'legacy_message'
+    };
+  }
+  if (message?.kind === 'generation_failure') {
+    const failure = message.failure || {};
+    return {
+      type: 'generation',
+      status: 'failed',
+      startedAt: message.createdAt,
+      completedAt: message.createdAt,
+      elapsedMs: null,
+      failureReason: clip(failure.message, 700) || '文章生成未完成',
+      generation: failure.generation || null,
+      source: 'legacy_message'
+    };
+  }
+  return null;
+};
+
+const normalizeSession = (session, now, key) => {
+  const nowFn = typeof now === 'function' ? now : () => now;
+  const safe = session && typeof session === 'object' ? session : {};
+  const messages = Array.isArray(safe.messages) ? safe.messages : [];
+  const existingActivities = Array.isArray(safe.activities) ? safe.activities : null;
+  const activities = existingActivities || (key === 'home'
+    ? messages.map(legacyActivityFromMessage).filter(Boolean)
+    : []);
+  return {
+    ...emptySession(nowFn),
+    ...safe,
+    messages,
+    activities: activities.slice(-MAX_HOME_ACTIVITIES)
+  };
+};
 
 const summaryLineFor = (item, key) => {
   if (item.kind === 'text') return (item.role === 'user' ? '用户：' : '助手：') + clip(item.content, 500);
@@ -39,13 +90,23 @@ export class ConversationStore {
     try {
       const value = JSON.parse(this.storage.getItem(KEY));
       if (value?.version === VERSION && value.sessions) return value;
+      if (value?.version === 2 && value.sessions) {
+        const migrated = {
+          version: VERSION,
+          sessions: Object.fromEntries(
+            Object.entries(value.sessions).map(([key, session]) => [key, normalizeSession(session, this.now(), key)])
+          )
+        };
+        this.writeState(migrated);
+        return migrated;
+      }
     } catch {
       // Invalid persisted data is replaced by a safe, empty state below.
     }
 
     const state = {
       version: VERSION,
-      sessions: { home: { ...emptySession(this.now), messages: this.readLegacy() } }
+      sessions: { home: normalizeSession({ messages: this.readLegacy() }, this.now(), 'home') }
     };
     this.writeState(state);
     return state;
@@ -79,7 +140,7 @@ export class ConversationStore {
 
   replaceSession(key, session) {
     const state = this.readState();
-    state.sessions[key] = { ...emptySession(this.now), ...session };
+    state.sessions[key] = normalizeSession({ ...emptySession(this.now), ...session }, this.now(), key);
     this.writeState(state);
   }
 
@@ -91,6 +152,27 @@ export class ConversationStore {
       updatedAt: createdAt,
       messages: [...session.messages, { createdAt, ...message }]
     });
+  }
+
+  appendActivity(key, activity) {
+    const session = this.getSession(key);
+    const createdAt = this.now();
+    const nextActivity = {
+      createdAt,
+      completedAt: activity?.completedAt ?? createdAt,
+      ...activity
+    };
+    this.replaceSession(key, {
+      ...session,
+      updatedAt: createdAt,
+      activities: [...(session.activities || []), nextActivity].slice(-MAX_HOME_ACTIVITIES)
+    });
+    return nextActivity;
+  }
+
+  getRecentActivities(key, limit = 6) {
+    const count = Math.max(0, Math.min(MAX_HOME_ACTIVITIES, Number(limit) || 0));
+    return (this.getSession(key).activities || []).slice(-count);
   }
 
   replaceMessage(key, predicate, replacement) {

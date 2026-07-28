@@ -50,7 +50,7 @@ test('requires an explicit target selection before a new or migrated learner can
 });
 
 test('defensively preserves the target-selection gate before calibration completion writes configuration', async () => {
-  const view = await readFile(new URL('../src/views/calibration.js', import.meta.url), 'utf8');
+  const view = (await readFile(new URL('../src/views/calibration.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
   const finish = view.match(/\n  finish\(\) \{([\s\S]*?)\n  \},\n\n  skip\(\)/)?.[1] || '';
 
   assert.ok(finish, 'the calibration completion handler must remain identifiable');

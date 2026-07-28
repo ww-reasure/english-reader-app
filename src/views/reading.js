@@ -16,12 +16,14 @@ import { ChatView } from './chat.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { normalizeTargetWords } from '../components/article-generation-tool.js';
 import { createKnowledgeProfileRepository } from '../knowledge-profile.mjs';
-import { applyReadingEaseFeedback, isQualifiedReading, minimumActiveReadingSeconds } from '../calibration-engine.mjs';
+import { applyReadingEaseFeedback, evaluateReadingSession } from '../calibration-engine.mjs';
 import { createLexiconLoader } from '../lexicon-runtime.mjs';
 import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
 import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
+import { SentenceGuide } from '../components/sentence-guide.js';
+import { ContextualSense } from '../components/contextual-sense.js';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -34,7 +36,18 @@ export const ReadingView = {
   clickedWords: [],
   reviewMode: false,
   reviewWordsMap: new Map(), // stem -> word data
+  learningWordsMap: new Map(),
+  wordMarkingEnabled: false,
+  englishParagraphs: [],
   paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
+  guideSentences: [],
+  guideVisited: new Set(),
+  guideIndex: 0,
+  guidePayload: null,
+  guideError: '',
+  guideSession: 0,
+  guideAbortController: null,
+  guideModeUsed: false,
 
   goBack() {
     if (window.Router?.back?.()) return;
@@ -60,6 +73,17 @@ export const ReadingView = {
     return (content || '').split(/\n\n+/).map(p => p.trim()).filter(Boolean);
   },
 
+  _splitGuideSentences(paragraph) {
+    return (String(paragraph || '').match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [])
+      .map(sentence => sentence.trim())
+      .filter(sentence => /[a-z]/i.test(sentence));
+  },
+
+  getSentenceGuideProgress() {
+    if (!this.guideSentences.length) return 0;
+    return Math.min(1, this.guideVisited.size / this.guideSentences.length);
+  },
+
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
     return `
@@ -73,6 +97,7 @@ export const ReadingView = {
   },
 
   cleanup() {
+    this.closeSentenceGuide({ restoreReading: false });
     if (this._globalClickHandler) {
       document.removeEventListener('click', this._globalClickHandler);
       this._globalClickHandler = null;
@@ -113,6 +138,15 @@ export const ReadingView = {
     this.clickedWords = [];
     this.readingScrollDepth = 0;
     this.reviewWordsMap = new Map();
+    this.learningWordsMap = new Map();
+    this.wordMarkingEnabled = Config.get('reading_word_marking') === 'true';
+    this.englishParagraphs = [];
+    this.guideSentences = [];
+    this.guideVisited = new Set();
+    this.guideIndex = 0;
+    this.guidePayload = null;
+    this.guideError = '';
+    this.guideModeUsed = false;
     const article = await DB.getArticle(articleId);
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
@@ -139,24 +173,27 @@ export const ReadingView = {
       return;
     }
 
-    // Load review words if in review mode
-    if (this.reviewMode) {
-      const learnWords = await DB.getAllLearnWords();
-      learnWords.forEach(w => {
-        const stem = getStemForm(w.word.toLowerCase());
-        this.reviewWordsMap.set(stem, w);
-      });
-    }
+    // Normal reading may optionally mark only existing new/learning words;
+    // review reading keeps its mandatory markers and rating behavior.
+    const learnWords = await DB.getAllLearnWords();
+    learnWords.forEach(w => {
+      const stem = getStemForm(w.word.toLowerCase());
+      this.learningWordsMap.set(stem, w);
+      if (this.reviewMode) this.reviewWordsMap.set(stem, w);
+    });
 
     const enParas = this._splitParas(article.content);
+    this.englishParagraphs = enParas;
     this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
+    this.guideSentences = enParas.flatMap((paragraph, paragraphIndex) => this._splitGuideSentences(paragraph)
+      .map(sentence => ({ sentence, paragraph, paragraphIndex })));
     const difficultyLabel = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
 
     let parasHTML = '';
     enParas.forEach((p, i) => {
       const zhText = this.paragraphTranslations[i] || '';
       const hasTranslation = !!zhText.trim();
-      const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : esc(p.trim());
+      const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : this.wordMarkingEnabled ? this._highlightLearningWords(p.trim()) : esc(p.trim());
       parasHTML += `
         <div class="paragraph-pair" data-paragraph-index="${i}">
           <p class="en-paragraph">${paraHTML}</p>
@@ -180,6 +217,8 @@ export const ReadingView = {
           <div class="reading-actions">
             <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
             <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()" id="translateBtn">${this.paragraphTranslations.some(Boolean) ? '显示翻译' : '翻译全文'}</button>
+            <button class="btn btn-outline" type="button" onclick="ReadingView.openSentenceGuide()">逐句导读</button>
+            ${!this.reviewMode ? `<button class="btn btn-outline" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()">词汇标记：${this.wordMarkingEnabled ? '开' : '关'}</button>` : ''}
             <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
@@ -199,7 +238,8 @@ export const ReadingView = {
         </div>
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
-      <div id="readingSummary" class="modal-overlay" style="display:none"></div>`;
+      <div id="readingSummary" class="modal-overlay" style="display:none"></div>
+      <div id="sentenceGuideModal" class="modal-overlay sentence-guide-overlay" style="display:none"></div>`;
 
     this.initInteractions();
     AudioCache.preloadWords(article.content).catch(() => {});
@@ -263,11 +303,29 @@ export const ReadingView = {
 
       try {
         const data = await Dictionary.lookup(word);
+        const contextSentence = this.getLookupSentence(e) || (e.target.closest?.('#readingTitleLookup') ? this.articleData?.title || '' : '');
         const stem = getStemForm(word.toLowerCase());
         const isReviewWord = this.reviewMode && this.reviewWordsMap.has(stem);
 
-        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord);
+        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, { contextSentence });
         if (!shown) return;
+
+        const senses = getDefinitionSenses(data);
+        if (contextSentence && senses.length) {
+          void ContextualSense.resolve({
+            word: data.baseForm || data.word || word,
+            sentence: contextSentence,
+            senses,
+            lexiconVersion: data.lexiconVersion || ''
+          }).then(contextualSense => {
+            if (!contextualSense || !Tooltip.isCurrent(lookupId)) return;
+            return Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, {
+              contextSentence,
+              contextualSenseIndex: contextualSense.senseIndex,
+              contextualSenseReason: contextualSense.reasonZh
+            });
+          }).catch(() => {});
+        }
 
         // An intentional lookup is evidence of current uncertainty. It is
         // separate from saving/favouriting a word and becomes a no-op until
@@ -326,6 +384,181 @@ export const ReadingView = {
     document.addEventListener('click', this._audioClickHandler);
 
     if (articleBody) AIAnalysis.initSelectionDetection(articleBody);
+  },
+
+  getLookupSentence(e) {
+    let range;
+    if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    else if (document.caretPositionFromPoint) {
+      const position = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if (position) {
+        range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+        range.setEnd(position.offsetNode, position.offset);
+      }
+    }
+    const pointNode = range?.startContainer;
+    const element = pointNode?.nodeType === Node.TEXT_NODE ? pointNode.parentElement : pointNode;
+    const paragraph = element?.closest?.('.en-paragraph');
+    if (!paragraph || !pointNode || pointNode.nodeType !== Node.TEXT_NODE) return '';
+
+    const walker = document.createTreeWalker(paragraph, globalThis.NodeFilter?.SHOW_TEXT || 4);
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) nodes.push(node);
+    const offset = nodes.slice(0, nodes.indexOf(pointNode)).reduce((total, item) => total + item.textContent.length, 0) + range.startOffset;
+    const text = paragraph.textContent || '';
+    if (offset < 0 || offset > text.length) return '';
+    const before = text.slice(0, offset);
+    const sentenceStart = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?')) + 1;
+    const after = text.slice(offset);
+    const boundary = after.search(/[.!?](?=\s|$)/);
+    const sentenceEnd = boundary === -1 ? text.length : offset + boundary + 1;
+    return text.slice(sentenceStart, sentenceEnd).replace(/\s+/g, ' ').trim();
+  },
+
+  async openSentenceGuide() {
+    if (!this.guideSentences.length) {
+      alert('当前文章还没有可导读的英文句子。');
+      return;
+    }
+    this.guideModeUsed = true;
+    this.readingMode = 'guide';
+    const overlay = document.getElementById('sentenceGuideModal');
+    if (overlay) overlay.style.display = 'flex';
+    await this.showSentenceGuide(this.guideIndex || 0);
+  },
+
+  closeSentenceGuide({ restoreReading = true } = {}) {
+    if (this.guideAbortController) {
+      this.guideAbortController.abort();
+      this.guideAbortController = null;
+    }
+    this.guideSession += 1;
+    const overlay = document.getElementById('sentenceGuideModal');
+    if (overlay) {
+      overlay.style.display = 'none';
+      overlay.innerHTML = '';
+    }
+    if (restoreReading) this.readingMode = this.guideModeUsed ? 'guide' : 'full';
+  },
+
+  async showSentenceGuide(index) {
+    const nextIndex = Math.max(0, Math.min(this.guideSentences.length - 1, Number(index) || 0));
+    this.guideIndex = nextIndex;
+    this.guideVisited.add(nextIndex);
+    await this.loadSentenceGuide();
+  },
+
+  async previousSentenceGuide() {
+    if (this.guideIndex <= 0) return;
+    await this.showSentenceGuide(this.guideIndex - 1);
+  },
+
+  async nextSentenceGuide() {
+    if (this.guideIndex >= this.guideSentences.length - 1) return;
+    await this.showSentenceGuide(this.guideIndex + 1);
+  },
+
+  renderSentenceGuide() {
+    const overlay = document.getElementById('sentenceGuideModal');
+    const current = this.guideSentences[this.guideIndex];
+    if (!overlay || !current) return;
+    const guide = this.guidePayload;
+    const loading = !!this.guideAbortController && !guide && !this.guideError;
+    const chunks = guide?.chunks?.length
+      ? `<div class="sentence-guide-chunks">${guide.chunks.map(chunk => `<p><strong>${esc(chunk.source)}</strong><span>${esc(chunk.glossZh)}</span></p>`).join('')}</div>`
+      : '';
+    const grammar = guide?.grammar?.length
+      ? `<section class="sentence-guide-section"><h3>语法提示</h3><ul>${guide.grammar.map(item => `<li>${esc(item)}</li>`).join('')}</ul></section>`
+      : '';
+    const keywords = guide?.keywords?.length
+      ? `<section class="sentence-guide-section"><h3>本句重点词</h3><div class="sentence-guide-keywords">${guide.keywords.map(item => `<span><b>${esc(item.word)}</b>${esc(item.glossZh)}</span>`).join('')}</div></section>`
+      : '';
+    const status = loading
+      ? '<div class="sentence-guide-status">正在分析这一句…</div>'
+      : this.guideError
+        ? `<div class="sentence-guide-status sentence-guide-error">${esc(this.guideError)}<button type="button" class="btn btn-outline btn-sm" onclick="ReadingView.loadSentenceGuide()">重试</button></div>`
+        : `<section class="sentence-guide-section sentence-guide-translation"><h3>自然意译</h3><p>${esc(guide?.translationZh || '导读暂不可用')}</p></section>${chunks}${grammar}${keywords}`;
+
+    overlay.innerHTML = `
+      <section class="sentence-guide-sheet" role="dialog" aria-modal="true" aria-labelledby="sentenceGuideTitle">
+        <header class="sentence-guide-head">
+          <div><p class="page-eyebrow">SLOW READING</p><h2 id="sentenceGuideTitle">逐句导读 <span>${this.guideIndex + 1} / ${this.guideSentences.length}</span></h2></div>
+          <button class="modal-close" type="button" onclick="ReadingView.closeSentenceGuide()" aria-label="关闭逐句导读">×</button>
+        </header>
+        <div class="sentence-guide-body">
+          <p class="sentence-guide-source">${esc(current.sentence)}</p>
+          ${status}
+        </div>
+        <footer class="sentence-guide-actions">
+          <button class="btn btn-outline" type="button" onclick="ReadingView.previousSentenceGuide()" ${this.guideIndex === 0 ? 'disabled' : ''}>上一句</button>
+          <button class="btn btn-outline" type="button" onclick="ReadingView.closeSentenceGuide()">返回全文</button>
+          <button class="btn btn-primary" type="button" onclick="ReadingView.nextSentenceGuide()" ${this.guideIndex >= this.guideSentences.length - 1 ? 'disabled' : ''}>下一句</button>
+        </footer>
+      </section>`;
+  },
+
+  async loadSentenceGuide() {
+    const current = this.guideSentences[this.guideIndex];
+    if (!current) return;
+    if (this.guideAbortController) this.guideAbortController.abort();
+    const controller = new AbortController();
+    const session = ++this.guideSession;
+    this.guideAbortController = controller;
+    this.guidePayload = null;
+    this.guideError = '';
+    this.renderSentenceGuide();
+
+    try {
+      const guide = await SentenceGuide.get({
+        sentence: current.sentence,
+        paragraph: current.paragraph,
+        article: this.articleData,
+        targetTrack: this.articleData?.targetTrack || this.articleData?.difficulty || '',
+        signal: controller.signal
+      });
+      if (session !== this.guideSession || controller.signal.aborted) return;
+      this.guidePayload = guide;
+    } catch (error) {
+      if (session !== this.guideSession || controller.signal.aborted) return;
+      this.guideError = '这一句暂时无法完成导读。';
+      console.warn('Sentence guide unavailable.', error);
+    } finally {
+      if (session === this.guideSession) this.guideAbortController = null;
+    }
+    if (session === this.guideSession) this.renderSentenceGuide();
+  },
+
+  toggleWordMarking() {
+    if (this.reviewMode) return;
+    this.wordMarkingEnabled = !this.wordMarkingEnabled;
+    Config.set('reading_word_marking', this.wordMarkingEnabled ? 'true' : 'false');
+    document.querySelectorAll('#articleBody .paragraph-pair').forEach((pair, index) => {
+      const paragraph = this.englishParagraphs[index];
+      const english = pair.querySelector('.en-paragraph');
+      if (english && paragraph != null) {
+        english.innerHTML = this.wordMarkingEnabled ? this._highlightLearningWords(paragraph) : esc(paragraph);
+      }
+    });
+    const button = document.getElementById('wordMarkingBtn');
+    if (button) button.textContent = `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`;
+  },
+
+  _highlightLearningWords(text) {
+    if (!this.learningWordsMap.size) return esc(text);
+    const candidates = [...this.learningWordsMap.entries()]
+      .filter(([, word]) => {
+        const status = SpacedRepetition.getStatus(word);
+        return status === 'new' || status === 'learning';
+      })
+      .map(([stem]) => stem);
+    if (!candidates.length) return esc(text);
+    const pattern = new RegExp('\\b(' + candidates.map(stem => stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\w*\\b', 'gi');
+    return esc(text).replace(pattern, (match) => {
+      const stem = getStemForm(match.toLowerCase());
+      return `<mark class="learning-word" data-stem="${escAttr(stem)}">${match}</mark>`;
+    });
   },
 
   // Highlight review words in text
@@ -425,25 +658,62 @@ export const ReadingView = {
     return this.readingScrollDepth;
   },
 
+  showIncompleteReadingPrompt(qualification) {
+    const existing = document.getElementById('readingIncompletePrompt');
+    const overlay = existing || document.createElement('div');
+    overlay.id = 'readingIncompletePrompt';
+    overlay.className = 'modal-overlay';
+
+    const details = [];
+    if (qualification.missingProgress > 0) {
+      details.push(`正文还需浏览约 ${Math.ceil(qualification.missingProgress * 100)}%`);
+    }
+    if (qualification.missingSeconds > 0) {
+      details.push(`前台有效阅读还差约 ${qualification.missingSeconds} 秒`);
+    }
+
+    overlay.innerHTML = `
+      <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="incompleteReadingTitle">
+        <h2 id="incompleteReadingTitle">还不能计入有效阅读</h2>
+        <p class="text-muted">${details.join('；') || '请继续阅读后再完成。'}</p>
+        <p class="text-muted">达到正文 70% 与有效阅读时长后，才会计入学习档案和难度校准。</p>
+        <div class="modal-actions">
+          <button class="btn btn-outline" type="button" onclick="ReadingView.exitWithoutCounting()">退出但不计入</button>
+          <button class="btn btn-primary" type="button" onclick="ReadingView.dismissIncompleteReadingPrompt()">继续阅读</button>
+        </div>
+      </div>`;
+    overlay.style.display = 'flex';
+    if (!existing) document.body.appendChild(overlay);
+  },
+
+  dismissIncompleteReadingPrompt() {
+    const overlay = document.getElementById('readingIncompletePrompt');
+    if (overlay) overlay.style.display = 'none';
+  },
+
+  exitWithoutCounting() {
+    this.dismissIncompleteReadingPrompt();
+    this.cleanup();
+    this.goBack();
+  },
+
   // Finish reading
   async finishReading() {
     const elapsed = this.timer?.elapsed || 0;
     const wordCount = this.articleData?.wordCount || 0;
-    const minimumReadTime = minimumActiveReadingSeconds(wordCount);
-    if (elapsed < minimumReadTime) {
-      const remaining = Math.max(1, Math.ceil(minimumReadTime - elapsed));
-      alert(`前台有效阅读还差约 ${remaining} 秒。本次未完成计入校准条件，不计入校准；请返回前台继续阅读后再完成。`);
+    const contentProgressAtFinish = Math.max(this._updateReadingScrollDepth(), this.getSentenceGuideProgress());
+    const readingQualification = evaluateReadingSession({
+      completed: true,
+      contentProgress: contentProgressAtFinish,
+      activeSeconds: elapsed,
+      wordCount
+    });
+    if (!readingQualification.qualified) {
+      this.showIncompleteReadingPrompt(readingQualification);
       return;
     }
 
     this.timer?.stop();
-    const scrollDepthAtFinish = this._updateReadingScrollDepth();
-    const qualifiesForCalibration = isQualifiedReading({
-      completed: true,
-      scrollDepth: scrollDepthAtFinish,
-      activeSeconds: elapsed,
-      wordCount
-    });
 
     // Clean up listeners
     if (this._resumeHandler) {
@@ -462,17 +732,26 @@ export const ReadingView = {
 
     // Save reading stat
     const wpm = this.timer?.getWPM() || 0;
-    const scrollDepth = scrollDepthAtFinish;
+    const scrollDepth = contentProgressAtFinish;
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
       wordCount,
       elapsed,
       activeSeconds: elapsed,
       scrollDepth,
+      contentProgress: scrollDepth,
       completed: true,
       wpm,
       clickCount: this.clickedWords.length,
-      clickedWords: this.clickedWords.map(w => w.word)
+      clickedWords: this.clickedWords.map(w => w.word),
+      qualificationVersion: 2,
+      readingMode: this.guideModeUsed ? 'guide' : 'full',
+      articleSnapshot: {
+        title: this.articleData?.title || '',
+        difficulty: this.articleData?.difficulty || '',
+        targetTrack: this.articleData?.targetTrack || this.articleData?.difficulty || '',
+        wordCount
+      }
     });
 
     // A completed, sufficiently read article is useful calibration evidence,
@@ -494,7 +773,7 @@ export const ReadingView = {
     }
 
     // Show summary popup
-    await this.showSummary(elapsed, wpm, { qualifiesForCalibration });
+    await this.showSummary(elapsed, wpm, { qualifiesForCalibration: readingQualification.qualified });
   },
 
   async showSummary(elapsed, wpm, readingQualification = {}) {

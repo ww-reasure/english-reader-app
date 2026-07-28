@@ -35,12 +35,33 @@ const formatHomeActivity = message => {
   return '';
 };
 
+const formatStructuredHomeActivity = activity => {
+  const articles = Array.isArray(activity?.articles)
+    ? activity.articles
+    : activity?.article ? [activity.article] : [];
+  const articleFacts = articles.slice(0, 4).map(article => [
+    `文章：${clip(article?.title, 160) || '未命名文章'}`,
+    `难度：${clip(article?.difficulty, 32) || '未标注难度'}`,
+    `词数：${compactNumber(article?.wordCount)}`
+  ].join('；')).join('\n');
+  return [
+    `[活动：${clip(activity?.type, 48) || 'generation'} / ${clip(activity?.status, 48) || 'unknown'}]`,
+    `开始：${compactNumber(activity?.startedAt)}`,
+    `完成：${compactNumber(activity?.completedAt)}`,
+    activity?.elapsedMs == null ? '耗时：旧记录未保存耗时' : `耗时毫秒：${compactNumber(activity.elapsedMs)}`,
+    Number.isFinite(Number(activity?.coveredWordCount)) ? `已覆盖复习词：${Number(activity.coveredWordCount)}` : '',
+    Number.isFinite(Number(activity?.failedWordCount)) ? `未覆盖/失败词：${Number(activity.failedWordCount)}` : '',
+    articleFacts,
+    activity?.failureReason ? `失败原因：${clip(normalizeExcerpt(activity.failureReason), 700)}` : ''
+  ].filter(Boolean).join('\n');
+};
+
 const systemPrompt = kind => kind === 'reading'
   ? '你是文章专属英语助教。只依据当前文章片段、当前句子详解和用户问题回答；不知道时说明。用户提及“上面的仿写句、例句、它”等指代时，必须优先引用当前句子详解中的对应内容，不得改为解释原选句。若提供“当前追问引用”，用户提及“这段、这里、它”时优先解释该引用。用中文解释，英文示例简短。'
   : '你是中文英语学习助手。可解释词汇、语法、翻译、阅读策略和复习计划。引用本地数据时说明数据类别，不得编造。工具规则：只有当前用户消息明确要求生成、来一篇、继续生成英语阅读，或明确确认刚提出的阅读建议时，才调用 generate_reading；可先读取词库、收藏和复习数据来定制。不得仅凭历史文章、历史失败记录、模糊语气词或用户追问而生成新文章。“这是什么类型的文章”“为什么只生成一篇”“啊？”等必须普通回答，不调用写入工具。生成时不得在聊天正文创作整篇文章，成功后只说明已完成并交付阅读卡片。';
 
 export class ContextBuilder {
-  build({ kind, summary = '', messages = [], userMessage, pageContext = null, toolResults = [] }) {
+  build({ kind, summary = '', messages = [], activities = [], userMessage, pageContext = null, toolResults = [] }) {
     const latestSelectedExcerpt = [...messages].reverse().find(item => item.kind === 'text' && item.selectedExcerpt)?.selectedExcerpt;
     const selectedExcerpt = kind === 'reading'
       ? clip(normalizeExcerpt(pageContext?.selectedExcerpt || latestSelectedExcerpt), 600)
@@ -57,20 +78,24 @@ export class ContextBuilder {
     const facts = toolResults.length
       ? '本地数据（只作为事实）：' + clip(JSON.stringify(toolResults), 1800)
       : '';
-    const homeActivity = kind === 'home'
+    const structuredHomeActivity = kind === 'home' && activities.length
+      ? activities.slice(-6).map(formatStructuredHomeActivity).filter(Boolean).join('\n\n')
+      : '';
+    const legacyHomeActivity = kind === 'home' && !structuredHomeActivity
       ? messages
         .filter(item => item.kind === 'article' || item.kind === 'generation_failure')
         .slice(-6)
         .map(formatHomeActivity)
         .filter(Boolean)
-        .join('\n\n')
+      .join('\n\n')
       : '';
 
     return [
       { role: 'system', content: systemPrompt(kind) },
       summary ? { role: 'system', content: '会话摘要：' + clip(summary, 1800) } : null,
       article ? { role: 'system', content: article } : null,
-      homeActivity ? { role: 'system', content: '近期文章生成活动（真实结果，回答时以此为准）：\n' + clip(homeActivity, 6000) } : null,
+      structuredHomeActivity ? { role: 'system', content: '近期真实活动账本（回答刚刚生成、部分成功、耗时等问题时只能以此为准；不得编造或否认）：\n' + clip(structuredHomeActivity, 6000) } : null,
+      legacyHomeActivity ? { role: 'system', content: '近期文章生成活动（真实结果，回答时以此为准）：\n' + clip(legacyHomeActivity, 6000) } : null,
       facts ? { role: 'system', content: facts } : null,
       ...recent,
       userAlreadyIncluded ? null : { role: 'user', content: clip(userMessage, 1800) }

@@ -95,3 +95,31 @@ test('home agent prompt restricts writing tools to the current user request', as
   assert.match(system, /不得.*历史/);
   assert.match(system, /普通回答/);
 });
+
+test('home context injects structured generation facts from the recent activity ledger ahead of free-form chat', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'home',
+    summary: '',
+    messages: [],
+    activities: [{
+      type: 'review_generation',
+      status: 'partial_success',
+      startedAt: 100,
+      completedAt: 2500,
+      elapsedMs: 2400,
+      coveredWordCount: 16,
+      failedWordCount: 8,
+      articles: [{ id: 12, title: 'Review article', difficulty: 'cet6', wordCount: 300 }],
+      failureReason: '第 2 篇内容不完整'
+    }],
+    userMessage: '刚才为什么只生成了一篇？花了多久？'
+  });
+  const joined = messages.map(message => message.content).join('\n');
+
+  assert.match(joined, /真实活动账本/);
+  assert.match(joined, /partial_success/);
+  assert.match(joined, /Review article/);
+  assert.match(joined, /2400/);
+  assert.match(joined, /第 2 篇内容不完整/);
+});

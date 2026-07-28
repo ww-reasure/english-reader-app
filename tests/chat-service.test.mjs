@@ -37,3 +37,24 @@ test('retries once without tools after a tools-unsupported response', async () =
   assert.equal(reply.toolSupport, 'unsupported');
   assert.equal(calls.length, 2);
 });
+
+test('forwards the home activity ledger to the context builder with the same session as chat messages', async () => {
+  const { ChatService } = await loadService();
+  let built = null;
+  const service = new ChatService({
+    api: { chat: async () => ({ content: '我知道刚才的结果。' }) },
+    agent: {},
+    builder: { build: input => { built = input; return []; } }
+  });
+  const activities = [{ type: 'generation', status: 'success', elapsedMs: 1200 }];
+
+  await service.ask({
+    sessionKey: 'home',
+    session: { summary: '', messages: [], activities },
+    userMessage: '刚才花了多久？',
+    kind: 'home',
+    tools: []
+  });
+
+  assert.deepEqual(built.activities, activities);
+});

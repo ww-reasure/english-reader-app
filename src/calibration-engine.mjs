@@ -152,14 +152,40 @@ export function recommendCalibrationMode({ targetTrack = 'cet4', answers = [], r
 }
 
 export function minimumActiveReadingSeconds(wordCount) {
-  return Math.max(45, (Math.max(0, Number(wordCount) || 0) / 400) * 60);
+  return Math.max(60, Math.ceil((Math.max(0, Number(wordCount) || 0) / 250) * 60));
 }
 
-/** Only foreground active time belongs in `activeSeconds`; the view pauses it on hidden/blur. */
-export function isQualifiedReading({ completed, scrollDepth, activeSeconds, wordCount } = {}) {
-  return Boolean(completed)
-    && Number(scrollDepth) >= 0.7
-    && Number(activeSeconds) >= minimumActiveReadingSeconds(wordCount);
+/**
+ * The single qualification rule used for saved reading history, calibration,
+ * reports and the learning profile. Only foreground time belongs in
+ * `activeSeconds`; the reading view pauses it on hidden/blur and after idle.
+ */
+export function evaluateReadingSession({ completed, activeSeconds, contentProgress, wordCount } = {}) {
+  const minimumSeconds = minimumActiveReadingSeconds(wordCount);
+  const progress = Math.max(0, Math.min(1, Number(contentProgress) || 0));
+  const seconds = Math.max(0, Number(activeSeconds) || 0);
+  const reasonCodes = [];
+
+  if (!completed) reasonCodes.push('not_completed');
+  if (progress < 0.7) reasonCodes.push('insufficient_progress');
+  if (seconds < minimumSeconds) reasonCodes.push('insufficient_active_time');
+
+  return {
+    qualified: reasonCodes.length === 0,
+    minimumSeconds,
+    missingSeconds: Math.max(0, Math.ceil(minimumSeconds - seconds)),
+    missingProgress: Math.max(0, Math.round((0.7 - progress) * 100) / 100),
+    reasonCodes
+  };
+}
+
+export function isQualifiedReading({ completed, scrollDepth, contentProgress, activeSeconds, wordCount } = {}) {
+  return evaluateReadingSession({
+    completed,
+    contentProgress: contentProgress ?? scrollDepth,
+    activeSeconds,
+    wordCount
+  }).qualified;
 }
 
 export function shouldRequestReadingEaseFeedback(profile = {}) {

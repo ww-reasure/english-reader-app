@@ -6,6 +6,7 @@
 import { DB } from '../db.js';
 import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
+import { buildReadingAnalytics } from '../reading-analytics.mjs';
 
 export const StatsView = {
   trendMode: 'week', // week | month
@@ -16,18 +17,17 @@ export const StatsView = {
     const vocabWords = await DB.getAllWords();
     const readingStats = await DB.getAllReadingStats();
 
+    const reading = buildReadingAnalytics({ articles, readingStats });
     // Basic stats
-    const totalArticles = articles.length;
-    const totalWords = articles.reduce((sum, a) => sum + (a.wordCount || 0), 0);
+    const totalArticles = reading.libraryArticleCount;
+    const totalWords = reading.totalWords;
     const learnedWords = learnWords.filter(w => w.reviewCount > 0).length;
     const masteredWords = learnWords.filter(w => w.interval >= 21).length;
 
-    // Streak calculation
-    const streak = this.calculateStreak(articles);
-
-    // Difficulty distribution
-    const diffDist = { cet4: 0, cet6: 0, kaoyan1: 0, kaoyan2: 0, graduate: 0 };
-    articles.forEach(a => { diffDist[a.difficulty] = (diffDist[a.difficulty] || 0) + 1; });
+    // Every displayed reading metric comes from the versioned qualified
+    // session records. The library inventory stays a separate number.
+    const streak = reading.streak;
+    const diffDist = reading.difficultyDistribution;
 
     // Favorite count
     const favorites = articles.filter(a => a.favorite).length;
@@ -37,11 +37,10 @@ export const StatsView = {
     const newWords = learnWords.filter(w => !w.reviewCount || w.reviewCount === 0).length;
 
     // Reading speed stats
-    const avgWpm = readingStats.length > 0
-      ? Math.round(readingStats.reduce((sum, s) => sum + s.wpm, 0) / readingStats.length)
-      : 0;
-    const totalReadTime = readingStats.reduce((sum, s) => sum + (s.elapsed || 0), 0);
-    const totalClicks = readingStats.reduce((sum, s) => sum + (s.clickCount || 0), 0);
+    const avgWpm = reading.averageWpm;
+    const totalReadTime = reading.totalSeconds;
+    const totalClicks = reading.totalLookups;
+    const qualifiedReadings = reading.recentReadings;
 
     container.innerHTML = `
       <section class="app-standard-page stats-container" aria-labelledby="profileContentTitle">
@@ -56,19 +55,19 @@ export const StatsView = {
         <div class="stats-grid">
           <div class="stats-card">
             <span class="stats-num">${totalArticles}</span>
-            <span class="stats-label">文章总数</span>
+            <span class="stats-label">资料库文章数</span>
           </div>
           <div class="stats-card">
-            <span class="stats-num">${totalWords.toLocaleString()}</span>
-            <span class="stats-label">总阅读词数</span>
+            <span class="stats-num">${reading.effectiveReadingCount}</span>
+            <span class="stats-label">有效阅读次数</span>
           </div>
           <div class="stats-card">
-            <span class="stats-num">${streak}</span>
-            <span class="stats-label">连续天数 🔥</span>
+            <span class="stats-num">${reading.distinctReadArticleCount}</span>
+            <span class="stats-label">读过文章数</span>
           </div>
           <div class="stats-card">
-            <span class="stats-num">${favorites}</span>
-            <span class="stats-label">收藏文章 ⭐</span>
+            <span class="stats-num">${reading.recent30EffectiveReadingCount}</span>
+            <span class="stats-label">最近 30 天有效阅读</span>
           </div>
         </div>
 
@@ -80,24 +79,32 @@ export const StatsView = {
               <span class="stats-detail-value">${avgWpm} 词/分</span>
             </div>
             <div class="stats-detail">
-              <span class="stats-detail-label">总阅读时间</span>
+              <span class="stats-detail-label">有效阅读时长</span>
               <span class="stats-detail-value">${this.formatDuration(totalReadTime)}</span>
             </div>
             <div class="stats-detail">
-              <span class="stats-detail-label">计时阅读次数</span>
-              <span class="stats-detail-value">${readingStats.length} 次</span>
+              <span class="stats-detail-label">总阅读词数</span>
+              <span class="stats-detail-value">${totalWords.toLocaleString()} 词</span>
             </div>
             <div class="stats-detail">
               <span class="stats-detail-label">总查词数</span>
               <span class="stats-detail-value">${totalClicks} 个</span>
             </div>
+            <div class="stats-detail">
+              <span class="stats-detail-label">连续有效阅读</span>
+              <span class="stats-detail-value">${streak} 天 🔥</span>
+            </div>
+            <div class="stats-detail">
+              <span class="stats-detail-label">收藏文章</span>
+              <span class="stats-detail-value">${favorites} 篇</span>
+            </div>
           </div>
-          ${readingStats.length > 0 ? `
+          ${qualifiedReadings.length > 0 ? `
           <div class="trend-toggle">
             <button class="trend-toggle-btn ${this.trendMode === 'week' ? 'active' : ''}" onclick="StatsView.setTrendMode('week')">近7天</button>
             <button class="trend-toggle-btn ${this.trendMode === 'month' ? 'active' : ''}" onclick="StatsView.setTrendMode('month')">月度</button>
           </div>
-          ${this.renderSpeedTrend(readingStats)}` : '<p class="text-muted" style="margin-top:12px">完成计时阅读后显示阅读趋势</p>'}
+          ${this.renderSpeedTrend(qualifiedReadings)}` : '<p class="text-muted" style="margin-top:12px">完成有效阅读后显示阅读趋势</p>'}
         </div>
 
         <div class="stats-section">
@@ -133,17 +140,17 @@ export const StatsView = {
         <div class="stats-section">
           <h2>📊 难度分布</h2>
           <div class="stats-diff-bars">
-            ${this.renderDiffBar('四级', diffDist.cet4, totalArticles, 'cet4')}
-            ${this.renderDiffBar('六级', diffDist.cet6, totalArticles, 'cet6')}
-            ${this.renderDiffBar('考研英语一', diffDist.kaoyan1, totalArticles, 'kaoyan1')}
-            ${this.renderDiffBar('考研英语二', diffDist.kaoyan2, totalArticles, 'kaoyan2')}
-            ${this.renderDiffBar('考研（旧版）', diffDist.graduate, totalArticles, 'graduate')}
+            ${this.renderDiffBar('四级', diffDist.cet4, reading.effectiveReadingCount, 'cet4')}
+            ${this.renderDiffBar('六级', diffDist.cet6, reading.effectiveReadingCount, 'cet6')}
+            ${this.renderDiffBar('考研英语一', diffDist.kaoyan1, reading.effectiveReadingCount, 'kaoyan1')}
+            ${this.renderDiffBar('考研英语二', diffDist.kaoyan2, reading.effectiveReadingCount, 'kaoyan2')}
+            ${this.renderDiffBar('考研（旧版）', diffDist.graduate, reading.effectiveReadingCount, 'graduate')}
           </div>
         </div>
 
         <div class="stats-section">
           <h2>📅 最近阅读</h2>
-          ${articles.length > 0 ? this.renderRecentArticles(articles.slice(0, 5)) : '<p class="text-muted">暂无阅读记录</p>'}
+          ${qualifiedReadings.length > 0 ? this.renderRecentArticles(qualifiedReadings.slice(0, 5)) : '<p class="text-muted">暂无有效阅读记录</p>'}
         </div>
 
         <div style="text-align:center;margin-top:24px">
@@ -275,32 +282,6 @@ export const StatsView = {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     return `${h} 小时 ${m} 分钟`;
-  },
-
-  calculateStreak(articles) {
-    if (articles.length === 0) return 0;
-    const days = new Set();
-    articles.forEach(a => {
-      const d = new Date(a.createdAt);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      days.add(key);
-    });
-
-    let streak = 0;
-    const now = new Date();
-    // 容错: 今天还没读时, 允许从昨天起算连续(否则白天打开会把streak清零)
-    const startDay = (days.has(`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`)) ? 0 : 1;
-    for (let i = startDay; i < 365; i++) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (days.has(key)) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-    return streak;
   },
 
   renderDiffBar(label, count, total, cls) {

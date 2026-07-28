@@ -24,6 +24,11 @@ async function loadView(fileName, bindings = {}) {
   return import(`data:text/javascript;base64,${Buffer.from(`${declarations}\n${moduleSource}`).toString('base64')}`);
 }
 
+async function loadReadingAnalyticsRuntime() {
+  const source = await readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8');
+  return source.replace(/^export /gm, '');
+}
+
 test('reading history keeps English One, English Two, and legacy graduate as separately selectable filters', async () => {
   const articles = [
     { id: 1, title: 'One', difficulty: 'kaoyan1', wordCount: 10, topic: 'A', createdAt: Date.now() },
@@ -97,18 +102,28 @@ test('learning profile reports English One, English Two, and legacy graduate in 
   });
   const source = await readFile(new URL('../src/views/stats.js', import.meta.url), 'utf8');
   const runtime = source.replace(/^import .*?;\r?\n/gm, '');
+  const analyticsRuntime = await loadReadingAnalyticsRuntime();
   globalThis.window = {};
   const { StatsView: renderedView } = await import(`data:text/javascript;base64,${Buffer.from(`
     const DB = {
       getAllArticles: async () => ${JSON.stringify(articles)},
       getAllLearnWords: async () => [],
       getAllWords: async () => [],
-      getAllReadingStats: async () => []
+      getAllReadingStats: async () => ${JSON.stringify(articles.map(article => ({
+        articleId: article.id,
+        qualificationVersion: 2,
+        completed: true,
+        wordCount: article.wordCount,
+        activeSeconds: 120,
+        createdAt: article.createdAt,
+        articleSnapshot: { title: article.title, difficulty: article.difficulty }
+      })))}
     };
     const DIFFICULTY_LABELS = ${JSON.stringify(LABELS)};
     const formatDate = ${formatDate.toString()};
     const esc = ${esc.toString()};
     const SpacedRepetition = { getDueCount: () => 0 };
+    ${analyticsRuntime}
     ${runtime}
   `).toString('base64')}`);
   const container = { innerHTML: '' };

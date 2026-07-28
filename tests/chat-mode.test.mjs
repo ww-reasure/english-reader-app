@@ -142,7 +142,7 @@ test('chat generation entries preserve an unselected target instead of silently 
 });
 
 test('chat supersession clears stale UI and keeps agent failure retries safe', async () => {
-  const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
+  const source = (await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
   const begin = source.match(/beginHomeRequest\(\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
 
   assert.ok(begin, 'beginHomeRequest should remain a distinct request-boundary helper');
@@ -176,7 +176,7 @@ test('generation prompts keep prior article and failure facts while excluding th
 });
 
 test('clearing or superseding the home request releases a review-generation lock', async () => {
-  const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
+  const source = (await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
   const begin = source.match(/beginHomeRequest\(\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
 
   assert.ok(begin, 'beginHomeRequest should remain the shared cancellation boundary');

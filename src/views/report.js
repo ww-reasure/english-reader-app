@@ -5,8 +5,8 @@
 
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
-import { StatsView } from './stats.js';
 import { esc } from '../helpers.js';
+import { buildReadingAnalytics, summarizeReadingPeriod } from '../reading-analytics.mjs';
 
 export const ReportView = {
   async render(container) {
@@ -18,26 +18,13 @@ export const ReportView = {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
-    const weekStats = readingStats.filter(s => s.createdAt >= weekStart.getTime());
-    const weekArticles = articles.filter(a => a.createdAt >= weekStart.getTime());
-
-    const weekReads = weekArticles.length;
-    const weekWords = weekArticles.reduce((sum, a) => sum + (a.wordCount || 0), 0);
-    const weekTime = weekStats.reduce((sum, s) => sum + (s.elapsed || 0), 0);
-    const weekAvgWpm = weekStats.length > 0
-      ? Math.round(weekStats.reduce((sum, s) => sum + s.wpm, 0) / weekStats.length)
-      : 0;
+    const weekReading = summarizeReadingPeriod(readingStats, weekStart.getTime());
 
     // This month stats
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const monthStats = readingStats.filter(s => s.createdAt >= monthStart.getTime());
-    const monthArticles = articles.filter(a => a.createdAt >= monthStart.getTime());
-
-    const monthReads = monthArticles.length;
-    const monthWords = monthArticles.reduce((sum, a) => sum + (a.wordCount || 0), 0);
-    const monthTime = monthStats.reduce((sum, s) => sum + (s.elapsed || 0), 0);
+    const monthReading = summarizeReadingPeriod(readingStats, monthStart.getTime());
 
     // Vocabulary stats
     const totalLearnWords = learnWords.length;
@@ -46,17 +33,17 @@ export const ReportView = {
     const newWords = learnWords.filter(w => !w.reviewCount || w.reviewCount === 0).length;
     const dueWords = SpacedRepetition.getDueCount(learnWords);
 
-    // Streak
-    const streak = StatsView.calculateStreak(articles);
+    const reading = buildReadingAnalytics({ articles, readingStats });
+    const streak = reading.streak;
 
     // Achievements
     const achievements = this.checkAchievements({
-      totalArticles: articles.length,
+      totalArticles: reading.libraryArticleCount,
       totalLearnWords,
       masteredWords,
       streak,
-      readingStats,
-      weekReads
+      readingStats: reading.recentReadings,
+      weekReads: weekReading.effectiveReadingCount
     });
 
     const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -76,19 +63,19 @@ export const ReportView = {
           <h2>📖 本周阅读</h2>
           <div class="report-stats-grid">
             <div class="report-stat-card">
-              <span class="report-stat-num">${weekReads}</span>
-              <span class="report-stat-label">文章</span>
+              <span class="report-stat-num">${weekReading.effectiveReadingCount}</span>
+              <span class="report-stat-label">有效阅读</span>
             </div>
             <div class="report-stat-card">
-              <span class="report-stat-num">${weekWords.toLocaleString()}</span>
+              <span class="report-stat-num">${weekReading.totalWords.toLocaleString()}</span>
               <span class="report-stat-label">词数</span>
             </div>
             <div class="report-stat-card">
-              <span class="report-stat-num">${this.formatTime(weekTime)}</span>
+              <span class="report-stat-num">${this.formatTime(weekReading.totalSeconds)}</span>
               <span class="report-stat-label">阅读时间</span>
             </div>
             <div class="report-stat-card">
-              <span class="report-stat-num">${weekAvgWpm || '-'}</span>
+              <span class="report-stat-num">${weekReading.averageWpm || '-'}</span>
               <span class="report-stat-label">平均词/分</span>
             </div>
           </div>
@@ -98,15 +85,15 @@ export const ReportView = {
           <h2>📅 本月阅读</h2>
           <div class="report-stats-grid">
             <div class="report-stat-card">
-              <span class="report-stat-num">${monthReads}</span>
-              <span class="report-stat-label">文章</span>
+              <span class="report-stat-num">${monthReading.effectiveReadingCount}</span>
+              <span class="report-stat-label">有效阅读</span>
             </div>
             <div class="report-stat-card">
-              <span class="report-stat-num">${monthWords.toLocaleString()}</span>
+              <span class="report-stat-num">${monthReading.totalWords.toLocaleString()}</span>
               <span class="report-stat-label">词数</span>
             </div>
             <div class="report-stat-card">
-              <span class="report-stat-num">${this.formatTime(monthTime)}</span>
+              <span class="report-stat-num">${this.formatTime(monthReading.totalSeconds)}</span>
               <span class="report-stat-label">阅读时间</span>
             </div>
           </div>

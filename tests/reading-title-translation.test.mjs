@@ -29,7 +29,7 @@ test('reading title uses the shared Tooltip and Dictionary lookup with close-fir
   assert.match(lookup[1], /if \(Tooltip\.isVisible\(\)\) \{[\s\S]*?Tooltip\.hide\(\);[\s\S]*?return;/);
   assert.match(lookup[1], /const lookupId = Tooltip\.beginLookup\(e\.clientX, e\.clientY\);/);
   assert.match(lookup[1], /const data = await Dictionary\.lookup\(word\);/);
-  assert.match(lookup[1], /await Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, isReviewWord\)/);
+  assert.match(lookup[1], /await Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, isReviewWord(?:,\s*\{\s*contextSentence\s*\})?\)/);
   assert.match(lookup[1], /if \(recordLookup && !this\.clickedWords\.some/);
   assert.match(source, /articleBody\.addEventListener\('click', e => lookupWord\(e, \{ allowSentenceAnalysis: true, recordLookup: true \}\)\);/);
   assert.doesNotMatch(source.match(/const titleLookupHandler = e => \{[\s\S]*?\n    \};/)?.[0] || '', /recordLookup|clickedWords/);

@@ -26,7 +26,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 10, // v10: independent evidence counters are normalized by the profile repository
+  DB_VERSION: 11, // v11: reset legacy reading history and reading-calibration progress under the stricter qualification rule
 
   // Open database connection with retry
   open(retries = 3) {
@@ -131,6 +131,17 @@ export const DB = {
         // knowledge snapshots stay intact; knowledge-profile.mjs supplies
         // zero-valued independent counters when older records are read, so we
         // never invent independent evidence or rewrite user data in bulk.
+
+        // v11 intentionally discards only reading data produced under the
+        // previous permissive completion rule. Vocabulary, SRS, calibration
+        // answers and word-level knowledge evidence are not reading history
+        // and must remain untouched.
+        if (e.oldVersion < 11) {
+          e.target.transaction.objectStore('readingStats').clear();
+          const meta = e.target.transaction.objectStore('knowledgeProfileMeta');
+          meta.delete('knowledge-profile-qualified-readings');
+          meta.delete('knowledge-profile-reading-feedback');
+        }
       };
 
       req.onsuccess = () => resolve(req.result);

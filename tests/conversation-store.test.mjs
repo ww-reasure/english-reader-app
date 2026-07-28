@@ -93,3 +93,53 @@ test('replaces and removes a persisted generation failure by its stable id', asy
   assert.equal(store.removeMessages('home', message => message.id === 'failure-1'), 1);
   assert.deepEqual(store.getSession('home').messages.map(message => message.id), ['request-1']);
 });
+
+test('migrates prior home article cards into an activity ledger without inventing elapsed time', async () => {
+  const { ConversationStore } = await loadStore();
+  const store = new ConversationStore(memory({
+    learningConversationsV2: JSON.stringify({
+      version: 2,
+      sessions: {
+        home: {
+          updatedAt: 200,
+          summary: '',
+          messages: [{
+            createdAt: 100,
+            role: 'assistant',
+            kind: 'article',
+            article: { id: 7, title: 'Migrated article', difficulty: 'cet4', wordCount: 280 }
+          }]
+        }
+      }
+    })
+  }), () => 300);
+
+  const session = store.getSession('home');
+  assert.equal(session.activities.length, 1);
+  assert.deepEqual(session.activities[0], {
+    type: 'generation',
+    status: 'success',
+    startedAt: 100,
+    completedAt: 100,
+    elapsedMs: null,
+    article: { id: 7, title: 'Migrated article', difficulty: 'cet4', wordCount: 280 },
+    source: 'legacy_message'
+  });
+});
+
+test('keeps the latest fifty structured home activities and clears them with home context', async () => {
+  const { ConversationStore } = await loadStore();
+  let now = 0;
+  const store = new ConversationStore(memory(), () => ++now);
+  for (let index = 0; index < 52; index += 1) {
+    store.appendActivity('home', { type: 'generation', status: 'success', completedAt: index });
+  }
+
+  const activities = store.getRecentActivities('home', 80);
+  assert.equal(activities.length, 50);
+  assert.equal(activities[0].completedAt, 2);
+  assert.equal(activities.at(-1).completedAt, 51);
+
+  store.clear('home');
+  assert.deepEqual(store.getRecentActivities('home'), []);
+});

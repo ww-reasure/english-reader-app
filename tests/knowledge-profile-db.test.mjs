@@ -57,6 +57,32 @@ function openV8KnowledgeDatabase(name) {
   });
 }
 
+function openV10ReadingDatabase(name) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 10);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      db.createObjectStore('articles', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('vocabulary', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('learnWords', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('reviewEvents', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('readingStats', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('knowledgeWords', { keyPath: 'lemma' });
+      db.createObjectStore('knowledgeBands', { keyPath: 'band' });
+      const evidence = db.createObjectStore('knowledgeEvidence', { keyPath: 'id', autoIncrement: true });
+      evidence.createIndex('lemma', 'lemma');
+      evidence.createIndex('band', 'band');
+      evidence.createIndex('occurredAt', 'occurredAt');
+      evidence.createIndex('articleId', 'articleId');
+      evidence.createIndex('questionId', 'questionId');
+      evidence.createIndex('calibrationKey', 'calibrationKey', { unique: true });
+      db.createObjectStore('knowledgeProfileMeta', { keyPath: 'key' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
 test('knowledge profile storage is additive and persists a word, band, and immutable evidence together', async () => {
   const DB = await createDatabase();
   const legacyWordId = await DB.saveLearnWord({ word: 'Retain' });
@@ -152,7 +178,7 @@ test('v7 migration adds knowledge stores without converting or deleting legacy s
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 10);
+  assert.equal(upgraded.version, 11);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeWords'), true);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeEvidence'), true);
   upgraded.close();
@@ -160,6 +186,37 @@ test('v7 migration adds knowledge stores without converting or deleting legacy s
   const legacyWord = await module.DB.findLearnWord('legacy');
   assert.equal(legacyWord.word, 'legacy');
   assert.equal(await module.DB.getKnowledgeWord('legacy'), null);
+});
+
+test('v11 migration resets only reading history and reading-calibration progress', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  const name = `EnglishReaderReadingReset-${process.pid}-${databaseSequence++}`;
+  const legacy = await openV10ReadingDatabase(name);
+  const write = legacy.transaction(['readingStats', 'knowledgeProfileMeta', 'knowledgeWords'], 'readwrite');
+  write.objectStore('readingStats').add({ articleId: 42, activeSeconds: 12, completed: true });
+  write.objectStore('knowledgeProfileMeta').put({ key: 'knowledge-profile-qualified-readings', articleIds: ['42'] });
+  write.objectStore('knowledgeProfileMeta').put({ key: 'knowledge-profile-reading-feedback', value: 'fitting' });
+  write.objectStore('knowledgeProfileMeta').put({ key: 'knowledge-profile-schema', schemaVersion: 3 });
+  write.objectStore('knowledgeWords').put({ lemma: 'retain', status: 'stable' });
+  await new Promise((resolve, reject) => {
+    write.oncomplete = resolve;
+    write.onerror = () => reject(write.error);
+  });
+  legacy.close();
+
+  module.DB.DB_NAME = name;
+  const upgraded = await module.DB.open();
+  assert.equal(upgraded.version, 11);
+  upgraded.close();
+
+  assert.deepEqual(await module.DB.getAllReadingStats(), []);
+  assert.equal(await module.DB.getKnowledgeProfileMeta('knowledge-profile-qualified-readings'), null);
+  assert.equal(await module.DB.getKnowledgeProfileMeta('knowledge-profile-reading-feedback'), null);
+  assert.deepEqual(await module.DB.getKnowledgeProfileMeta('knowledge-profile-schema'), {
+    key: 'knowledge-profile-schema', schemaVersion: 3
+  });
+  assert.deepEqual(await module.DB.getKnowledgeWord('retain'), { lemma: 'retain', status: 'stable' });
 });
 
 test('v8 knowledge evidence gains the calibration index during the v10 additive independent-evidence migration', async () => {
@@ -171,7 +228,7 @@ test('v8 knowledge evidence gains the calibration index during the v10 additive 
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 10);
+  assert.equal(upgraded.version, 11);
   assert.equal(upgraded.transaction('knowledgeEvidence').objectStore('knowledgeEvidence').indexNames.contains('calibrationKey'), true);
   upgraded.close();
 

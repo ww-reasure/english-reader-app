@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as Calibration from '../src/calibration-engine.mjs';
 
 import {
   CALIBRATION_WORD_QUESTION_COUNT,
@@ -91,12 +92,31 @@ test('a calibration recommendation changes the mode only and requires a minimum 
 });
 
 test('only an active, completed and sufficiently browsed reading becomes personal-profile evidence', () => {
-  const requiredSeconds = Math.max(45, (400 / 400) * 60);
-  assert.equal(requiredSeconds, 60);
-  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.7, activeSeconds: 60, wordCount: 400 }), true);
-  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.69, activeSeconds: 60, wordCount: 400 }), false);
-  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.8, activeSeconds: 59, wordCount: 400 }), false);
+  const requiredSeconds = Math.max(60, (400 / 250) * 60);
+  assert.equal(requiredSeconds, 96);
+  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.7, activeSeconds: 96, wordCount: 400 }), true);
+  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.69, activeSeconds: 96, wordCount: 400 }), false);
+  assert.equal(isQualifiedReading({ completed: true, scrollDepth: 0.8, activeSeconds: 95, wordCount: 400 }), false);
   assert.equal(isQualifiedReading({ completed: false, scrollDepth: 1, activeSeconds: 200, wordCount: 400 }), false);
+});
+
+test('reading-session evaluation reports the remaining progress and foreground time without writing any evidence', () => {
+  assert.equal(typeof Calibration.evaluateReadingSession, 'function');
+
+  const result = Calibration.evaluateReadingSession({
+    completed: true,
+    contentProgress: 0.55,
+    activeSeconds: 60,
+    wordCount: 400
+  });
+
+  assert.deepEqual(result, {
+    qualified: false,
+    minimumSeconds: 96,
+    missingSeconds: 36,
+    missingProgress: 0.15,
+    reasonCodes: ['insufficient_progress', 'insufficient_active_time']
+  });
 });
 
 test('skipped calibration asks for one ease judgement only after three qualified readings and keeps the chosen target', () => {

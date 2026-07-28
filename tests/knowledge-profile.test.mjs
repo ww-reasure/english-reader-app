@@ -244,7 +244,7 @@ test('only quality-gated foreground reading is stored as observable evidence and
     articleId: 'article-1',
     completed: true,
     visibleRatio: 0.8,
-    foregroundSeconds: 44,
+    foregroundSeconds: 59,
     wordCount: 200,
     occurredAt: FIRST
   };
@@ -258,7 +258,7 @@ test('only quality-gated foreground reading is stored as observable evidence and
 
   const qualifying = {
     ...shortForeground,
-    foregroundSeconds: 45
+    foregroundSeconds: 60
   };
   assert.equal(isQualifyingReadingEvidence(qualifying), true);
 
@@ -278,7 +278,7 @@ test('persists each qualifying article once as a reading observation without tou
     articleId,
     completed: true,
     visibleRatio: 0.7,
-    foregroundSeconds: 45,
+    foregroundSeconds: 60,
     wordCount: 200,
     occurredAt: FIRST
   });

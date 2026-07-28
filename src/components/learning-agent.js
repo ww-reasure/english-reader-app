@@ -1,3 +1,5 @@
+import { buildReadingAnalytics } from '../reading-analytics.mjs';
+
 const clip = (value, limit) => String(value || '').slice(0, limit);
 
 const articleMeta = article => ({
@@ -66,14 +68,18 @@ export class LearningAgent {
       this.db.getAllArticles(),
       this.db.getAllReadingStats()
     ]);
+    const reading = buildReadingAnalytics({ articles, readingStats: stats, now: this.now() });
     return {
       source: 'learning_overview',
       totals: {
         words: words.length,
         due: this.srs.getDueCount(words),
         favorites: articles.filter(article => article.favorite).length,
-        articles: articles.length,
-        recentReadings: stats.filter(stat => this.now() - stat.createdAt <= 30 * 86400000).length
+        libraryArticles: reading.libraryArticleCount,
+        effectiveReadings: reading.effectiveReadingCount,
+        recent30EffectiveReadings: reading.recent30EffectiveReadingCount,
+        distinctReadArticles: reading.distinctReadArticleCount,
+        effectiveReadingSeconds: reading.totalSeconds
       }
     };
   }

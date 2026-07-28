@@ -34,6 +34,7 @@ export class ChatService {
         kind,
         summary: session.summary,
         messages: session.messages,
+        activities: session.activities || [],
         userMessage,
         pageContext,
         toolResults: input.toolResults || []

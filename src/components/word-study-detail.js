@@ -3,7 +3,7 @@ import { API } from '../api.js';
 import { AudioCache } from '../audio-cache.js';
 import { Examples } from '../examples.js';
 import { esc } from '../helpers.js';
-import { formatPhonetic, getDefinitionDisplayLines } from './definition-trust.mjs';
+import { formatPartOfSpeech, formatPhonetic, getDefinitionDisplayLines, getDefinitionSenses } from './definition-trust.mjs';
 import { WordPhrases } from './word-phrases.js';
 import { WordSimilar } from './word-similar.js';
 import {
@@ -19,6 +19,15 @@ function renderDefinitionLines(definition) {
     <div class="word-study-definition definition-line">
       <span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span>
     </div>`).join('');
+}
+
+function renderContextualSense(definition) {
+  const index = Number(definition?.contextualSenseIndex);
+  const sense = Number.isInteger(index) ? getDefinitionSenses(definition)[index] : null;
+  if (!sense) return '';
+  const label = formatPartOfSpeech(sense.pos) || '词性待确认';
+  const reason = String(definition?.contextualSenseReason || '').trim();
+  return `<div class="word-study-contextual-sense"><span>本句义</span><div class="definition-line"><b class="definition-pos">${esc(label)}</b><strong>${esc(sense.glossZh)}</strong></div>${reason ? `<small>${esc(reason)}</small>` : ''}</div>`;
 }
 
 export const WordStudyDetail = {
@@ -94,6 +103,7 @@ export const WordStudyDetail = {
             ${phonetic ? `<button class="word-study-phonetic" type="button" data-audio-word="${esc(word)}" title="播放发音">${esc(phonetic)}</button>` : ''}
           </div>
           <div class="word-study-definition-band">
+            ${renderContextualSense(this.definition)}
             <div class="word-study-definition-list">${renderDefinitionLines(this.definition)}</div>
           </div>
           ${(this.sourceMeta?.schedule || this.sourceMeta?.contextSentence) ? `<div class="word-study-meta-notes">

@@ -49,7 +49,18 @@ const generationPolicyFor = challenge => buildArticleGenerationPolicy({
   challenge,
   coverage: Config.get('coverage')
 });
-const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, GENERATE_READING_TOOL];
+const RECENT_HOME_ACTIVITY_TOOL = {
+  type: 'function',
+  function: {
+    name: 'get_recent_learning_activity',
+    description: '查询首页近期真实学习活动，用于回答刚刚生成了什么、成功几篇或耗时多久。',
+    parameters: {
+      type: 'object',
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } }
+    }
+  }
+};
+const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, RECENT_HOME_ACTIVITY_TOOL, GENERATE_READING_TOOL];
 const homeRequestGate = new HomeRequestGate();
 let generationFailureSequence = 0;
 const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
@@ -553,6 +564,14 @@ export const ChatView = {
   },
 
   async executeHomeTool(name, args = {}, { signal } = {}, epoch, userRequest = '', requestVersion) {
+    if (name === 'get_recent_learning_activity') {
+      return {
+        result: {
+          source: 'recent_learning_activity',
+          activities: conversationStore.getRecentActivities('home', args.limit || 50)
+        }
+      };
+    }
     if (name !== 'generate_reading') {
       return { result: await learningAgent.execute(name, args) };
     }
@@ -583,6 +602,7 @@ export const ChatView = {
 
     if (generation.adjustment) this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
     this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
+    const startedAt = Date.now();
     try {
       const { article, metadata } = await articleGenerationTool.execute({
         request: generation.request,
@@ -606,10 +626,25 @@ export const ChatView = {
           }
         }
       });
+      if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
+      this.recordHomeActivity({
+        type: 'agent_generation',
+        status: 'success',
+        startedAt,
+        generation: { difficulty: generation.difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
+        article: this.activityArticle(article)
+      });
       return { result: metadata, artifact: { type: 'article', article } };
     } catch (error) {
       if (isCancelledGenerationRequest(error) || signal?.aborted) throw error;
       const failure = this.createGenerationFailure(error, generation, topic);
+      this.recordHomeActivity({
+        type: 'agent_generation',
+        status: 'failed',
+        startedAt,
+        generation: { difficulty: generation.difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
+        failureReason: failure.message
+      });
       return {
         result: { status: failure.reason, summary: failure.message },
         artifact: { type: 'generation_failure', failure }
@@ -620,6 +655,16 @@ export const ChatView = {
   buildGenerationContext({ excludeUserMessage = '' } = {}) {
     const session = conversationStore.getSession('home');
     const duplicate = String(excludeUserMessage || '').replace(/\s+/g, ' ').trim();
+    const activityLedger = (session.activities || []).slice(-6).map(activity => ({
+      type: activity.type,
+      status: activity.status,
+      elapsedMs: activity.elapsedMs ?? null,
+      article: activity.article || null,
+      articles: activity.articles || null,
+      coveredWordCount: activity.coveredWordCount ?? null,
+      failedWordCount: activity.failedWordCount ?? null,
+      failureReason: activity.failureReason || ''
+    }));
     const recent = session.messages
       .filter(message => message.kind === 'text' || message.kind === 'article' || message.kind === 'generation_failure')
       .slice(-8)
@@ -639,7 +684,11 @@ export const ChatView = {
       })
       .filter(Boolean)
       .join('\n');
-    return [session.summary, recent].filter(Boolean).join('\n').slice(-1600);
+    return [
+      session.summary,
+      activityLedger.length ? `真实活动账本：${JSON.stringify(activityLedger)}` : '',
+      recent
+    ].filter(Boolean).join('\n').slice(-1600);
   },
 
   // Get selected topic
@@ -699,6 +748,7 @@ export const ChatView = {
     const promptInput = document.getElementById('promptInput');
     if (promptInput) promptInput.value = '';
     const generationSession = this.startArticleGenerationSession(activeRequestVersion);
+    const startedAt = Date.now();
     this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
 
     try {
@@ -726,6 +776,13 @@ export const ChatView = {
       });
       if (!generationSession.isActive()) return;
       if (retryFailureId) this.removeGenerationFailure(retryFailureId);
+      this.recordHomeActivity({
+        type: 'generation',
+        status: 'success',
+        startedAt,
+        generation: { difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
+        article: this.activityArticle(articleWithId)
+      });
 
       // Check if we're still on the chat page
       const chatMessages = document.getElementById('chatMessages');
@@ -742,6 +799,13 @@ export const ChatView = {
       if (!generationSession.isActive()) return;
       if (isCancelledGenerationRequest(err)) return;
       const failure = this.createGenerationFailure(err, generation, topic);
+      this.recordHomeActivity({
+        type: 'generation',
+        status: 'failed',
+        startedAt,
+        generation: { difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
+        failureReason: failure.message
+      });
       if (retryFailureId) this.replaceGenerationFailure(retryFailureId, failure);
       else this.addGenerationFailure(failure);
     } finally {
@@ -819,6 +883,7 @@ export const ChatView = {
 
     const generationPolicy = generationPolicyFor('support');
     const generationSession = this.startArticleGenerationSession(requestVersion);
+    const startedAt = Date.now();
     this.isReviewGenerating = true;
     const isReviewSessionActive = generationSession.isActive;
     const deferredCount = plan.remainingWords.length;
@@ -826,6 +891,7 @@ export const ChatView = {
 
     const articles = [];
     let failedWordCount = 0;
+    const failureReasons = [];
     try {
       for (const [index, batch] of selectedBatches.entries()) {
         if (!isReviewSessionActive()) return;
@@ -867,11 +933,22 @@ export const ChatView = {
             wordCount
           }, topic);
           failure.message = `第 ${index + 1} 篇未完成：${failure.message}`;
+          failureReasons.push(failure.message);
           this.addGenerationFailure(failure);
         }
       }
       if (!isReviewSessionActive()) return;
       const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
+      this.recordHomeActivity({
+        type: 'review_generation',
+        status: articles.length && !failedWordCount ? 'success' : articles.length ? 'partial_success' : 'failed',
+        startedAt,
+        generation: { difficulty: effectiveDifficulty, challenge: 'support', topic, articleCount: selectedBatches.length },
+        articles: articles.map(article => this.activityArticle(article)),
+        coveredWordCount: coveredCount,
+        failedWordCount,
+        failureReason: failureReasons.join('；')
+      });
       if (articles.length) {
         this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${coveredCount} 个待复习词。点击卡片即可开始阅读。`);
       } else if (failedWordCount) {
@@ -928,6 +1005,26 @@ export const ChatView = {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       this.addMessageToDOM(type, message.content);
     }
+  },
+
+  activityArticle(article = {}) {
+    return {
+      id: article.id,
+      title: String(article.title || '').slice(0, 160),
+      difficulty: String(article.difficulty || '').slice(0, 32),
+      wordCount: Number(article.wordCount) || 0
+    };
+  },
+
+  recordHomeActivity(activity = {}) {
+    const completedAt = Date.now();
+    const startedAt = Number.isFinite(Number(activity.startedAt)) ? Number(activity.startedAt) : completedAt;
+    return conversationStore.appendActivity('home', {
+      ...activity,
+      startedAt,
+      completedAt,
+      elapsedMs: Math.max(0, completedAt - startedAt)
+    });
   },
 
   showThinking(label = '正在理解你的请求…') {

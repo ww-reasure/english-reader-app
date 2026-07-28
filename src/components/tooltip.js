@@ -9,7 +9,7 @@ import { Affixes } from '../affixes.js';
 import { Examples } from '../examples.js';
 import { AudioCache } from '../audio-cache.js';
 import { TooltipSession } from './tooltip-session.js';
-import { formatPhonetic, getDefinitionPreview, getDefinitionSenses, getSavableTranslation } from './definition-trust.mjs';
+import { formatPartOfSpeech, formatPhonetic, getDefinitionPreview, getDefinitionSenses, getSavableTranslation } from './definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from './saved-word-definition.mjs';
 import { renderTooltipWordBadges } from './tooltip-metadata.mjs';
 import { WordStudyDetail } from './word-study-detail.js';
@@ -73,7 +73,7 @@ export const Tooltip = {
   },
 
   // Show word data
-  async show(lookupId, x, y, data, reviewMode) {
+  async show(lookupId, x, y, data, reviewMode, options = {}) {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
 
@@ -89,6 +89,8 @@ export const Tooltip = {
     </div>`;
 
     const definitionPreview = getDefinitionPreview(data);
+    const contextualSenseIndex = Number.isInteger(options.contextualSenseIndex) ? options.contextualSenseIndex : -1;
+    const contextualSense = getDefinitionSenses(data)[contextualSenseIndex] || null;
     const phonetic = formatPhonetic(data.phonetic);
     const lexicalMeta = [
       data.baseForm ? `<div class="tooltip-pos">原形: ${esc(data.baseForm)}</div>` : '',
@@ -97,6 +99,10 @@ export const Tooltip = {
     html += `<div class="tooltip-lexical-meta">
       <div class="tooltip-lexical-copy">${lexicalMeta}</div>
     </div>`;
+
+    if (contextualSense && options.contextSentence) {
+      html += `<div class="tooltip-contextual-sense"><span>本句义</span><div class="definition-line"><b class="definition-pos">${esc(formatPartOfSpeech(contextualSense.pos) || '词性待确认')}</b><em>${esc(contextualSense.glossZh)}</em></div>${options.contextualSenseReason ? `<small>${esc(options.contextualSenseReason)}</small>` : ''}</div>`;
+    }
 
     if (definitionPreview.visibleLines.length) {
       html += `<div class="tooltip-definition-preview">${definitionPreview.visibleLines.map((line) => `<div class="tooltip-translation definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
@@ -161,8 +167,8 @@ export const Tooltip = {
         this.hide();
         WordStudyDetail.open({
           word: data.word,
-          definition: data,
-          sourceMeta: { eyebrow: 'WORD NOTE' }
+          definition: { ...data, contextualSenseIndex, contextualSenseReason: options.contextualSenseReason || '' },
+          sourceMeta: { eyebrow: 'WORD NOTE', contextSentence: options.contextSentence || '' }
         });
       });
     }
