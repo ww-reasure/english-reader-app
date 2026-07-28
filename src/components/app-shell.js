@@ -25,6 +25,14 @@ export const AppShell = {
     return { navKey: match[1], title: match[2] };
   },
 
+  getHeaderActions(navKey) {
+    if (navKey !== 'chat') return '<div class="app-header-actions" aria-hidden="true"></div>';
+    return `<div class="app-header-actions">
+      <button id="appClearContextBtn" class="app-icon-button" type="button" aria-label="清除对话上下文" title="清除对话上下文"><i class="fa-solid fa-broom" aria-hidden="true"></i></button>
+      <a class="app-icon-button" href="#/settings" aria-label="打开设置" title="打开设置"><i class="fa-solid fa-gear" aria-hidden="true"></i></a>
+    </div>`;
+  },
+
   mount(container, meta, pageMode) {
     this.cleanup();
     document.body.classList.add('app-shell-active');
@@ -34,9 +42,7 @@ export const AppShell = {
     )).join('');
 
     const kicker = meta.navKey === 'chat' ? 'AI STUDY COACH' : 'ENGLISH LEARNING';
-    const headerActions = `<div class="app-header-actions">${meta.navKey === 'chat'
-      ? '<button id="appClearContextBtn" class="app-icon-button" type="button" aria-label="清除对话上下文" title="清除对话上下文"><i class="fa-solid fa-broom" aria-hidden="true"></i></button>'
-      : ''}<a class="app-icon-button" href="#/settings" aria-label="打开设置"><i class="fa-solid fa-gear" aria-hidden="true"></i></a></div>`;
+    const headerActions = this.getHeaderActions(meta.navKey);
     container.innerHTML = `
       <div class="app-shell app-shell--${pageMode}">
         <header class="app-header">

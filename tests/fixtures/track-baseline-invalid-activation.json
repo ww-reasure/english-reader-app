@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": "fixture-invalid",
+  "purpose": "Fixture proving an activation cannot be inferred from public references.",
+  "activeForGeneration": true,
+  "activeForValidator": true,
+  "activationRequirements": [
+    "licensed-or-permitted-raw-corpus",
+    "immutable-source-snapshot-and-sha256",
+    "reproducible-tokenization-and-derived-statistics",
+    "same-tokenizer-and-udpipe-metric-schema",
+    "per-track-sample-size-and-distribution-report",
+    "human-legal-and-methodology-review"
+  ],
+  "corpusAdmissionPolicy": {
+    "shipRawExamTextInApk": false,
+    "acceptedBuildOutput": "derived-statistics-only",
+    "requiredEvidence": [
+      "licensed-or-permitted-raw-corpus",
+      "immutable-source-snapshot-and-sha256",
+      "reproducible-tokenization-and-derived-statistics",
+      "same-tokenizer-and-udpipe-metric-schema",
+      "per-track-sample-size-and-distribution-report",
+      "human-legal-and-methodology-review"
+    ]
+  },
+  "trackStatus": {
+    "cet4": { "status": "active-derived-statistics" },
+    "cet6": { "status": "active-derived-statistics" },
+    "kaoyan1": { "status": "active-derived-statistics" },
+    "kaoyan2": { "status": "active-derived-statistics" }
+  },
+  "sources": [
+    {
+      "id": "unproven-public-mirror",
+      "title": "An unproven mirror",
+      "status": "active-derived-statistics",
+      "sourceType": "third-party-mirror",
+      "tracks": ["cet4", "cet6", "kaoyan1", "kaoyan2"],
+      "url": "https://example.invalid/mirror",
+      "version": "unknown",
+      "license": "unknown",
+      "retrievedAt": "2026-07-26",
+      "sha256": null,
+      "use": ["generation-target-focus"],
+      "forbiddenUse": ["raw-test-text-in-apk"]
+    }
+  ]
+}

@@ -26,7 +26,9 @@ export function escAttr(str) {
 export const DIFFICULTY_LABELS = {
   cet4: '四级',
   cet6: '六级',
-  graduate: '考研'
+  kaoyan1: '考研英语一',
+  kaoyan2: '考研英语二',
+  graduate: '考研（旧版）'
 };
 
 // Format timestamp to locale string
@@ -142,6 +144,7 @@ export class ReadingTimer {
     this.onTick = null;
     this.interval = null;
     this.isPaused = false;
+    this.visibilityPaused = false;
     this.isRunning = false;
     this.lastActive = Date.now();
     this.IDLE_THRESHOLD = 30000; // 30s idle
@@ -165,8 +168,19 @@ export class ReadingTimer {
   }
 
   resume() {
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.isPaused = true;
+      this.visibilityPaused = true;
+      return;
+    }
     this.isPaused = false;
+    this.visibilityPaused = false;
     this.lastActive = Date.now();
+  }
+
+  pauseForVisibility() {
+    this.isPaused = true;
+    this.visibilityPaused = true;
   }
 
   stop() {

@@ -16,8 +16,9 @@ import { LEARNING_TOOLS, LearningAgent } from '../components/learning-agent.js';
 import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
 import { classifyComposerIntent } from '../components/composer-intent.js';
+import { isGenerationAuthorized } from '../components/generation-authorization.mjs';
 import { renderLearningMarkdown } from '../components/rich-text.js';
-import { ArticleGenerationTool, GENERATE_READING_TOOL, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
+import { ArticleGenerationTool, GENERATE_READING_TOOL, admitArticle, normalizeTargetWords } from '../components/article-generation-tool.js';
 import { resolveGenerationRequest } from '../components/generation-request.js';
 import {
   createGenerationFailure as makeGenerationFailure,
@@ -25,14 +26,28 @@ import {
   normalizeGenerationFailure as hydrateGenerationFailure
 } from '../components/generation-failure.mjs';
 import { HomeRequestGate } from '../components/home-request-gate.mjs';
+import { getSharedArticleQualityService } from '../components/article-quality-service.mjs';
+import { planReviewBatches } from '../components/review-generation-plan.mjs';
+import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
+import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
+import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
+import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
 
 const conversationStore = new ConversationStore();
 const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
 const contextBuilder = new ContextBuilder();
 const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder });
+const articleQualityService = getSharedArticleQualityService({ api: API, db: DB });
 const articleGenerationTool = new ArticleGenerationTool({
   api: API,
-  db: DB
+  db: DB,
+  admit: admitArticle,
+  inspectQuality: articleQualityService.inspectQuality
+});
+const generationPolicyFor = challenge => buildArticleGenerationPolicy({
+  calibrationStatus: Config.get('calibration_status'),
+  challenge,
+  coverage: Config.get('coverage')
 });
 const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, GENERATE_READING_TOOL];
 const homeRequestGate = new HomeRequestGate();
@@ -142,8 +157,13 @@ export const ChatView = {
       `<option value="${t.value}">${t.label}</option>`
     ).join('');
 
-    // Get saved exam level from assessment or default
-    const savedExamLevel = Config.get('exam_level') || 'cet4';
+    // The selected target is independent from the inferred reading mode.
+    const savedExamLevel = ['cet4', 'cet6', 'kaoyan1', 'kaoyan2'].includes(Config.get('exam_level'))
+      ? Config.get('exam_level')
+      : '';
+    const targetSelectPlaceholder = savedExamLevel
+      ? ''
+      : '<option value="" selected disabled>选择目标考试</option>';
 
     container.innerHTML = `
       <div class="chat-container">
@@ -166,9 +186,11 @@ export const ChatView = {
               <button id="composerOptionsClose" type="button" aria-label="关闭生成设置">×</button>
             </div>
             <select id="difficultySelect" name="difficulty" aria-label="文章难度">
+              ${targetSelectPlaceholder}
               <option value="cet4" ${savedExamLevel === 'cet4' ? 'selected' : ''}>四级</option>
               <option value="cet6" ${savedExamLevel === 'cet6' ? 'selected' : ''}>六级</option>
-              <option value="graduate" ${savedExamLevel === 'graduate' ? 'selected' : ''}>考研</option>
+              <option value="kaoyan1" ${savedExamLevel === 'kaoyan1' ? 'selected' : ''}>考研英语一</option>
+              <option value="kaoyan2" ${savedExamLevel === 'kaoyan2' ? 'selected' : ''}>考研英语二</option>
             </select>
             <select id="topicSelect" class="topic-select" name="topic" aria-label="文章话题">
               <option value="">选择话题</option>
@@ -267,7 +289,7 @@ export const ChatView = {
     div.innerHTML = `
       <div class="welcome-box">
         <h3>欢迎使用英语阅读助手</h3>
-        <p>首次使用建议先进行<strong>阅读水平测评</strong>，系统会根据你的词汇量自动推荐最佳难度和生词比例。</p>
+        <p>首次使用建议先完成<strong>3 分钟阅读校准</strong>。它用离线词义题和短阅读推荐材料压力，不会把收藏或加入词库误当成“已掌握”。</p>
         <div class="welcome-actions">
           <a href="#/assessment" class="btn btn-primary btn-sm">开始测评（约 3 分钟）</a>
           <button class="btn btn-outline btn-sm" onclick="ChatView.skipAssessment()">跳过，直接使用</button>
@@ -278,10 +300,22 @@ export const ChatView = {
 
   // Skip assessment
   skipAssessment() {
-    Config.set('assessment_done', 'true');
+    // Skipping is deliberately a conservative, *uncalibrated* state.  It is
+    // not a successful assessment and must not suppress the three-reading
+    // feedback checkpoint later on.
+    if (Config.get('target_track_selection_required') === 'true') {
+      location.hash = '#/assessment';
+      return;
+    }
+    Config.set('assessment_done', 'false');
+    Config.set('calibration_status', 'skipped');
+    Config.set('reading_mode', 'support');
+    Config.set('level', 'easy');
+    Config.set('coverage', '97');
+    Config.set('new_word_percent', '3');
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
-    this.addMessageToDOM('system', '已跳过测评。现在可以直接问我词汇、语法、阅读方法或复习计划；想读新文章时，说“生成一篇……”即可。\n随时可以在「设置」中完成测评。');
+    this.addMessageToDOM('system', '已进入未校准的保守阅读：会优先使用高频基础词、较短句和少量目标重点词。完成 3 篇有效阅读后，我会只问一次“偏难 / 合适 / 偏易”，帮助校正推荐；随时可以在「设置」中完成 3 分钟校准。');
   },
 
   // Clear chat history
@@ -335,6 +369,54 @@ export const ChatView = {
     generateButton.setAttribute('aria-label', '发送问题');
   },
 
+  ensureTargetTrackBeforeGeneration() {
+    if (!requiresTargetTrackSelection(Config.get('exam_level'), Config.get('target_track_selection_required'))) {
+      return false;
+    }
+    this.addMessage('system', '开始生成前，请先在「3 分钟阅读校准」中选择四级、六级、考研英语一或考研英语二；初测可以稍后跳过，但目标考试需要由你确认。');
+    location.hash = '#/assessment';
+    return true;
+  },
+
+  // Only direct user choices reach this method. Tool preferences never set
+  // `targetSelectionRequested`, so the learner-owned target remains stable.
+  commitGenerationTargetSelection(generation) {
+    const target = normalizeSelectableTrack(generation?.targetSelectionRequested);
+    if (!target) return false;
+    Config.set('exam_level', target);
+    Config.set('target_track_selection_required', 'false');
+    const difficultySelect = document.getElementById('difficultySelect');
+    if (difficultySelect) difficultySelect.value = target;
+    return true;
+  },
+
+  // The resolver is shared with Agent calls, but only text typed directly by
+  // the learner may update the persisted target exam. Tool-provided prompts
+  // remain useful generation instructions without becoming target choices.
+  resolveDirectGenerationRequest({
+    request = '',
+    selectedDifficulty,
+    selectedChallenge,
+    legacyLevel,
+    toolDifficulty,
+    toolWordCount,
+    allowExplicitUserTarget = false
+  } = {}) {
+    const directRequest = String(request || '').trim();
+    const generation = resolveGenerationRequest({
+      request: directRequest,
+      selectedDifficulty,
+      selectedChallenge,
+      legacyLevel,
+      toolDifficulty,
+      toolWordCount,
+      allowExplicitUserTarget
+    });
+    generation.request = directRequest;
+    if (allowExplicitUserTarget) this.commitGenerationTargetSelection(generation);
+    return generation;
+  },
+
   studyAnchorMarkup() {
     const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date());
     return `<section class="chat-study-intro" aria-label="今日学习">
@@ -367,6 +449,12 @@ export const ChatView = {
 
     document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
     document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
+    const difficultySelect = document.getElementById('difficultySelect');
+    difficultySelect.addEventListener('change', () => {
+      this.commitGenerationTargetSelection({
+        targetSelectionRequested: difficultySelect.value
+      });
+    });
     const clearContextButton = document.getElementById('appClearContextBtn');
     if (clearContextButton) {
       this._clearContextHandler = () => this.clearHistory();
@@ -432,9 +520,6 @@ export const ChatView = {
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
     this.appendConversation({ role: 'user', kind: 'text', content: value });
     input.value = '';
-    if (classifyComposerIntent(value) === 'generate') {
-      return this.handleGenerate({ prompt: value, alreadyAdded: true, requestVersion });
-    }
     this.showThinking();
     try {
       const session = conversationStore.getSession('home');
@@ -449,6 +534,9 @@ export const ChatView = {
       if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
+      if (reply.toolSupport === 'unsupported' && classifyComposerIntent(value) === 'generate') {
+        return this.handleGenerate({ prompt: value, alreadyAdded: true, requestVersion });
+      }
       if (reply.content) {
         this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
       }
@@ -469,16 +557,29 @@ export const ChatView = {
       return { result: await learningAgent.execute(name, args) };
     }
     if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
-    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
-    const request = String(userRequest || args.request || '请根据当前学习情况生成一篇英语阅读文章。').trim();
-    const generation = resolveGenerationRequest({
+    const directUserRequest = String(userRequest || '').trim();
+    if (!isGenerationAuthorized(directUserRequest)) {
+      return { result: { status: 'generation_not_authorized' } };
+    }
+    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level');
+    const request = String(directUserRequest || args.request || '请根据当前学习情况生成一篇英语阅读文章。').trim();
+    const generation = this.resolveDirectGenerationRequest({
       request,
       selectedDifficulty,
+      selectedChallenge: Config.get('reading_mode'),
       legacyLevel: Config.get('level'),
       toolDifficulty: args.difficulty,
-      toolWordCount: args.wordCount
+      toolWordCount: args.wordCount,
+      allowExplicitUserTarget: Boolean(directUserRequest)
     });
+    if (this.ensureTargetTrackBeforeGeneration()) {
+      return {
+        result: { status: 'target_track_selection_required' },
+        artifact: { type: 'generation_blocked' }
+      };
+    }
     const topic = String(args.topic || this.getTopic() || 'general').trim() || 'general';
+    const generationPolicy = generationPolicyFor(generation.challenge);
 
     if (generation.adjustment) this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
     this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
@@ -494,7 +595,9 @@ export const ChatView = {
         fallbackChallenge: generation.challenge,
         fallbackTopic: topic,
         legacyLevel: Config.get('level'),
-        learningContext: this.buildGenerationContext(),
+        learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
+        personalization: generationPolicy.personalization,
+        validationOptions: generationPolicy.validationOptions,
         signal,
         isActive: () => this.isHomeRequestActive(epoch, requestVersion) && !signal?.aborted,
         onProgress: progress => {
@@ -514,12 +617,27 @@ export const ChatView = {
     }
   },
 
-  buildGenerationContext() {
+  buildGenerationContext({ excludeUserMessage = '' } = {}) {
     const session = conversationStore.getSession('home');
+    const duplicate = String(excludeUserMessage || '').replace(/\s+/g, ' ').trim();
     const recent = session.messages
-      .filter(message => message.kind === 'text')
-      .slice(-6)
-      .map(message => `${message.role === 'user' ? '学习者' : '助手'}：${message.content}`)
+      .filter(message => message.kind === 'text' || message.kind === 'article' || message.kind === 'generation_failure')
+      .slice(-8)
+      .map(message => {
+        if (message.kind === 'article') {
+          const article = message.article || {};
+          return `已生成阅读：${article.title || '未命名文章'}${article.titleZh ? `（${article.titleZh}）` : ''}；${article.difficulty || '未标注难度'}；${article.topic || '综合'}；${article.wordCount || '未知'} 词。`;
+        }
+        if (message.kind === 'generation_failure') {
+          const failure = message.failure || {};
+          const generation = failure.generation || {};
+          return `生成未完成：${failure.message || '内容不完整'}（${generation.difficulty || '未标注难度'} / ${generation.wordCount || '未知'} 词）。`;
+        }
+        const content = String(message.content || '').replace(/\s+/g, ' ').trim();
+        if (message.role === 'user' && duplicate && content === duplicate) return '';
+        return `${message.role === 'user' ? '学习者' : '助手'}：${content}`;
+      })
+      .filter(Boolean)
       .join('\n');
     return [session.summary, recent].filter(Boolean).join('\n').slice(-1600);
   },
@@ -544,17 +662,23 @@ export const ChatView = {
     const generateButton = document.getElementById('generateBtn');
     if (generateButton?.disabled) return;
 
-    const activeRequestVersion = requestVersion ?? this.beginHomeRequest();
     const prompt = providedPrompt ?? providedGeneration?.request ?? document.getElementById('promptInput').value.trim();
-    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const directUserRequest = String(prompt || '').trim();
+    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level');
     const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[selectedDifficulty]}难度的英语阅读文章。`;
-    const generation = providedGeneration || resolveGenerationRequest({
+    const generation = providedGeneration || this.resolveDirectGenerationRequest({
       request: effectivePrompt,
       selectedDifficulty,
-      legacyLevel: Config.get('level')
+      selectedChallenge: Config.get('reading_mode'),
+      legacyLevel: Config.get('level'),
+      allowExplicitUserTarget: Boolean(directUserRequest)
     });
+    if (this.ensureTargetTrackBeforeGeneration()) return;
+    const activeRequestVersion = requestVersion ?? this.beginHomeRequest();
+    this.commitGenerationTargetSelection(generation);
     const difficulty = generation.difficulty;
     const topic = topicOverride || this.getTopic();
+    const generationPolicy = generationPolicyFor(generation.challenge);
 
     if (!alreadyAdded) {
       this.addMessage('user', prompt
@@ -589,7 +713,9 @@ export const ChatView = {
         fallbackChallenge: generation.challenge,
         fallbackTopic: topic,
         legacyLevel: Config.get('level'),
-        learningContext: this.buildGenerationContext(),
+        learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
+        personalization: generationPolicy.personalization,
+        validationOptions: generationPolicy.validationOptions,
         signal: generationSession.signal,
         isActive: generationSession.isActive,
         onProgress: progress => {
@@ -644,87 +770,151 @@ export const ChatView = {
     await Promise.all(ids.map(id => DB.deleteArticle(id).catch(() => {})));
   },
 
-  // Handle review reading generation
-  async handleReviewGenerate() {
+  addReviewContinueAction(count, onContinue) {
+    const container = document.getElementById('chatMessages');
+    if (!container || count <= 0) return;
+    const div = document.createElement('div');
+    div.className = 'message system-message review-continue-message';
+    div.innerHTML = `<div class="due-reminder"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> 还有 <strong>${count}</strong> 个词待覆盖 <button class="btn btn-outline btn-sm review-continue-btn" type="button">继续生成剩余</button></div>`;
+    const button = div.querySelector('.review-continue-btn');
+    button?.addEventListener('click', () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      void Promise.resolve(onContinue?.()).finally(() => { button.disabled = false; });
+    });
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  async generateReviewReadings({ reviewWords = [], difficulty, topic = '复习巩固', sourceLabel = '待复习词' } = {}) {
+    if (this.ensureTargetTrackBeforeGeneration()) return;
     if (this.isReviewGenerating || !Config.hasApiKey()) {
       if (!Config.hasApiKey()) Modal.showApiSettings();
       return;
     }
 
+    const normalizedWords = normalizeTargetWords(reviewWords, Number.POSITIVE_INFINITY);
+    if (!normalizedWords.length) {
+      this.addMessage('system', '没有待复习的单词。先导入单词或在阅读中收藏单词。');
+      return;
+    }
+
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
-
-    // Keep due words first, then supplement them with words that are not stable yet.
-    const allLearnWords = await DB.getAllLearnWords();
+    const allArticles = await DB.getAllArticles();
     if (!this.isHomeRequestActive(epoch, requestVersion)) return;
+
+    const plan = planReviewBatches({
+      words: normalizedWords,
+      articles: allArticles,
+      maxArticles: 4
+    });
+    const selectedBatches = plan.batches;
+    const selectedWords = plan.selectedWords;
+    const effectiveDifficulty = difficulty || document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    if (!selectedBatches.length) {
+      this.addMessage('system', `今天的${sourceLabel}已生成巩固阅读，稍后可直接开始阅读。`);
+      return;
+    }
+
+    const generationPolicy = generationPolicyFor('support');
+    const generationSession = this.startArticleGenerationSession(requestVersion);
+    this.isReviewGenerating = true;
+    const isReviewSessionActive = generationSession.isActive;
+    const deferredCount = plan.remainingWords.length;
+    this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[effectiveDifficulty]}\n${sourceLabel} ${normalizedWords.length} 个词\n本次优先覆盖 ${selectedWords.length} 个词${deferredCount > 0 ? `，剩余 ${deferredCount} 个词可继续生成。` : '。'}`);
+
+    const articles = [];
+    let failedWordCount = 0;
+    try {
+      for (const [index, batch] of selectedBatches.entries()) {
+        if (!isReviewSessionActive()) return;
+        const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
+        this.showArticleGenerationStatus(`正在制作第 ${index + 1}/${selectedBatches.length} 篇，已覆盖 ${coveredCount} 个词…`);
+        const wordCount = selectedBatches.length > 1 ? 300 : 350;
+        const request = `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`;
+        try {
+          const result = await articleGenerationTool.execute({
+            request,
+            difficulty: effectiveDifficulty,
+            topic,
+            wordCount
+          }, {
+            fallbackDifficulty: effectiveDifficulty,
+            fallbackTopic: topic,
+            fallbackChallenge: 'support',
+            learningContext: this.buildGenerationContext(),
+            personalization: generationPolicy.personalization,
+            validationOptions: generationPolicy.validationOptions,
+            signal: generationSession.signal,
+            isActive: isReviewSessionActive,
+            targetWords: batch,
+            articleFields: { reviewMode: true, usedWords: batch }
+          });
+          if (!isReviewSessionActive()) {
+            await this.discardReviewArticles([result.article]);
+            return;
+          }
+          articles.push(result.article);
+          this.publishReviewArticles([result.article], generationSession);
+        } catch (error) {
+          if (!isReviewSessionActive() || isCancelledGenerationRequest(error)) return;
+          failedWordCount += batch.length;
+          const failure = this.createGenerationFailure(error, {
+            request,
+            difficulty: effectiveDifficulty,
+            challenge: 'support',
+            wordCount
+          }, topic);
+          failure.message = `第 ${index + 1} 篇未完成：${failure.message}`;
+          this.addGenerationFailure(failure);
+        }
+      }
+      if (!isReviewSessionActive()) return;
+      const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
+      if (articles.length) {
+        this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${coveredCount} 个待复习词。点击卡片即可开始阅读。`);
+      } else if (failedWordCount) {
+        this.addMessage('error', '本次复习阅读未能完成，请通过下方入口重试。');
+      }
+      if (deferredCount > 0 || failedWordCount > 0) {
+        const remainingCount = deferredCount + failedWordCount;
+        this.addReviewContinueAction(remainingCount, () => this.generateReviewReadings({
+          reviewWords: normalizedWords,
+          difficulty: effectiveDifficulty,
+          topic,
+          sourceLabel
+        }));
+      }
+    } finally {
+      if (isReviewSessionActive()) {
+        this.removeArticleGenerationStatus();
+        this.isReviewGenerating = false;
+      }
+      generationSession.release();
+    }
+  },
+
+  // Handle review reading generation from the home shortcut.
+  async handleReviewGenerate() {
+    if (this.ensureTargetTrackBeforeGeneration()) return;
+    if (this.isReviewGenerating || !Config.hasApiKey()) {
+      if (!Config.hasApiKey()) Modal.showApiSettings();
+      return;
+    }
+    const allLearnWords = await DB.getAllLearnWords();
     const dueWords = SpacedRepetition.getDueWords(allLearnWords);
     const nonStableWords = allLearnWords.filter(w => !SpacedRepetition.isStable(w));
     const reviewWords = normalizeTargetWords(
       [...dueWords, ...nonStableWords].map(word => word.word),
       Number.POSITIVE_INFINITY
     );
-
-    if (reviewWords.length === 0) {
-      this.addMessage('system', '没有待复习的单词。先导入单词或在阅读中收藏单词。');
-      return;
-    }
-
-    const difficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
-    const topic = this.getTopic();
-    const selectedBatches = chunkTargetWords(reviewWords).slice(0, 2);
-    const selectedWords = selectedBatches.flat();
-    const deferredCount = Math.max(0, reviewWords.length - selectedWords.length);
-    const generationSession = this.startArticleGenerationSession(requestVersion);
-    this.isReviewGenerating = true;
-    const isReviewSessionActive = generationSession.isActive;
-
-    this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[difficulty]}\n待复习 ${reviewWords.length} 个词${deferredCount > 0 ? `\n本次优先巩固 ${selectedWords.length} / ${reviewWords.length} 个词，其余 ${deferredCount} 个词待下次处理。` : ''}`);
-    this.showArticleGenerationStatus('正在制作复习阅读…');
-
-    let articles = [];
-    try {
-      for (const [index, batch] of selectedBatches.entries()) {
-        const result = await articleGenerationTool.execute({
-          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
-          difficulty,
-          topic,
-          wordCount: selectedBatches.length > 1 ? 300 : 350
-        }, {
-          fallbackDifficulty: difficulty,
-          fallbackTopic: topic,
-          fallbackChallenge: 'support',
-          learningContext: this.buildGenerationContext(),
-          signal: generationSession.signal,
-          isActive: isReviewSessionActive,
-          targetWords: batch,
-          articleFields: { reviewMode: true, usedWords: batch }
-        });
-        articles.push(result.article);
-      }
-      if (!isReviewSessionActive()) return;
-
-      if (this.publishReviewArticles(articles, generationSession)) {
-        this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个待复习词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}点击阅读开始复习。`);
-      }
-    } catch (err) {
-      if (!isReviewSessionActive()) return;
-      const chatMessages = document.getElementById('chatMessages');
-      if (articles.length) {
-        if (this.publishReviewArticles(articles, generationSession) && chatMessages) {
-          this.addMessage('error', `已生成 ${articles.length} 篇巩固阅读，其余文章暂时无法完成，请稍后重试。`);
-        }
-      } else if (chatMessages) {
-        this.addMessage('error', '文章定制暂时失败，请稍后重试。');
-      }
-    } finally {
-      const isCurrentReviewSession = isReviewSessionActive();
-      if (!isCurrentReviewSession && articles.length) await this.discardReviewArticles(articles);
-      if (isCurrentReviewSession) {
-        this.removeArticleGenerationStatus();
-        this.isReviewGenerating = false;
-      }
-      generationSession.release();
-    }
+    return this.generateReviewReadings({
+      reviewWords,
+      difficulty: document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4',
+      topic: this.getTopic(),
+      sourceLabel: '待复习词'
+    });
   },
 
   appendConversation(message) {
@@ -740,13 +930,13 @@ export const ChatView = {
     }
   },
 
-  showThinking() {
+  showThinking(label = '正在理解你的请求…') {
     const container = document.getElementById('chatMessages');
     if (!container || document.getElementById('chatThinking')) return;
     const thinking = document.createElement('div');
     thinking.id = 'chatThinking';
     thinking.className = 'message ai-message chat-thinking';
-    thinking.textContent = '正在整理你的学习信息…';
+    thinking.textContent = label;
     container.appendChild(thinking);
     container.scrollTop = container.scrollHeight;
   },
@@ -804,6 +994,7 @@ export const ChatView = {
     const fallbackGeneration = resolveGenerationRequest({
       request: String(userRequest || '请根据当前学习情况生成一篇英语阅读文章。').trim(),
       selectedDifficulty,
+      selectedChallenge: Config.get('reading_mode'),
       legacyLevel: Config.get('level')
     });
     return hydrateGenerationFailure(failure, fallbackGeneration, this.getTopic());
@@ -1091,12 +1282,20 @@ export const WordImport = {
     for (const word of words) {
       try {
         // Look up translation for each word
-        let translation = '';
+        let definition = null;
         try {
-          const dictResult = await Dictionary.lookup(word);
-          translation = dictResult.translation || '';
+          definition = await Dictionary.lookup(word);
         } catch {}
-        await DB.saveLearnWord({ word, translation, createdAt: Date.now() });
+        await DB.saveLearnWord({
+          word,
+          translation: getSavableTranslation(definition),
+          phonetic: definition?.phonetic || '',
+          pos: definition?.pos || '',
+          definitionSenses: getDefinitionSenses(definition),
+          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+          definitionLexiconVersion: definition?.lexiconVersion || '',
+          createdAt: Date.now()
+        });
         imported++;
         if (status) status.textContent = `正在导入... ${imported}/${words.length}`;
       } catch {

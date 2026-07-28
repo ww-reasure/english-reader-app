@@ -13,13 +13,15 @@ import { SettingsView } from './views/settings.js';
 import { StatsView } from './views/stats.js';
 import { ReportView } from './views/report.js';
 import { AssessmentView } from './views/assessment.js';
+import { CalibrationView } from './views/calibration.js';
 import { ReadingListView } from './views/reading-list.js';
 import { AppShell } from './components/app-shell.js';
 import { RouteHistory } from './components/route-history.js';
+import { WordStudyDetail } from './components/word-study-detail.js';
 
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
-  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, ReadingListView
+  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView
 };
 
 export const Router = {
@@ -27,10 +29,11 @@ export const Router = {
   routeHistory: null,
 
   // Views that have cleanup methods
-  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'ReadingListView'],
+  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView'],
 
   // Cleanup current view before navigation
   cleanupCurrentView() {
+    WordStudyDetail.close();
     if (this.currentView && typeof this.currentView.cleanup === 'function') this.currentView.cleanup();
     AppShell.cleanup();
     this.currentView = null;
@@ -76,7 +79,7 @@ export const Router = {
         view = ReportView;
         break;
       case hash === '#/assessment':
-        view = AssessmentView;
+        view = CalibrationView;
         break;
       case hash === '#/reading-list':
         view = ReadingListView;

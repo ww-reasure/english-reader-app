@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": "2026.07.26-provisional",
+  "retrievedAt": "2026-07-26",
+  "purpose": "Maintainer-only provenance registry for target-exam reading baselines. It deliberately contains no examination passages and does not control generation or validation.",
+  "activeForGeneration": false,
+  "activeForValidator": false,
+  "activationRequirements": [
+    "licensed-or-permitted-raw-corpus",
+    "immutable-source-snapshot-and-sha256",
+    "reproducible-tokenization-and-derived-statistics",
+    "same-tokenizer-and-udpipe-metric-schema",
+    "per-track-sample-size-and-distribution-report",
+    "human-legal-and-methodology-review"
+  ],
+  "corpusAdmissionPolicy": {
+    "policyVersion": "derived-only-v1",
+    "shipRawExamTextInApk": false,
+    "acceptedBuildOutput": "derived-statistics-only",
+    "requiredEvidence": [
+      "licensed-or-permitted-raw-corpus",
+      "immutable-source-snapshot-and-sha256",
+      "reproducible-tokenization-and-derived-statistics",
+      "same-tokenizer-and-udpipe-metric-schema",
+      "per-track-sample-size-and-distribution-report",
+      "human-legal-and-methodology-review"
+    ],
+    "forbiddenPublishedArtifacts": [
+      "raw-test-text-in-apk",
+      "answers-in-apk",
+      "options-in-apk",
+      "recoverable-ngram-tables"
+    ],
+    "activationArtifact": "For each active track, retain only a versioned derived-statistics record: source and derived SHA-256, source permission, tokenizer and UDPipe metric schema, sample counts, distribution quantiles, and build-script version."
+  },
+  "trackStatus": {
+    "cet4": {
+      "status": "provisional-aggregate-only",
+      "rawCorpusStatus": "not-accepted-for-app-distribution-or-build",
+      "availableAggregateEvidence": ["academicWordCoveragePercent"],
+      "notDirectlyUsableForValidator": ["dependencyDepth", "subordinateRate", "passiveRate", "nonFiniteRate"],
+      "claim": "可作为四六级导向阅读的外部词汇学术性参照，不宣称文章与真题等难度。"
+    },
+    "cet6": {
+      "status": "provisional-aggregate-only",
+      "rawCorpusStatus": "not-accepted-for-app-distribution-or-build",
+      "availableAggregateEvidence": ["academicWordCoveragePercent"],
+      "notDirectlyUsableForValidator": ["dependencyDepth", "subordinateRate", "passiveRate", "nonFiniteRate"],
+      "claim": "可作为四六级导向阅读的外部词汇学术性参照，不宣称文章与真题等难度。"
+    },
+    "kaoyan1": {
+      "status": "provisional-aggregate-only",
+      "rawCorpusStatus": "not-accepted-for-app-distribution-or-build",
+      "availableAggregateEvidence": ["readingAPassageBundleLength", "relativeLexicalAndReadabilityDirection"],
+      "notDirectlyUsableForValidator": ["dependencyDepth", "subordinateRate", "passiveRate", "nonFiniteRate"],
+      "claim": "可作为英语一与英语二的相对文本特征参考，不将 Coh-Metrix 指数映射为本地 UDPipe 阈值。"
+    },
+    "kaoyan2": {
+      "status": "provisional-aggregate-only",
+      "rawCorpusStatus": "not-accepted-for-app-distribution-or-build",
+      "availableAggregateEvidence": ["readingAPassageBundleLength", "relativeLexicalAndReadabilityDirection"],
+      "notDirectlyUsableForValidator": ["dependencyDepth", "subordinateRate", "passiveRate", "nonFiniteRate"],
+      "claim": "可作为英语一与英语二的相对文本特征参考，不将 Coh-Metrix 指数映射为本地 UDPipe 阈值。"
+    }
+  },
+  "sources": [
+    {
+      "id": "neea-cet-structure-2016",
+      "title": "全国大学英语四、六级考试大纲（2016年修订版）",
+      "status": "reference-only-no-snapshot",
+      "sourceType": "official-exam-specification",
+      "tracks": ["cet4", "cet6"],
+      "url": "https://cet.neea.edu.cn/res/Home/1704/55b02330ac17274664f06d9d3db8249d.pdf",
+      "version": "2016 revision",
+      "license": "No explicit redistribution license stated; URL is retained only as an official reference.",
+      "retrievedAt": "2026-07-26",
+      "sha256": null,
+      "hashStatus": "not-snapshotted-not-eligible-for-data-build",
+      "use": ["verify-official-reading-section-structure", "maintainer-reference"],
+      "forbiddenUse": ["raw-test-text-in-apk", "derived-word-focus-layer", "validator-threshold-source"],
+      "note": "The official syllabus establishes reading-section structure but does not publish a licensable historical passage corpus for this app."
+    },
+    {
+      "id": "neea-netem-english1-outline-2017",
+      "title": "2017年全国硕士研究生招生考试英语（一）考试大纲（非英语专业）",
+      "status": "reference-only-no-snapshot",
+      "sourceType": "official-exam-specification",
+      "tracks": ["kaoyan1"],
+      "url": "https://yankao.neea.edu.cn/xhtml1/report/16103/1379-1.htm",
+      "version": "2017 outline page, published 2016-10-27",
+      "license": "No explicit redistribution license stated; URL is retained only as an official reference.",
+      "retrievedAt": "2026-07-26",
+      "sha256": null,
+      "hashStatus": "not-snapshotted-not-eligible-for-data-build",
+      "use": ["verify-official-track-identity", "maintainer-reference"],
+      "forbiddenUse": ["raw-test-text-in-apk", "derived-word-focus-layer", "validator-threshold-source"],
+      "note": "The public page contains the official outline identity, not an app-licensed historical reading corpus."
+    },
+    {
+      "id": "neea-netem-english2-outline-2022",
+      "title": "2022年全国硕士研究生招生考试英语（二）考试大纲（非英语专业）",
+      "status": "reference-only-no-snapshot",
+      "sourceType": "official-exam-specification",
+      "tracks": ["kaoyan2"],
+      "url": "https://yankao.neea.edu.cn/xhtml1/report/21115/5092-1.htm",
+      "version": "2022 outline page, published 2021-11-30",
+      "license": "No explicit redistribution license stated; URL is retained only as an official reference.",
+      "retrievedAt": "2026-07-26",
+      "sha256": null,
+      "hashStatus": "not-snapshotted-not-eligible-for-data-build",
+      "use": ["verify-official-track-identity", "maintainer-reference"],
+      "forbiddenUse": ["raw-test-text-in-apk", "derived-word-focus-layer", "validator-threshold-source"],
+      "note": "The public page contains the official outline identity, not an app-licensed historical reading corpus."
+    },
+    {
+      "id": "liu-et-al-2023-cet-reading-aggregate",
+      "title": "Academic word coverage and language difficulty of reading passages in College English Test and Test of English for Academic Purposes in China",
+      "status": "provisional-aggregate-statistics",
+      "sourceType": "open-access-peer-reviewed-research",
+      "tracks": ["cet4", "cet6"],
+      "url": "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2023.1171227/pdf",
+      "version": "Frontiers in Psychology 14:1171227, published 2023-06-30, DOI 10.3389/fpsyg.2023.1171227",
+      "license": "CC BY 4.0",
+      "retrievedAt": "2026-07-26",
+      "sha256": "4852cd0afbfa1e0ff4f881081477ede9d5c4b45136850e9f628e9c0f9c9bd06c",
+      "byteSize": 860046,
+      "use": ["external-academic-vocabulary-sanity-check", "maintainer-methodology-reference"],
+      "forbiddenUse": ["raw-test-text-in-apk", "derived-word-focus-layer", "validator-threshold-source", "claiming-exam-equivalence"],
+      "directValidatorUse": false,
+      "attribution": "Liu H, Shi X, Qiu J, Shi Y, Hao Y, Zhu L, Yan C and Li H (2023), Frontiers in Psychology 14:1171227, CC BY 4.0.",
+      "derivedStatistics": {
+        "method": "Academic Word List coverage reported by the paper; this is not NAWL coverage and is not a substitute for the app's lexicon layers.",
+        "corpusScope": "Reading comprehension Sections A, B and C; questions excluded; December 2013 through December 2021.",
+        "cet4": {
+          "testPaperCount": 51,
+          "passageCount": 204,
+          "runningWordCount": 107386,
+          "academicWordCoveragePercent": 6.6
+        },
+        "cet6": {
+          "testPaperCount": 51,
+          "passageCount": 204,
+          "runningWordCount": 127143,
+          "academicWordCoveragePercent": 7.44
+        }
+      },
+      "limitations": [
+        "The paper does not grant this app a corpus of passages; only its CC BY paper and reported aggregates are recorded.",
+        "Its AWL and Flesch-Kincaid methodology cannot produce app UDPipe dependency metrics without a separately licensed corpus and a reproducible same-metric pipeline.",
+        "The study covers 2013-2021 and only reading passages."
+      ]
+    },
+    {
+      "id": "zhang-shi-2023-netem-reading-a-aggregate",
+      "title": "考研英语一与考研英语二阅读理解A部分文本复杂度对比研究",
+      "status": "provisional-aggregate-statistics",
+      "sourceType": "open-access-peer-reviewed-research",
+      "tracks": ["kaoyan1", "kaoyan2"],
+      "url": "https://pdf.hanspub.org/ces20230100000_48636844.pdf",
+      "version": "创新教育研究 2023, 11(1), 42-51, DOI 10.12677/CES.2023.111008",
+      "license": "CC BY 4.0",
+      "retrievedAt": "2026-07-26",
+      "sha256": "47f0365bf51b891d6edb1ade58d90a0c856b0842c0f4af8ab5aa1a342f1793bb",
+      "byteSize": 427768,
+      "use": ["relative-track-direction-check", "maintainer-methodology-reference"],
+      "forbiddenUse": ["raw-test-text-in-apk", "derived-word-focus-layer", "validator-threshold-source", "claiming-exam-equivalence"],
+      "directValidatorUse": false,
+      "attribution": "张玲、时真妹（2023），《创新教育研究》11(1), 42-51，CC BY 4.0。",
+      "derivedStatistics": {
+        "method": "Coh-Metrix 3.0, Web Vocab Profile and SPSS as reported by the paper. The reported Coh-Metrix indicators are not app UDPipe metrics.",
+        "corpusScope": "Reading Comprehension Part A, 2018-2022, twenty texts for each track (forty total).",
+        "kaoyan1": {
+          "readingATextCount": 20,
+          "meanReadingABundleLength": 1699.2,
+          "pcsynzMean": 0.0146,
+          "pcsynpMeanPercent": 50.6625
+        },
+        "kaoyan2": {
+          "readingATextCount": 20,
+          "meanReadingABundleLength": 1623.2,
+          "pcsynzMean": -0.11645,
+          "pcsynpMeanPercent": 45.7735
+        }
+      },
+      "limitations": [
+        "Only Reading Part A and five years are included; no full historical corpus is delivered to the app.",
+        "Mean Reading A bundle length refers to the paper's test-level measurement, not an individual app article target.",
+        "Coh-Metrix PCSYN values cannot be translated into UDPipe dependency depth, subordinate rate, passive rate or non-finite rate without a matched corpus run."
+      ]
+    }
+  ]
+}

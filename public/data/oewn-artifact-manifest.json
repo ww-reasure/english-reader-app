@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "artifactVersion": "oewn-core-definitions-v1",
+  "source": {
+    "id": "oewn-2025-json",
+    "title": "Open English WordNet 2025 JSON release",
+    "url": "https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip",
+    "version": "2025 edition (release tag 2025-edition; source commit dc343f2683279ecbb13fab4e2fd778d7b162d287)",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "retrievedAt": "2026-07-26",
+    "sha256": "7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51",
+    "byteSize": 9986555,
+    "purpose": "english-definition-structure",
+    "attribution": "Open English WordNet Community, derived from Princeton WordNet, licensed CC BY 4.0. This app publishes a filtered derivative containing only exact active-core lemma/POS English definition structure.",
+    "snapshotPath": "oewn/english-wordnet-2025-json.zip",
+    "status": "derived-core-definitions-only"
+  },
+  "selection": {
+    "policy": "active-core-exact-lemma-pos-v1",
+    "includeAllMatchedSenses": true,
+    "allowsChineseGloss": false,
+    "allowsDifficultyLayer": false,
+    "distribution": "derived-artifact-only"
+  }
+}

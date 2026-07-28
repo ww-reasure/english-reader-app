@@ -22,18 +22,42 @@ import { ChatView } from './chat.js';
 import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
 import { Tooltip } from '../components/tooltip.js';
-import { ArticleGenerationTool, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
+import { AudioCache } from '../audio-cache.js';
+import { normalizeTargetWords } from '../components/article-generation-tool.js';
+import { createLexiconLoader } from '../lexicon-runtime.mjs';
+import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
+import { requiresTargetTrackSelection } from '../learning-track.mjs';
+import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
+import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
+import { WordPhrases } from '../components/word-phrases.js';
+import { WordSimilar } from '../components/word-similar.js';
+import {
+  WORD_STUDY_TABS,
+  isWordStudyTab,
+  renderWordStudyPanel,
+  renderWordStudyTabs
+} from '../components/word-study-materials.mjs';
 import {
   REVIEW_PHASES,
   createReviewState,
   revealMeaning,
   startRating,
   finishRating,
+  canCorrectKnownRating,
+  startRatingCorrection,
+  finishRatingCorrection,
   skipWord,
   nextWord
 } from '../flashcard-flow.mjs';
 
-const reviewArticleTool = new ArticleGenerationTool({ api: API, db: DB });
+const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
+  lexiconLoader: createLexiconLoader(),
+  storage: DB
+});
+
+function renderDefinitionLine(line, className) {
+  return `<div class="${className} definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`;
+}
 
 export const FlashcardView = {
   words: [],
@@ -42,15 +66,22 @@ export const FlashcardView = {
   reviewedWords: [],       // Current session
   reviewState: createReviewState(),
   studyTab: 'examples',
-  studyDetails: { examples: [], rootAnalysis: null, loading: false },
+  studyDetails: { examples: [], rootAnalysis: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } },
   cardSession: 0,
   container: null,
   currentTranslation: '',
   currentPhonetic: '',
+  currentDefinitionLines: [],
+  ratingAttempt: null,
+  pendingKnowledgeEvidence: null,
+  studyNotice: '',
   _exampleLookupRoot: null,
   _exampleLookupHandler: null,
   _exampleLookupGlobalHandler: null,
   _exampleTooltipDismissCleanup: null,
+  _cardPronunciationController: null,
+  _phraseController: null,
+  _similarController: null,
 
   // Today's reviewed words (persisted across sessions)
   TODAY_KEY: 'todayReviewedWords',
@@ -136,35 +167,57 @@ export const FlashcardView = {
   // Render a single word at the start of its recall phase.
   async renderCard(container) {
     this.cleanupExampleWordLookup();
+    this.cancelCardPronunciation();
     if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
     }
 
     const session = ++this.cardSession;
-    const word = this.words[this.currentIndex];
+    let word = this.words[this.currentIndex];
     this.reviewState = createReviewState();
     this.studyTab = 'examples';
-    this.studyDetails = { examples: [], rootAnalysis: null, loading: false };
+    this.cancelPhraseRequest();
+    this.cancelSimilarRequest();
+    this.studyDetails = { examples: [], rootAnalysis: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.reviewNotice = '';
+    this.studyNotice = '';
+    this.ratingAttempt = null;
+    this.pendingKnowledgeEvidence = null;
 
-    let translation = word.translation || '';
-    let phonetic = word.phonetic || '';
-    if (!translation) {
-      try {
-        const dictResult = await Dictionary.lookup(word.word);
-        translation = dictResult.translation || '暂无翻译';
-        phonetic = phonetic || dictResult.phonetic || '';
-        await DB.updateLearnWordSRS(word.id, { translation, phonetic });
-      } catch {
-        translation = '暂无翻译';
-      }
-    }
+    word = await ensureSavedWordDefinition(word, {
+      lookup: Dictionary.lookup.bind(Dictionary),
+      update: DB.updateLearnWordDefinition.bind(DB)
+    });
+    this.words[this.currentIndex] = word;
+    const definitionLines = getDefinitionDisplayLines(word);
+    const translation = definitionLines[0]?.glossZh || getSavableTranslation(word) || '暂无翻译';
+    const phonetic = formatPhonetic(word.phonetic);
 
     if (session !== this.cardSession) return;
     this.currentTranslation = translation;
     this.currentPhonetic = phonetic;
+    this.currentDefinitionLines = definitionLines;
     this.renderRecall(container);
+    this.startCardPronunciation(word.word, session);
+  },
+
+  cancelCardPronunciation() {
+    this._cardPronunciationController?.abort();
+    this._cardPronunciationController = null;
+    AudioCache.stop();
+  },
+
+  startCardPronunciation(word, session) {
+    const controller = new AbortController();
+    this._cardPronunciationController = controller;
+    void AudioCache.getAudio(word, { signal: controller.signal, silent: true })
+      .catch(() => {})
+      .finally(() => {
+        if (this._cardPronunciationController === controller && session === this.cardSession) {
+          this._cardPronunciationController = null;
+        }
+      });
   },
 
   renderProgress(phase) {
@@ -199,9 +252,11 @@ export const FlashcardView = {
           <section class="flashcard flashcard-recall-card flashcard-recall-stage" aria-live="polite">
             <div class="flashcard-front">
               <div class="flashcard-word">${esc(word.word)}</div>
-              ${this.currentPhonetic ? `<div class="flashcard-phonetic">[${esc(this.currentPhonetic)}]</div>` : ''}
+              ${this.currentPhonetic ? `<div class="flashcard-phonetic">${esc(this.currentPhonetic)}</div>` : ''}
               ${meaningRevealed
-                ? `<div class="flashcard-recall-meaning">${esc(this.currentTranslation)}</div><p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`
+                ? (this.currentDefinitionLines[0]
+                    ? `${renderDefinitionLine(this.currentDefinitionLines[0], 'flashcard-recall-meaning')}<p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`
+                    : `<div class="flashcard-recall-meaning">${esc(this.currentTranslation)}</div><p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`)
                 : `<button class="flashcard-reveal-btn" type="button" onclick="FlashcardView.showMeaning()">点击查看释义</button>`}
             </div>
           </section>
@@ -252,7 +307,7 @@ export const FlashcardView = {
 
     if (session !== this.cardSession) return;
     this.reviewState = finishRating(this.reviewState);
-    this.studyDetails = { examples: [], rootAnalysis: null, loading: true };
+    this.studyDetails = { examples: [], rootAnalysis: null, loading: true, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.renderStudy(this.container);
     this.loadStudyDetails(session);
   },
@@ -260,13 +315,9 @@ export const FlashcardView = {
   renderStudy(container) {
     this.cleanupExampleWordLookup();
     const word = this.words[this.currentIndex];
-    const tabs = [
-      ['examples', '例句'],
-      ['roots', '词根'],
-      ['related', '同根词'],
-      ['memory', '记忆法']
-    ];
 
+    const canCorrectRating = canCorrectKnownRating(this.reviewState);
+    const isCorrecting = Boolean(this.reviewState.isCorrecting);
     container.innerHTML = `
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--study" aria-labelledby="flashcardStudyTitle">
         <div class="flashcard-container">
@@ -274,25 +325,35 @@ export const FlashcardView = {
           ${this.renderProgress('STUDY')}
           <section class="flashcard-study-sheet">
             <div class="flashcard-study-head">
-              <div class="flashcard-study-word">${esc(word.word)}</div>
-              ${this.currentPhonetic ? `<div class="flashcard-phonetic">[${esc(this.currentPhonetic)}]</div>` : ''}
-              <div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>
-              ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
+              <div class="flashcard-study-dossier-cover">
+                <p class="flashcard-study-kicker">03 / STUDY</p>
+                <div class="flashcard-study-word">${esc(word.word)}</div>
+                ${this.currentPhonetic ? `<div class="flashcard-phonetic">${esc(this.currentPhonetic)}</div>` : ''}
+              </div>
+              <div class="flashcard-study-definition-band">
+                <div class="flashcard-study-definition-list">${this.currentDefinitionLines.length
+                  ? this.currentDefinitionLines.map((line) => renderDefinitionLine(line, 'flashcard-study-translation')).join('')
+                  : `<div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>`}</div>
+                ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
+              </div>
             </div>
             <div class="flashcard-study-panel" role="tabpanel">
               ${this.renderStudyPanel()}
             </div>
             <div class="flashcard-study-tabs" role="tablist" aria-label="学习资料">
-              ${tabs.map(([id, label]) => `<button class="flashcard-study-tab ${this.studyTab === id ? 'active' : ''}" type="button" role="tab" aria-selected="${this.studyTab === id}" onclick="FlashcardView.setStudyTab('${id}')">${label}</button>`).join('')}
+              ${renderWordStudyTabs(this.studyTab)}
             </div>
           </section>
           <div class="flashcard-study-next">
             <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
+            ${this.studyNotice ? `<p class="flashcard-correction-notice" role="status">${esc(this.studyNotice)}</p>` : ''}
+            ${canCorrectRating || isCorrecting ? `<button class="flashcard-correction-btn" type="button" ${isCorrecting ? 'disabled' : ''} onclick="FlashcardView.correctMistakenKnown()">${isCorrecting ? '正在更正…' : '记错了'}</button>` : ''}
           </div>
         </div>
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
       </main>`;
 
+    this.bindStudyActions();
     if (this.studyTab === 'examples' && !this.studyDetails.loading) {
       this.bindExampleWordLookup();
     }
@@ -303,42 +364,40 @@ export const FlashcardView = {
       return '<div class="flashcard-study-loading">正在整理学习资料…</div>';
     }
 
-    const { examples, rootAnalysis } = this.studyDetails;
-    if (this.studyTab === 'examples') {
-      if (!examples.length) return '<div class="flashcard-study-empty">暂无例句，下一次复习时会继续补充。</div>';
-      return `<ol class="flashcard-example-list">${examples.map((example, index) => `
-        <li class="flashcard-example-item">
-          <p class="flashcard-example-text" title="点击英文单词查看翻译">${esc(example)}</p>
-          <button class="example-translate-btn" type="button" onclick="FlashcardView.translateExample(${index}, this)" title="翻译例句">译</button>
-          <div class="example-translation" id="exTrans${index}"></div>
-        </li>`).join('')}</ol>`;
-    }
-
-    if (this.studyTab === 'roots') {
-      if (!rootAnalysis?.breakdown && !rootAnalysis?.origin) return '<div class="flashcard-study-empty">暂无词根分析。</div>';
-      return `
-        ${rootAnalysis.breakdown ? `<div class="flashcard-root-breakdown">${esc(rootAnalysis.breakdown)}</div>` : ''}
-        ${rootAnalysis.origin ? `<div class="flashcard-root-origin">词源：${esc(rootAnalysis.origin)}</div>` : ''}`;
-    }
-
-    if (this.studyTab === 'related') {
-      const relatedWords = Affixes.getRelatedWordDetails(rootAnalysis);
-      if (!relatedWords.length) return '<div class="flashcard-study-empty">暂无同根词。</div>';
-      return `<div class="flashcard-related-list">${relatedWords.map(({ word, translation }) => `
-        <div class="flashcard-related-word">
-          <span class="flashcard-related-term">${esc(word)}</span>
-          <span class="flashcard-related-translation">${translation ? esc(translation) : '暂无释义'}</span>
-        </div>`).join('')}</div>`;
-    }
-
-    if (!rootAnalysis?.memoryTip) return '<div class="flashcard-study-empty">暂无记忆法。</div>';
-    return `<p class="flashcard-memory-tip">${esc(rootAnalysis.memoryTip)}</p>`;
+    return renderWordStudyPanel({
+      activeTab: this.studyTab,
+      examples: this.studyDetails.examples,
+      rootAnalysis: this.studyDetails.rootAnalysis,
+      phrases: this.studyDetails.phrases,
+      similar: this.studyDetails.similar
+    });
   },
 
   setStudyTab(tab) {
-    if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !['examples', 'roots', 'related', 'memory'].includes(tab)) return;
+    if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !isWordStudyTab(tab)) return;
     this.studyTab = tab;
     this.renderStudy(this.container);
+    if (tab === 'phrases' && this.studyDetails.phrases.status === 'idle') {
+      void this.loadPhrases(this.cardSession);
+    }
+    if (tab === 'similar' && this.studyDetails.similar.status === 'idle') {
+      void this.loadSimilar(this.cardSession);
+    }
+  },
+
+  bindStudyActions() {
+    this.container?.querySelectorAll('[data-study-tab]').forEach(button => {
+      button.addEventListener('click', () => this.setStudyTab(button.dataset.studyTab));
+    });
+    this.container?.querySelectorAll('[data-example-translate]').forEach(button => {
+      button.addEventListener('click', () => this.translateExample(Number.parseInt(button.dataset.exampleTranslate, 10), button));
+    });
+    this.container?.querySelector('[data-retry-phrases]')?.addEventListener('click', () => {
+      void this.loadPhrases(this.cardSession);
+    });
+    this.container?.querySelector('[data-retry-similar]')?.addEventListener('click', () => {
+      void this.loadSimilar(this.cardSession);
+    });
   },
 
   bindExampleWordLookup() {
@@ -408,7 +467,7 @@ export const FlashcardView = {
 
     if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY) return;
     this._currentExamples = examples;
-    this.studyDetails = { examples, rootAnalysis, loading: false };
+    this.studyDetails = { ...this.studyDetails, examples, rootAnalysis, loading: false };
     this.renderStudy(this.container);
     this.loadRelatedTranslations(session, word.word, rootAnalysis);
   },
@@ -421,8 +480,63 @@ export const FlashcardView = {
     if (this.studyTab === 'related') this.renderStudy(this.container);
   },
 
+  async loadPhrases(session) {
+    const word = this.words[this.currentIndex]?.word;
+    if (!word || session !== this.cardSession) return;
+    this.cancelPhraseRequest();
+    const controller = new AbortController();
+    this._phraseController = controller;
+    this.studyDetails = { ...this.studyDetails, phrases: { status: 'loading', items: [] } };
+    if (this.studyTab === 'phrases') this.renderStudy(this.container);
+    try {
+      const items = await WordPhrases.get(word, { signal: controller.signal });
+      if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY || controller.signal.aborted) return;
+      this.studyDetails = { ...this.studyDetails, phrases: { status: 'ready', items } };
+      if (this.studyTab === 'phrases') this.renderStudy(this.container);
+    } catch (error) {
+      if (session !== this.cardSession || error?.name === 'AbortError') return;
+      this.studyDetails = { ...this.studyDetails, phrases: { status: 'error', items: [] } };
+      if (this.studyTab === 'phrases') this.renderStudy(this.container);
+    } finally {
+      if (this._phraseController === controller) this._phraseController = null;
+    }
+  },
+
+  cancelPhraseRequest() {
+    this._phraseController?.abort();
+    this._phraseController = null;
+  },
+
+  async loadSimilar(session) {
+    const word = this.words[this.currentIndex]?.word;
+    if (!word || session !== this.cardSession) return;
+    this.cancelSimilarRequest();
+    const controller = new AbortController();
+    this._similarController = controller;
+    this.studyDetails = { ...this.studyDetails, similar: { status: 'loading', items: [] } };
+    if (this.studyTab === 'similar') this.renderStudy(this.container);
+    try {
+      const items = await WordSimilar.get(word, { signal: controller.signal });
+      if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY || controller.signal.aborted) return;
+      this.studyDetails = { ...this.studyDetails, similar: { status: 'ready', items } };
+      if (this.studyTab === 'similar') this.renderStudy(this.container);
+    } catch (error) {
+      if (session !== this.cardSession || error?.name === 'AbortError') return;
+      this.studyDetails = { ...this.studyDetails, similar: { status: 'error', items: [] } };
+      if (this.studyTab === 'similar') this.renderStudy(this.container);
+    } finally {
+      if (this._similarController === controller) this._similarController = null;
+    }
+  },
+
+  cancelSimilarRequest() {
+    this._similarController?.abort();
+    this._similarController = null;
+  },
+
   advanceToNextWord() {
     if (!nextWord(this.reviewState)) return;
+    this.commitPendingKnowledgeEvidence();
     this.currentIndex++;
     this.renderCard(this.container);
   },
@@ -434,25 +548,102 @@ export const FlashcardView = {
   // Record a rating
   async recordRating(quality) {
     const word = this.words[this.currentIndex];
-    const srsData = SpacedRepetition.calculateNext(word, quality);
+    const meaningRevealed = Boolean(this.reviewState.meaningRevealed);
+    const attempt = {
+      id: `flashcard:${this.cardSession}:${word.id}:${Date.now()}`,
+      baseline: { ...word },
+      initialQuality: quality
+    };
+    const srsData = SpacedRepetition.calculateNext(attempt.baseline, quality);
     await DB.recordLearnWordReview(word.id, srsData, {
       rating: quality,
       source: 'flashcard',
-      sawAnswer: this.reviewState.meaningRevealed
+      sawAnswer: meaningRevealed,
+      attemptId: attempt.id
     });
     Object.assign(word, srsData);
+    this.ratingAttempt = attempt;
+    this.pendingKnowledgeEvidence = {
+      word: word.word,
+      quality,
+      meaningRevealed,
+      attemptId: attempt.id,
+      contextId: `flashcard-card:${this.cardSession}`
+    };
 
     this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
 
     const wordData = {
       word: word.word,
-      translation: word.translation || this.currentTranslation,
-      quality
+      translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
+      quality,
+      attemptId: attempt.id
     };
     this.reviewedWords.push(wordData);
 
     // Persist to today's words
     this.addTodayWord(wordData);
+  },
+
+  async correctMistakenKnown() {
+    const correctingState = startRatingCorrection(this.reviewState);
+    const attempt = this.ratingAttempt;
+    if (!correctingState || !attempt) return;
+
+    const session = this.cardSession;
+    const word = this.words[this.currentIndex];
+    this.reviewState = correctingState;
+    this.studyNotice = '';
+    this.renderStudy(this.container);
+
+    try {
+      const correctedSrs = SpacedRepetition.calculateNext(attempt.baseline, 1);
+      await DB.correctLearnWordReview(word.id, correctedSrs, {
+        attemptId: attempt.id,
+        sawAnswer: true,
+        correctionReason: 'mistaken-known'
+      });
+      if (session !== this.cardSession) return;
+
+      Object.assign(word, correctedSrs);
+      this.ratingCounts[5] = Math.max(0, (this.ratingCounts[5] || 0) - 1);
+      this.ratingCounts[1] = (this.ratingCounts[1] || 0) + 1;
+      const reviewed = this.reviewedWords.find(item => item.attemptId === attempt.id);
+      if (reviewed) reviewed.quality = 1;
+      this.addTodayWord({
+        word: word.word,
+        translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
+        quality: 1,
+        attemptId: attempt.id
+      });
+      if (this.pendingKnowledgeEvidence?.attemptId === attempt.id) {
+        this.pendingKnowledgeEvidence = {
+          ...this.pendingKnowledgeEvidence,
+          quality: 1,
+          meaningRevealed: true
+        };
+      }
+      this.reviewState = finishRatingCorrection(this.reviewState);
+      this.studyNotice = '已更正为“忘了”，将在约 10 分钟后再次复习。';
+      this.renderStudy(this.container);
+    } catch {
+      if (session !== this.cardSession) return;
+      this.reviewState = { ...this.reviewState, isSubmitting: false, isCorrecting: false };
+      this.studyNotice = '更正失败，请重试。';
+      this.renderStudy(this.container);
+    }
+  },
+
+  commitPendingKnowledgeEvidence() {
+    const evidence = this.pendingKnowledgeEvidence;
+    this.pendingKnowledgeEvidence = null;
+    if (!evidence) return;
+    // Mastery evidence is committed only after the user leaves this detail
+    // view, so a mistaken “认识” can be corrected without a false success.
+    void knowledgeEvidenceBridge.recordFlashcardRating({
+      ...evidence,
+      source: 'flashcard-review'
+    });
   },
 
   // Skip current word (don't rate)
@@ -537,7 +728,7 @@ export const FlashcardView = {
 
   // Translate an example sentence
   async translateExample(index, btn) {
-    const transEl = document.getElementById(`exTrans${index}`);
+    const transEl = btn.closest('.word-study-example-item')?.querySelector(`[data-example-translation="${index}"]`);
     if (!transEl) return;
 
     // Toggle if already translated
@@ -560,8 +751,18 @@ export const FlashcardView = {
     }
   },
 
+  ensureTargetTrackBeforeGeneration() {
+    if (!requiresTargetTrackSelection(Config.get('exam_level'), Config.get('target_track_selection_required'))) {
+      return false;
+    }
+    alert('生成巩固阅读前，请先选择目标考试。初测页面可选择四级、六级、考研英语一或考研英语二。');
+    location.hash = '#/assessment';
+    return true;
+  },
+
   // Generate article using today's reviewed words
   async generateReviewArticle(mode) {
+    if (this.ensureTargetTrackBeforeGeneration()) return;
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
@@ -583,53 +784,20 @@ export const FlashcardView = {
       return;
     }
 
-    const difficulty = Config.get('exam_level') || 'cet4';
-    const selectedBatches = chunkTargetWords(allWords).slice(0, 2);
-    const selectedWords = selectedBatches.flat();
-    const deferredCount = Math.max(0, allWords.length - selectedWords.length);
-    const selectionMessage = deferredCount > 0
-      ? `本次优先巩固 ${selectedWords.length} / ${allWords.length} 个词，其余 ${deferredCount} 个词将在下次生成时继续处理。`
-      : `本次将巩固全部 ${selectedWords.length} 个词。`;
-
     location.hash = '#/chat';
     await new Promise(r => setTimeout(r, 100));
-
-    ChatView.addMessage('system', `📝 使用今天复习的词汇生成巩固阅读。${selectionMessage}`);
-    const generationSession = ChatView.startArticleGenerationSession();
-    ChatView.showArticleGenerationStatus('正在制作复习阅读…');
-
-    try {
-      const articles = [];
-      for (const [index, batch] of selectedBatches.entries()) {
-        const result = await reviewArticleTool.execute({
-          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
-          difficulty,
-          topic: '复习巩固',
-          wordCount: selectedBatches.length > 1 ? 300 : 350
-        }, {
-          fallbackDifficulty: difficulty,
-          fallbackChallenge: 'support',
-          targetWords: batch,
-          articleFields: { reviewMode: true, usedWords: batch },
-          signal: generationSession.signal,
-          isActive: generationSession.isActive
-        });
-        if (!generationSession.isActive()) return;
-        articles.push(result.article);
-        ChatView.addArticleCard(result.article);
-      }
-
-      ChatView.addMessage('system', `✅ 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}`);
-    } catch (err) {
-      if (generationSession.isActive()) ChatView.addMessage('error', `生成失败：${err.message}`);
-    } finally {
-      const stillActive = generationSession.isActive();
-      generationSession.release();
-      if (stillActive) ChatView.removeArticleGenerationStatus();
-    }
+    return ChatView.generateReviewReadings({
+      reviewWords: allWords,
+      difficulty: Config.get('exam_level') || 'cet4',
+      topic: '复习巩固',
+      sourceLabel: mode === 'weak' ? '今日薄弱词' : '今日复习词'
+    });
   },
 
   cleanup() {
+    this.cancelCardPronunciation();
+    this.cancelPhraseRequest();
+    this.cancelSimilarRequest();
     this.cleanupExampleWordLookup();
   }
 };

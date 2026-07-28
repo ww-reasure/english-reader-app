@@ -1,16 +1,26 @@
 {
   "name": "english-reader-app",
-  "version": "1.8.7",
+  "version": "1.9.1",
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build && npx cap sync android",
     "build:apk": "npm run build && node scripts/build-apk.js",
+    "lexicon:fetch": "node scripts/fetch-lexicon-sources.mjs",
+    "lexicon:build": "node scripts/build-lexicon.mjs",
+    "lexicon:verify": "npm run lexicon:fetch && npm run lexicon:build",
+    "exam-focus:build": "node scripts/build-exam-focus.mjs",
+    "exam-focus:verify": "node scripts/build-exam-focus.mjs",
+    "oewn:fetch": "node scripts/fetch-oewn-source.mjs",
+    "oewn:build": "node scripts/build-oewn-artifact.mjs",
+    "oewn:verify": "npm run oewn:fetch && npm run oewn:build",
+    "track-baseline:verify": "node scripts/verify-track-baselines.mjs",
     "version:patch": "node scripts/bump-version.js patch",
     "version:minor": "node scripts/bump-version.js minor",
-    "release:patch": "npm run version:patch && npm run build:apk",
-    "release:minor": "npm run version:minor && npm run build:apk",
+    "release:preflight": "npm run exam-focus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify",
+    "release:patch": "npm run release:preflight && npm run version:patch && npm run build:apk",
+    "release:minor": "npm run release:preflight && npm run version:minor && npm run build:apk",
     "preview": "vite preview"
   },
   "keywords": [
@@ -32,7 +42,9 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
-    "@fortawesome/fontawesome-free": "^7.3.1"
+    "@fortawesome/fontawesome-free": "^7.3.1",
+    "udpipe-wasm": "0.1.0",
+    "yauzl": "^2.10.0"
   },
   "repository": {
     "type": "git",
@@ -43,6 +55,7 @@
   },
   "homepage": "https://github.com/ww-reasure/english-reader-app#readme",
   "devDependencies": {
+    "@msgpack/msgpack": "3.1.2",
     "fake-indexeddb": "^6.2.5",
     "vite": "^8.0.16"
   }

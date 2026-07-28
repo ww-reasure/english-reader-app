@@ -7,17 +7,67 @@ import { Config } from '../config.js';
 import { Theme } from '../theme.js';
 import { AudioCache } from '../audio-cache.js';
 import { esc } from '../helpers.js';
+import { listSelectableTracks, normalizeSelectableTrack } from '../learning-track.mjs';
+import { CHALLENGE_DETAILS, normalizeCoveragePreference } from '../difficulty-profile.mjs';
 
 export const SettingsView = {
   // Render settings page
   render(container) {
-    const currentLevel = Config.get('level') || 'easy';
     const currentTheme = Config.get('theme') || 'light';
-    const currentCoverage = Config.get('coverage') || '95';
-    const currentNewWordPercent = Config.get('new_word_percent') || '5';
-    const assessmentDone = Config.get('assessment_done') === 'true';
-    const assessmentVocab = Config.get('assessment_vocab') || '';
+    const storedTrack = Config.get('exam_level');
+    const targetMigrationRequired = Config.get('target_track_selection_required') === 'true' || storedTrack === 'graduate';
+    // A legacy or unselected target must remain visibly unselected. Falling
+    // back to CET-4 here would turn a migration prompt into an implicit choice.
+    const currentTrack = targetMigrationRequired ? '' : (normalizeSelectableTrack(storedTrack) || 'cet4');
+    const currentMode = ['support', 'standard', 'stretch'].includes(Config.get('reading_mode'))
+      ? Config.get('reading_mode')
+      : Config.get('level') === 'hard' ? 'stretch' : Config.get('level') === 'easy' ? 'support' : 'standard';
+    const coveragePreference = normalizeCoveragePreference(currentMode, Config.get('coverage'));
+    const calibrationStatus = Config.get('calibration_status') || 'new';
+    const hasCurrentCalibration = calibrationStatus === 'calibrated';
+    // Old assessments only stored a presentation-level difficulty preference.  They
+    // cannot be treated as evidence for a learner's word knowledge or coverage.
+    const hasLegacyAssessment = calibrationStatus === 'legacy'
+      || (!hasCurrentCalibration && Config.get('assessment_done') === 'true');
     const assessmentDate = Config.get('assessment_date') || '';
+    const currentModeDetails = CHALLENGE_DETAILS[currentMode];
+    const trackOptions = listSelectableTracks().map(track => `
+      <label class="settings-radio settings-target-option">
+        <input type="radio" name="targetTrack" value="${track.id}" ${currentTrack === track.id ? 'checked' : ''}>
+        <span class="settings-radio-label">
+          <span class="settings-radio-title">${track.label}</span>
+          <span class="settings-radio-desc">${track.description}</span>
+        </span>
+      </label>`).join('');
+    const calibrationSection = hasCurrentCalibration ? `
+        <div class="settings-section">
+          <h2 class="settings-section-title">📊 初测后的材料建议</h2>
+          <div class="assessment-result-card">
+            <div class="assessment-result-info">
+              <span>当前推荐：<strong>${currentModeDetails.label}</strong></span>
+              <span class="text-muted">证据收集中，暂不承诺实际覆盖。</span>
+              <span class="text-muted">初测用于建立起点；完成更多有效阅读与复习后，系统才会判断材料匹配证据是否充分。</span>
+              <span class="text-muted">${assessmentDate ? '初测时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">重新进行初测</button>
+          </div>
+        </div>` : hasLegacyAssessment ? `
+        <div class="settings-section">
+          <h2 class="settings-section-title">📊 历史测评记录</h2>
+          <div class="assessment-result-card">
+            <div class="assessment-result-info">
+              <span>旧版测评只保留了材料难度偏好，不能作为当前词汇掌握或实际覆盖的证据。</span>
+              <span class="text-muted">完成新的分层自适应初测后，系统才会开始收集可用于材料匹配的学习证据。</span>
+              <span class="text-muted">${assessmentDate ? '历史测评时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">开始新的初测</button>
+          </div>
+        </div>` : `
+        <div class="settings-section">
+          <h2 class="settings-section-title">📊 3 分钟阅读校准</h2>
+          <p class="settings-desc">24 道分层自适应词义题加一篇短阅读理解，用于推荐材料压力；不会给出不可靠的“词汇量”数字。也可以跳过，先以保守材料目标阅读。</p>
+          <button class="btn btn-primary" onclick="location.hash='#/assessment'">开始初测</button>
+        </div>`;
 
     container.innerHTML = `
       <section class="app-standard-page settings-container" aria-labelledby="settingsContentTitle">
@@ -28,71 +78,68 @@ export const SettingsView = {
           <p class="page-desc">调整你的阅读节奏、主题与生成方式。</p>
         </header>
 
-        ${assessmentDone ? `
-        <div class="settings-section">
-          <h2 class="settings-section-title">📊 测评结果</h2>
-          <div class="assessment-result-card">
-            <div class="assessment-result-info">
-              <span>预估词汇量：<strong>${assessmentVocab} 词</strong></span>
-              <span class="text-muted">${assessmentDate ? '测评时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
-            </div>
-            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">重新测评</button>
-          </div>
-        </div>` : `
-        <div class="settings-section">
-          <h2 class="settings-section-title">📊 阅读水平测评</h2>
-          <p class="settings-desc">通过阅读测试评估你的词汇量，系统会自动推荐最佳难度和生词比例</p>
-          <button class="btn btn-primary" onclick="location.hash='#/assessment'">开始测评</button>
-        </div>`}
+        ${targetMigrationRequired ? `
+        <div class="settings-section settings-migration-note" role="status">
+          <h2 class="settings-section-title">选择新的考研目标</h2>
+          <p class="settings-desc">旧版“考研”文章会继续保留旧标签。请为今后生成的文章选择考研英语一或英语二；系统不会猜测或改写历史文章。</p>
+        </div>` : ''}
+
+        ${calibrationSection}
 
         <div class="settings-section">
-          <h2 class="settings-section-title">难度模式</h2>
-          <p class="settings-desc">选择"易"或"难"，与对话界面的考试级别组合生效</p>
+          <h2 class="settings-section-title">目标考试导向</h2>
+          <p class="settings-desc">这是你想练习的固定目标；阅读匹配方式只改变材料的相对压力，不会替你更改目标考试。</p>
           <div class="settings-options">
-            <label class="settings-radio">
-              <input type="radio" name="level" value="easy" ${currentLevel === 'easy' ? 'checked' : ''}>
-              <span class="settings-radio-label">
-                <span class="settings-radio-title">易</span>
-                <span class="settings-radio-desc">基础难度，适合入门和巩固</span>
-              </span>
-            </label>
-            <label class="settings-radio">
-              <input type="radio" name="level" value="hard" ${currentLevel === 'hard' ? 'checked' : ''}>
-              <span class="settings-radio-label">
-                <span class="settings-radio-title">难</span>
-                <span class="settings-radio-desc">接近真题难度，适合冲刺备考</span>
-              </span>
-            </label>
+            ${trackOptions}
           </div>
         </div>
 
         <div class="settings-section">
-          <h2 class="settings-section-title">生词比例控制</h2>
-          <p class="settings-desc">控制文章中新词的占比，已学词汇自动补足（基于 Nation 98% 覆盖率理论）</p>
+          <h2 class="settings-section-title">阅读匹配方式</h2>
+          <p class="settings-desc">系统会结合初测、复习证据和有效阅读提出材料压力建议；你可以在对应范围内调整材料目标，这不会被当作当前掌握程度的事实。</p>
+          <div class="settings-options">
+            <label class="settings-radio">
+              <input type="radio" name="readingMode" value="support" ${currentMode === 'support' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+              <span class="settings-radio-label"><span class="settings-radio-title">巩固</span><span class="settings-radio-desc">材料目标 97–98%，优先保持流畅理解和巩固</span></span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="readingMode" value="standard" ${currentMode === 'standard' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+              <span class="settings-radio-label"><span class="settings-radio-title">对标</span><span class="settings-radio-desc">材料目标 95–97%，用于目标考试导向练习</span></span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="readingMode" value="stretch" ${currentMode === 'stretch' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+              <span class="settings-radio-label"><span class="settings-radio-title">加压</span><span class="settings-radio-desc">材料目标 92–95%，保留明确的理解压力</span></span>
+            </label>
+          </div>
           <div class="coverage-control">
             <div class="coverage-item">
-              <label>新词比例</label>
+              <label for="coverageSlider">材料目标覆盖率</label>
               <div class="slider-container">
-                <input type="range" id="newWordSlider" min="1" max="20" value="${currentNewWordPercent}"
-                  oninput="SettingsView.updateNewWordLabel(this.value)">
+                <input type="range" id="coverageSlider" min="${coveragePreference.range.min}" max="${coveragePreference.range.max}" value="${coveragePreference.coverage}"
+                  oninput="SettingsView.updateCoverageLabel(this.value)">
                 <div class="slider-labels">
-                  <span>1%</span>
-                  <span id="newWordValue" class="slider-current">${currentNewWordPercent}%</span>
-                  <span>20%</span>
+                  <span id="coverageMin">${coveragePreference.range.min}%</span>
+                  <span id="coverageDisplay" class="slider-current">${coveragePreference.coverage}%</span>
+                  <span id="coverageMax">${coveragePreference.range.max}%</span>
                 </div>
               </div>
-              <p class="coverage-hint">文章中新词占比，其余为已学词汇（覆盖率 = 100% - 新词比例）。2-5% 舒适阅读，5-10% 有意挑战</p>
-            </div>
-            <div class="coverage-info">
-              <span>当前覆盖率：<strong id="coverageDisplay">${100 - parseInt(currentNewWordPercent)}%</strong></span>
-            </div>
-            <div class="coverage-preset">
-              <span class="text-muted">快速预设：</span>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(2)">轻松阅读</button>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(5)">正常学习</button>
-              <button class="btn btn-outline btn-sm" onclick="SettingsView.setPreset(10)">挑战模式</button>
+              <p id="coverageHint" class="coverage-hint">用于设定生成材料的词汇压力和陌生词配比，不表示你当前已掌握词汇的实际覆盖；系统只在独立证据足够后另行给出匹配判断。</p>
             </div>
           </div>
+        </div>
+
+        <div class="settings-section">
+          <h2 class="settings-section-title">离线词库与难度来源</h2>
+          <p class="settings-desc">核心词库、版本、来源、许可证和校验和随 APK 安装；个人学习证据、收藏和复习记录保存在本机 IndexedDB，与公共词库分离。</p>
+          <details class="settings-data-disclosure">
+            <summary>查看当前数据与边界</summary>
+            <div class="settings-data-disclosure-body">
+              <p><strong>通用与学术词层：</strong>NGSL 用于通用高频层，NAWL 用于学术词层，CEFR-J 仅作为 CEFR 参考层。</p>
+              <p><strong>释义质量：</strong>只有经过来源、词性和常用中文学习义审核的词可离线直接显示；受限词可按需读取 Open English WordNet 的英文义项结构，中文仍走在线词典或 AI 临时回退。</p>
+              <p><strong>目标考试：</strong>四级、六级、英语一和英语二用于设定练习方向；不使用未授权历年题干或“真题词表”。在取得可复现且获许可的同口径语料前，App 不把生成材料表述为真题等值。</p>
+              <p class="text-muted">完整的版本、来源、许可证、署名和 SHA-256 校验和随安装包中的 <code>data/lexicon-manifest.json</code>、<code>data/oewn-artifact-manifest.json</code> 与 <code>data/lexicon-ATTRIBUTION.md</code> 一同发布。</p>
+            </div>
+          </details>
         </div>
 
         <div class="settings-section">
@@ -183,13 +230,6 @@ export const SettingsView = {
         </div>
       </section>`;
 
-    // Add event listeners for radio buttons (auto-save on change)
-    document.querySelectorAll('input[name="level"]').forEach(radio => {
-      radio.addEventListener('change', (e) => {
-        Config.set('level', e.target.value);
-      });
-    });
-
     document.querySelectorAll('input[name="theme"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
         Theme.apply(e.target.value);
@@ -207,21 +247,25 @@ export const SettingsView = {
     document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
   },
 
-  // Update new word slider label and coverage display
-  updateNewWordLabel(value) {
-    const label = document.getElementById('newWordValue');
-    if (label) label.textContent = value + '%';
+  updateCoverageLabel(value) {
     const coverage = document.getElementById('coverageDisplay');
-    if (coverage) coverage.textContent = (100 - parseInt(value)) + '%';
+    if (coverage) coverage.textContent = `${value}%`;
   },
 
-  // Set preset values (newWord only, coverage derived)
-  setPreset(newWord) {
-    const newWordSlider = document.getElementById('newWordSlider');
-    if (newWordSlider) {
-      newWordSlider.value = newWord;
-      this.updateNewWordLabel(newWord);
+  onReadingModeChange() {
+    const mode = document.querySelector('input[name="readingMode"]:checked')?.value || 'standard';
+    const preference = normalizeCoveragePreference(mode, document.getElementById('coverageSlider')?.value);
+    const slider = document.getElementById('coverageSlider');
+    if (slider) {
+      slider.min = String(preference.range.min);
+      slider.max = String(preference.range.max);
+      slider.value = String(preference.coverage);
     }
+    const min = document.getElementById('coverageMin');
+    const max = document.getElementById('coverageMax');
+    if (min) min.textContent = `${preference.range.min}%`;
+    if (max) max.textContent = `${preference.range.max}%`;
+    this.updateCoverageLabel(preference.coverage);
   },
 
   // Save all settings
@@ -241,12 +285,20 @@ export const SettingsView = {
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
     Config.set('model', model || 'deepseek-v4-flash');
 
-    // Save coverage settings (coverage derived from new_word_percent)
-    const newWordSlider = document.getElementById('newWordSlider');
-    if (newWordSlider) {
-      Config.set('new_word_percent', newWordSlider.value);
-      Config.set('coverage', String(100 - parseInt(newWordSlider.value)));
+    const targetTrack = document.querySelector('input[name="targetTrack"]:checked')?.value;
+    if (!normalizeSelectableTrack(targetTrack)) {
+      alert('请先选择四级、六级、考研英语一或考研英语二作为后续阅读目标。');
+      return;
     }
+    const mode = document.querySelector('input[name="readingMode"]:checked')?.value || 'standard';
+    const preference = normalizeCoveragePreference(mode, document.getElementById('coverageSlider')?.value);
+    Config.set('exam_level', targetTrack);
+    Config.set('target_track_selection_required', 'false');
+    Config.set('reading_mode', preference.challenge);
+    // Retain the legacy key only for older call sites until their migration.
+    Config.set('level', preference.challenge === 'support' ? 'easy' : preference.challenge === 'stretch' ? 'hard' : 'normal');
+    Config.set('coverage', String(preference.coverage));
+    Config.set('new_word_percent', String(100 - preference.coverage));
 
     alert('设置已保存');
   },

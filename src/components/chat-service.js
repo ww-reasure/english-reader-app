@@ -6,6 +6,11 @@ const generationToolFailure = () => ({
   type: 'generation_failure',
   failure: { message: '文章定制暂时失败，请重新生成。', reason: 'tool_error' }
 });
+const completeReply = (content, artifacts, toolSupport = null) => ({
+  content,
+  artifacts,
+  ...(toolSupport ? { toolSupport } : {})
+});
 
 export class ChatService {
   constructor({ api, agent, builder }) {
@@ -38,10 +43,12 @@ export class ChatService {
 
     try {
       let reply;
+      let toolSupport = null;
       try {
         reply = await request({ tools });
       } catch (error) {
         if (!toolsUnsupported(error)) throw error;
+        toolSupport = 'unsupported';
         reply = await request({ toolResults: [await this.agent.getLearningOverview()] });
       }
 
@@ -64,10 +71,13 @@ export class ChatService {
         if (generationCall) {
           const toolResult = await runToolCall(generationCall);
           if (artifacts.some(item => item.type === 'article')) {
-            return { content: '已生成一篇定制阅读，点击卡片开始阅读。', artifacts };
+            return completeReply('已生成一篇定制阅读，点击卡片开始阅读。', artifacts, toolSupport);
           }
           if (artifacts.some(item => item.type === 'generation_failure')) {
-            return { content: '', artifacts };
+            return completeReply('', artifacts, toolSupport);
+          }
+          if (artifacts.some(item => item.type === 'generation_blocked')) {
+            return completeReply('', artifacts, toolSupport);
           }
           reply = await request({ toolResults: [toolResult] });
           continue;
@@ -75,15 +85,18 @@ export class ChatService {
 
         const toolResults = await Promise.all(reply.tool_calls.map(runToolCall));
         if (artifacts.some(item => item.type === 'article')) {
-          return { content: '已生成一篇定制阅读，点击卡片开始阅读。', artifacts };
+          return completeReply('已生成一篇定制阅读，点击卡片开始阅读。', artifacts, toolSupport);
         }
         if (artifacts.some(item => item.type === 'generation_failure')) {
-          return { content: '', artifacts };
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'generation_blocked')) {
+          return completeReply('', artifacts, toolSupport);
         }
         reply = await request({ toolResults });
       }
 
-      return { content: String(reply.content || '').trim() || '我暂时没有生成有效回答，请换一种问法。', artifacts };
+      return completeReply(String(reply.content || '').trim() || '我暂时没有生成有效回答，请换一种问法。', artifacts, toolSupport);
     } finally {
       if (this.controllers.get(sessionKey) === controller) this.controllers.delete(sessionKey);
     }

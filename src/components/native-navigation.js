@@ -2,11 +2,13 @@ import { App } from '@capacitor/app';
 import { AppShell } from './app-shell.js';
 import { Tooltip } from './tooltip.js';
 import { Modal } from './modal.js';
+import { WordStudyDetail } from './word-study-detail.js';
 
 const isOpen = element => element && element.style.display !== 'none';
 
 function dismissTransient() {
   if (AppShell.closeDrawer()) return true;
+  if (WordStudyDetail.close()) return true;
   if (Tooltip.isVisible()) {
     Tooltip.hide();
     return true;

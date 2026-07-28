@@ -13,6 +13,24 @@ import { getStemForm } from './helpers.js';
 export const AudioCache = {
   CACHE_NAME: 'english-reader-audio',
   CONCURRENCY: 5,
+  _activeAudio: null,
+
+  isAborted(signal) {
+    return Boolean(signal?.aborted);
+  },
+
+  stop() {
+    try {
+      if (this._activeAudio) {
+        this._activeAudio.pause();
+        this._activeAudio.currentTime = 0;
+      }
+    } catch {}
+    this._activeAudio = null;
+    try {
+      speechSynthesis?.cancel();
+    } catch {}
+  },
 
   // Get cache instance
   async getCache() {
@@ -32,29 +50,50 @@ export const AudioCache = {
 
   // Fetch the first available pronunciation directly. This avoids the old
   // HEAD probe + second download pattern, which doubled requests in normal use.
-  async fetchAudio(word) {
+  async fetchAudio(word, { signal } = {}) {
     for (const url of this.getAudioUrls(word)) {
+      if (this.isAborted(signal)) return null;
       try {
-        const response = await fetch(url);
+        const response = await fetch(url, { signal });
         if (response.ok) return { url, response };
-      } catch {}
+      } catch {
+        if (this.isAborted(signal)) return null;
+      }
     }
     return null;
   },
 
   // Play audio from blob/url
-  async play(audioUrl) {
+  async play(audioUrl, { signal } = {}) {
+    if (this.isAborted(signal)) return false;
     try {
+      this.stop();
       const audio = new Audio(audioUrl);
-      audio.onended = () => { audio.src = ''; };
+      this._activeAudio = audio;
+      audio.onended = () => {
+        if (this._activeAudio === audio) this._activeAudio = null;
+        audio.src = '';
+      };
+      audio.onerror = () => {
+        if (this._activeAudio === audio) this._activeAudio = null;
+        audio.src = '';
+      };
+      if (this.isAborted(signal)) return false;
       await audio.play();
+      if (this.isAborted(signal)) {
+        this.stop();
+        return false;
+      }
+      return true;
     } catch {
-      // Silent fail
+      if (this._activeAudio) this._activeAudio = null;
+      return false;
     }
   },
 
   // Get and play audio (try multiple URL formats + cache)
-  async getAudio(word) {
+  async getAudio(word, { signal, silent = false } = {}) {
+    if (this.isAborted(signal)) return false;
     const key = word.toLowerCase().replace(/[^a-z\-']/g, '');
     if (!key || key.length < 2) return false;
 
@@ -63,15 +102,33 @@ export const AudioCache = {
       if (typeof caches !== 'undefined') {
         const cache = await this.getCache();
         for (const url of this.getAudioUrls(key)) {
+          if (this.isAborted(signal)) return false;
           const cached = await cache.match(url);
           if (cached) {
             const blob = await cached.blob();
             const objectUrl = URL.createObjectURL(blob);
             const audio = new Audio(objectUrl);
             // 释放 blob URL 防泄漏(音频结束或出错都 revoke)
-            audio.onended = () => URL.revokeObjectURL(objectUrl);
-            audio.onerror = () => URL.revokeObjectURL(objectUrl);
+            this.stop();
+            this._activeAudio = audio;
+            audio.onended = () => {
+              if (this._activeAudio === audio) this._activeAudio = null;
+              URL.revokeObjectURL(objectUrl);
+            };
+            audio.onerror = () => {
+              if (this._activeAudio === audio) this._activeAudio = null;
+              URL.revokeObjectURL(objectUrl);
+            };
+            if (this.isAborted(signal)) {
+              URL.revokeObjectURL(objectUrl);
+              return false;
+            }
             await audio.play();
+            if (this.isAborted(signal)) {
+              this.stop();
+              URL.revokeObjectURL(objectUrl);
+              return false;
+            }
             return true;
           }
         }
@@ -79,17 +136,19 @@ export const AudioCache = {
     } catch {}
 
     // 2. Fetch a working pronunciation from network
-    const audioResult = await this.fetchAudio(key);
+    const audioResult = await this.fetchAudio(key, { signal });
+    if (this.isAborted(signal)) return false;
     if (!audioResult) {
       // 无在线发音 → 回退系统 TTS(离线/API缺词也能读)
-      if (this._speak(word)) return true;
-      this._showToast(`"${word}" 暂无发音`);
+      if (this._speak(word, { signal })) return true;
+      if (!silent) this._showToast(`"${word}" 暂无发音`);
       return false;
     }
 
     // 3. Cache and play the already-downloaded response (no duplicate request)
     try {
       const { url, response } = audioResult;
+      if (this.isAborted(signal)) return false;
       // 先克隆用于缓存, 再用原响应播放
       try {
         if (typeof caches !== 'undefined') {
@@ -100,26 +159,45 @@ export const AudioCache = {
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const audio = new Audio(objectUrl);
-      audio.onended = () => URL.revokeObjectURL(objectUrl);
-      audio.onerror = () => URL.revokeObjectURL(objectUrl);
+      this.stop();
+      this._activeAudio = audio;
+      audio.onended = () => {
+        if (this._activeAudio === audio) this._activeAudio = null;
+        URL.revokeObjectURL(objectUrl);
+      };
+      audio.onerror = () => {
+        if (this._activeAudio === audio) this._activeAudio = null;
+        URL.revokeObjectURL(objectUrl);
+      };
+      if (this.isAborted(signal)) {
+        URL.revokeObjectURL(objectUrl);
+        return false;
+      }
       await audio.play();
+      if (this.isAborted(signal)) {
+        this.stop();
+        URL.revokeObjectURL(objectUrl);
+        return false;
+      }
       return true;
     } catch (e) {
       console.warn('Audio play failed:', e);
       // 播放失败也尝试 TTS 兜底
-      if (this._speak(word)) return true;
+      if (this._speak(word, { signal })) return true;
       return false;
     }
   },
 
   // 系统 TTS 兜底发音
-  _speak(word) {
+  _speak(word, { signal } = {}) {
+    if (this.isAborted(signal)) return false;
     try {
       if (typeof speechSynthesis === 'undefined') return false;
       const u = new SpeechSynthesisUtterance(word);
       u.lang = 'en-US';
       u.rate = 0.9;
-      speechSynthesis.cancel();
+      this.stop();
+      if (this.isAborted(signal)) return false;
       speechSynthesis.speak(u);
       return true;
     } catch {

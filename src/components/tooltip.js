@@ -4,11 +4,15 @@
  */
 
 import { DB } from '../db.js';
-import { getStemForm, esc, escJs } from '../helpers.js';
+import { getStemForm, esc } from '../helpers.js';
 import { Affixes } from '../affixes.js';
 import { Examples } from '../examples.js';
 import { AudioCache } from '../audio-cache.js';
 import { TooltipSession } from './tooltip-session.js';
+import { formatPhonetic, getDefinitionPreview, getDefinitionSenses, getSavableTranslation } from './definition-trust.mjs';
+import { DEFINITION_SCHEMA_VERSION } from './saved-word-definition.mjs';
+import { renderTooltipWordBadges } from './tooltip-metadata.mjs';
+import { WordStudyDetail } from './word-study-detail.js';
 
 export const Tooltip = {
   session: new TooltipSession(),
@@ -73,37 +77,37 @@ export const Tooltip = {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
 
+    const wordBadges = renderTooltipWordBadges(data, esc);
     let html = `<div class="tooltip-word">
-      <span>${esc(data.word)}</span>
-      <button class="btn-speak" data-word="${esc(data.word)}" title="播放发音">🔊</button>
-      <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
+      <div class="tooltip-word-title">
+        <button class="tooltip-word-trigger" type="button" data-audio-word="${esc(data.word)}" title="播放发音" aria-label="播放 ${esc(data.word)} 的发音">${esc(data.word)}</button>
+        ${wordBadges ? `<span class="tooltip-word-meta" aria-label="词汇标签">${wordBadges}</span>` : ''}
+      </div>
+      <div class="tooltip-word-controls">
+        <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
+      </div>
     </div>`;
 
-    if (data.baseForm) {
-      html += `<div class="tooltip-pos">原形: ${esc(data.baseForm)}</div>`;
-    }
-    if (data.phonetic) {
-      html += `<div class="tooltip-phonetic">[${esc(data.phonetic)}]</div>`;
-    }
-    if (data.pos) {
-      html += `<div class="tooltip-pos">${esc(data.pos)}</div>`;
-    }
+    const definitionPreview = getDefinitionPreview(data);
+    const phonetic = formatPhonetic(data.phonetic);
+    const lexicalMeta = [
+      data.baseForm ? `<div class="tooltip-pos">原形: ${esc(data.baseForm)}</div>` : '',
+      phonetic ? `<button class="tooltip-phonetic tooltip-phonetic-trigger" type="button" data-audio-word="${esc(data.word)}" title="播放发音" aria-label="播放 ${esc(data.word)} 的发音">${esc(phonetic)}</button>` : ''
+    ].join('');
+    html += `<div class="tooltip-lexical-meta">
+      <div class="tooltip-lexical-copy">${lexicalMeta}</div>
+    </div>`;
 
-    html += `<div class="tooltip-translation">${esc(data.translation)}</div>`;
-
-    // Exam level tags
-    if (data.examLevels && data.examLevels.length > 0) {
-      const levelLabels = { cet4: '四级', cet6: '六级', graduate: '考研' };
-      const tags = data.examLevels.map(l => `<span class="exam-tag exam-${l}">${levelLabels[l] || l}</span>`).join('');
-      html += `<div class="tooltip-exam-tags">${tags}</div>`;
+    if (definitionPreview.visibleLines.length) {
+      html += `<div class="tooltip-definition-preview">${definitionPreview.visibleLines.map((line) => `<div class="tooltip-translation definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
+      if (definitionPreview.additionalLines.length) {
+        html += `<button class="tooltip-definition-toggle" type="button" aria-expanded="false" data-definition-total="${definitionPreview.total}">展开更多释义（${definitionPreview.total}）</button>`;
+        html += `<div class="tooltip-all-definitions" hidden>${definitionPreview.additionalLines.map((line) => `<div class="definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
+      }
+    } else {
+      html += `<div class="tooltip-translation">${esc(data.translation)}</div>`;
+      if (data.found && !data.pos) html += '<div class="tooltip-pos">词性待确认</div>';
     }
-
-    // Word frequency level
-    if (data.freqLevel) {
-      const freqLabels = { high: '高频', medium: '中频', low: '低频' };
-      html += `<div class="tooltip-freq"><span class="freq-badge freq-${data.freqLevel}">${freqLabels[data.freqLevel]}</span></div>`;
-    }
-
     // Review mode rating buttons
     if (reviewMode) {
       const stem = data.word ? data.word.toLowerCase().replace(/[^a-z]/g, '') : '';
@@ -113,7 +117,9 @@ export const Tooltip = {
       </div>`;
     }
 
+    let savePayload = null;
     if (data.found && !reviewMode) {
+      const savedTranslation = getSavableTranslation(data);
       // Check if already saved
       const isSaved = await this.isWordSaved(data.word);
       if (!this.isCurrent(lookupId)) return false;
@@ -122,10 +128,22 @@ export const Tooltip = {
           <span class="btn-saved-word">✅ 已收藏</span>
         </div>`;
       } else {
+        savePayload = {
+          word: data.word,
+          translation: savedTranslation,
+          phonetic: data.phonetic || '',
+          pos: data.pos || '',
+          definitionSenses: getDefinitionSenses(data),
+          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+          lexiconVersion: data.lexiconVersion || ''
+        };
         html += `<div class="tooltip-actions">
-          <button class="btn-save-word" onclick="Tooltip.saveWord('${escJs(data.word)}', '${escJs(data.translation)}', '${escJs(data.phonetic || '')}')">+ 收藏</button>
+          <button class="btn-save-word" type="button">+ 收藏</button>
         </div>`;
       }
+    }
+    if (data.found) {
+      html += '<button class="tooltip-study-detail" type="button">查看学习详情</button>';
     }
 
     if (!this.isCurrent(lookupId)) return false;
@@ -133,19 +151,42 @@ export const Tooltip = {
     this.position(tooltip, x, y);
     tooltip.style.display = 'block';
     this.bindCloseButton(tooltip);
+    this.bindDefinitionToggle(tooltip, x, y);
 
-    // Bind audio button click directly (more reliable than event delegation)
-    const speakBtn = tooltip.querySelector('.btn-speak');
-    if (speakBtn) {
-      speakBtn.addEventListener('click', (e) => {
+    const detailBtn = tooltip.querySelector('.tooltip-study-detail');
+    if (detailBtn) {
+      detailBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const word = speakBtn.getAttribute('data-word');
+        this.hide();
+        WordStudyDetail.open({
+          word: data.word,
+          definition: data,
+          sourceMeta: { eyebrow: 'WORD NOTE' }
+        });
+      });
+    }
+
+    const saveBtn = tooltip.querySelector('.btn-save-word');
+    if (saveBtn && savePayload) {
+      saveBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await this.saveWord(savePayload);
+      });
+    }
+
+    // The word itself and its phonetic transcription are quiet audio triggers.
+    tooltip.querySelectorAll('[data-audio-word]').forEach((audioTrigger) => {
+      audioTrigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const word = audioTrigger.getAttribute('data-audio-word');
         if (word && window.AudioCache) {
           window.AudioCache.getAudio(word).catch(err => console.warn('Audio failed:', err));
         }
       });
-    }
+    });
 
     // Bind review rating buttons
     const ratingBtns = tooltip.querySelectorAll('.review-rating-btn');
@@ -185,6 +226,21 @@ export const Tooltip = {
     });
   },
 
+  bindDefinitionToggle(tooltip, x, y) {
+    const toggle = tooltip.querySelector('.tooltip-definition-toggle');
+    const details = tooltip.querySelector('.tooltip-all-definitions');
+    if (!toggle || !details) return;
+    toggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const expanded = details.hidden;
+      details.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.textContent = expanded ? '收起释义' : `展开更多释义（${toggle.dataset.definitionTotal || details.querySelectorAll('.definition-line').length}）`;
+      this.position(tooltip, x, y);
+    });
+  },
+
   // Position tooltip relative to click, avoiding viewport edges
   position(tooltip, x, y) {
     tooltip.style.left = '0';
@@ -212,16 +268,26 @@ export const Tooltip = {
   },
 
   // Save word to vocabulary and auto-sync to learn words (with SRS)
-  async saveWord(word, translation, phonetic) {
+  async saveWord(wordData) {
     try {
+      const word = String(wordData?.word || '').trim();
+      if (!word) return;
+      const savedTranslation = getSavableTranslation(wordData);
+      const definitionSenses = getDefinitionSenses(wordData);
+      const phonetic = String(wordData?.phonetic || '').trim();
+      const pos = String(wordData?.pos || definitionSenses[0]?.pos || '').trim();
       const hash = location.hash;
       const match = hash.match(/#\/reading\/(\d+)/);
       const articleId = match ? parseInt(match[1]) : null;
       await DB.saveWord({
         articleId,
         word,
-        translation,
+        translation: savedTranslation,
         phonetic,
+        pos,
+        definitionSenses,
+        definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+        ...(wordData?.lexiconVersion ? { definitionLexiconVersion: wordData.lexiconVersion } : {}),
         contextSentence: ''
       });
 
@@ -229,8 +295,12 @@ export const Tooltip = {
       try {
         await DB.saveLearnWord({
           word: word.toLowerCase(),
-          translation: translation || '',
+          translation: savedTranslation,
           phonetic: phonetic || '',
+          pos,
+          definitionSenses,
+          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+          ...(wordData?.lexiconVersion ? { definitionLexiconVersion: wordData.lexiconVersion } : {}),
           createdAt: Date.now()
         });
       } catch {
@@ -279,7 +349,7 @@ export const Tooltip = {
     while (end < text.length && /[a-zA-Z\-']/.test(text[end])) end++;
 
     const word = text.substring(start, end).replace(/^[^a-zA-Z]+|[^a-zA-Z]+$/g, '');
-    if (word.length < 2) return null;
+    if (word.length < 2 && word.toLowerCase() !== 'a') return null;
 
     // caretRangeFromPoint 会把段间/词间空白吸附到最近文字；确认点击确实落在该词字形内
     const wordRange = document.createRange();

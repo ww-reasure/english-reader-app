@@ -2,27 +2,29 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('all review-reading routes use bounded shared article generation instead of the legacy API', async () => {
-  const sources = await Promise.all([
+test('all review-reading routes use the bounded home generator instead of the legacy API', async () => {
+  const [chat, flashcard, reading] = await Promise.all([
     readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/reading.js', import.meta.url), 'utf8')
   ]);
 
-  for (const source of sources) {
-    assert.match(source, /ArticleGenerationTool/);
-    assert.match(source, /\.execute\(/);
-    assert.match(source, /chunkTargetWords\(/);
-    assert.match(source, /articleFields:\s*\{/);
+  assert.match(chat, /ArticleGenerationTool/);
+  assert.match(chat, /planReviewBatches/);
+  assert.match(chat, /articleFields:\s*\{/);
+  for (const source of [chat, flashcard, reading]) {
     assert.doesNotMatch(source, /API\.generateReviewArticle\(/);
     assert.doesNotMatch(source, /API\.generateArticle\(/);
   }
+  assert.match(flashcard, /ChatView\.generateReviewReadings/);
+  assert.match(reading, /ChatView\.generateReviewReadings/);
 });
 
 test('homepage review generation keeps already-saved cards visible when a later batch fails', async () => {
   const chatSource = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
 
-  assert.match(chatSource, /let articles = \[\];[\s\S]*?try \{[\s\S]*?catch \(err\) \{[\s\S]*?if \(articles\.length\b/);
+  assert.match(chatSource, /const articles = \[\];[\s\S]*?publishReviewArticles\(\[result\.article\], generationSession\)/);
+  assert.match(chatSource, /catch \(error\) \{[\s\S]*?this\.addGenerationFailure\(failure\)/);
 });
 
 test('review routes bind generation to the chat cancellation session', async () => {
@@ -37,10 +39,5 @@ test('review routes bind generation to the chat cancellation session', async () 
   assert.match(chatSource, /signal: generationSession\.signal/);
   assert.match(chatSource, /isActive: isReviewSessionActive/);
   assert.match(chatSource, /generationSession\.release\(\)/);
-  for (const source of [flashcardSource, readingSource]) {
-    assert.match(source, /const generationSession = ChatView\.startArticleGenerationSession\(\)/);
-    assert.match(source, /signal: generationSession\.signal/);
-    assert.match(source, /isActive: generationSession\.isActive/);
-    assert.match(source, /generationSession\.release\(\)/);
-  }
+  for (const source of [flashcardSource, readingSource]) assert.match(source, /ChatView\.generateReviewReadings/);
 });

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": "fixture-derived-only-v1",
+  "purpose": "Synthetic non-exam fixture for contract verification. It contains no reading passages, answers, options, or recoverable n-grams.",
+  "activeForGeneration": true,
+  "activeForValidator": true,
+  "activationRequirements": [
+    "licensed-or-permitted-raw-corpus",
+    "immutable-source-snapshot-and-sha256",
+    "reproducible-tokenization-and-derived-statistics",
+    "same-tokenizer-and-udpipe-metric-schema",
+    "per-track-sample-size-and-distribution-report",
+    "human-legal-and-methodology-review"
+  ],
+  "corpusAdmissionPolicy": {
+    "shipRawExamTextInApk": false,
+    "acceptedBuildOutput": "derived-statistics-only",
+    "requiredEvidence": [
+      "licensed-or-permitted-raw-corpus",
+      "immutable-source-snapshot-and-sha256",
+      "reproducible-tokenization-and-derived-statistics",
+      "same-tokenizer-and-udpipe-metric-schema",
+      "per-track-sample-size-and-distribution-report",
+      "human-legal-and-methodology-review"
+    ]
+  },
+  "trackStatus": {
+    "cet4": { "status": "active-derived-statistics" },
+    "cet6": { "status": "active-derived-statistics" },
+    "kaoyan1": { "status": "active-derived-statistics" },
+    "kaoyan2": { "status": "active-derived-statistics" }
+  },
+  "sources": [
+    {
+      "id": "licensed-fixture-derived-statistics",
+      "title": "Synthetic contract fixture",
+      "status": "active-derived-statistics",
+      "sourceType": "licensed-internal-corpus-derivation",
+      "tracks": ["cet4", "cet6", "kaoyan1", "kaoyan2"],
+      "url": "https://example.invalid/fixture-license",
+      "version": "fixture-1",
+      "license": "CC0-1.0",
+      "retrievedAt": "2026-07-26",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byteSize": 384,
+      "use": ["generation-target-focus", "validator-syntax-baseline"],
+      "forbiddenUse": ["raw-test-text-in-apk", "answers-in-apk", "options-in-apk", "recoverable-ngram-tables"],
+      "derivedArtifact": {
+        "id": "licensed-fixture-derived-statistics-v1",
+        "version": "fixture-1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "byteSize": 384,
+        "generatedAt": "2026-07-26T00:00:00.000Z",
+        "scriptVersion": "fixture-script-v1",
+        "metricSchema": "udpipe-dependency-v1",
+        "tokenizer": { "id": "app-tokenizer", "version": "fixture-1" },
+        "rawCorpus": {
+          "authorization": "fixture only; replace with a signed permission or explicit license before any real activation",
+          "license": "CC0-1.0",
+          "snapshotId": "fixture-input-1",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "notShippedInApk": true
+        },
+        "trackStatistics": {
+          "cet4": { "documentCount": 40, "runningTokenCount": 10000, "distributionQuantiles": { "dependencyDepth": [2, 3, 4] } },
+          "cet6": { "documentCount": 40, "runningTokenCount": 10000, "distributionQuantiles": { "dependencyDepth": [2, 3, 4] } },
+          "kaoyan1": { "documentCount": 40, "runningTokenCount": 10000, "distributionQuantiles": { "dependencyDepth": [2, 3, 4] } },
+          "kaoyan2": { "documentCount": 40, "runningTokenCount": 10000, "distributionQuantiles": { "dependencyDepth": [2, 3, 4] } }
+        }
+      }
+    }
+  ]
+}

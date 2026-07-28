@@ -12,7 +12,7 @@ import { Dictionary } from '../dictionary.js';
 import { AudioCache } from '../audio-cache.js';
 import { Modal } from '../components/modal.js';
 import { buildReadingProfile } from '../reading-profile.mjs';
-import { formatProfileConstraints, getDifficultyProfile, validateArticle } from '../difficulty-profile.mjs';
+import { formatProfileConstraints, getDifficultyProfile, normalizeCoveragePreference, validateArticle } from '../difficulty-profile.mjs';
 import { hasCompleteAnswers, normalizeQuestionSet } from '../assessment-questions.mjs';
 
 export const AssessmentView = {
@@ -85,13 +85,13 @@ export const AssessmentView = {
           <p class="page-eyebrow">05 / BASELINE</p>
           <h1 class="page-title app-route-heading">阅读水平测评</h1>
           <p class="assessment-desc">
-            用两篇短文和理解题校准你的阅读起点；结果会推荐合适的难度与新词比例。
+            用两篇短文和理解题校准你的阅读起点；结果会推荐合适的材料压力。
           </p>
         </div>
 
         <div class="assessment-section">
           <h2 class="settings-section-title">选择你的目标考试</h2>
-          <p class="settings-desc">选择你正在准备的考试等级，系统将生成对应难度的测试文章</p>
+          <p class="settings-desc">选择你正在准备的考试等级，系统将生成对应的目标考试导向材料</p>
           <div class="settings-options">
             <label class="settings-radio">
               <input type="radio" name="assessExam" value="cet4" checked>
@@ -120,7 +120,7 @@ export const AssessmentView = {
         <div class="assessment-info-box">
           <h3>📋 测评流程说明</h3>
           <ol>
-            <li>系统生成 2 篇目标等级的文章（一易一难）</li>
+            <li>系统生成 2 篇同一目标考试导向的短文，分别采用「巩固」和「加压」材料压力</li>
             <li>逐篇阅读，遇到不认识的单词<strong>点击查看翻译</strong></li>
             <li>阅读完成后，系统显示全文翻译，完成<strong>阅读理解题</strong>并评估理解程度</li>
             <li>系统根据理解题、阅读速度、查词行为和自评，计算推荐设置</li>
@@ -159,7 +159,7 @@ export const AssessmentView = {
         <div class="assessment-loading">
           <div class="loading-spinner"></div>
           <p>正在生成第 1 篇测试文章...</p>
-          <p class="text-muted">${DIFFICULTY_LABELS[exam]}（易）</p>
+          <p class="text-muted">${DIFFICULTY_LABELS[exam]}（巩固）</p>
         </div>
       </div>`;
 
@@ -200,7 +200,7 @@ export const AssessmentView = {
 
   // Generate assessment article with AI
   async generateAssessmentArticle(exam, level, { signal = null } = {}) {
-    const levelLabel = level === 'easy' ? '易' : '难';
+    const levelLabel = level === 'easy' ? '巩固' : '加压';
     const challenge = level === 'easy' ? 'support' : 'stretch';
     const profile = getDifficultyProfile(exam, challenge);
 
@@ -234,7 +234,7 @@ ${formatProfileConstraints(profile)}
     let questionValidation;
     for (let attempt = 0; attempt < 2; attempt++) {
       const retryHint = attempt === 0
-        ? `请生成一篇 ${DIFFICULTY_LABELS[exam]}（${levelLabel}）难度的测试文章`
+        ? `请生成一篇 ${DIFFICULTY_LABELS[exam]}（${levelLabel}材料压力）的测试文章`
         : `上次输出未通过校验（${[
           ...(validation?.deviations || []).map(item => item.code),
           ...(questionValidation?.valid ? [] : ['questions'])
@@ -432,7 +432,7 @@ ${formatProfileConstraints(profile)}
             <div class="assessment-loading">
               <div class="loading-spinner"></div>
               <p>第 2 篇文章生成中，请稍候...</p>
-              <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（难）</p>
+              <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（加压）</p>
             </div>
           </div>`;
         // Wait for article 2 (it's already generating in background, with 60s timeout)
@@ -481,7 +481,7 @@ ${formatProfileConstraints(profile)}
         <div class="assessment-loading">
           <div class="loading-spinner"></div>
           <p>正在重新生成第 2 篇测试文章...</p>
-          <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（难）</p>
+          <p class="text-muted">${DIFFICULTY_LABELS[this.state.targetExam]}（加压）</p>
         </div>
     </div>`;
     try {
@@ -703,9 +703,13 @@ ${formatProfileConstraints(profile)}
     // Determine frequency profile
     const highFreqRate = stats.highFreqCount <= 2 ? 'excellent' : stats.highFreqCount <= 5 ? 'good' : 'weak';
     const midFreqRate = stats.midFreqCount <= 5 ? 'excellent' : stats.midFreqCount <= 10 ? 'good' : 'weak';
-    const recommendedDifficulty = readingProfile.recommendedTrack === 'support' ? 'cet4' : readingProfile.recommendedTrack;
-    const recommendedLevel = readingProfile.recommendedTrack === 'support' || readingProfile.averageConfidence < 3 ? 'easy' : 'hard';
-    const recommendedCoverage = readingProfile.recommendedTrack === 'support' ? 90 : readingProfile.lookupRate > 25 ? 92 : 95;
+    const recommendedChallenge = readingProfile.comprehensionAccuracy === null || readingProfile.comprehensionAccuracy < 65 || readingProfile.averageConfidence < 3
+      ? 'support'
+      : readingProfile.comprehensionAccuracy >= 82 && readingProfile.lookupRate <= 18 ? 'stretch' : 'standard';
+    const coveragePreference = normalizeCoveragePreference(recommendedChallenge);
+    const recommendedDifficulty = this.state.targetExam;
+    const recommendedLevel = recommendedChallenge === 'support' ? 'easy' : recommendedChallenge === 'stretch' ? 'hard' : 'normal';
+    const recommendedCoverage = coveragePreference.coverage;
     const recommendedNewWordPercent = 100 - recommendedCoverage;
 
     return {
@@ -715,6 +719,7 @@ ${formatProfileConstraints(profile)}
       midFreqRate,
       stats,
       recommendedDifficulty,
+      recommendedChallenge,
       recommendedLevel,
       recommendedCoverage,
       recommendedNewWordPercent
@@ -723,8 +728,8 @@ ${formatProfileConstraints(profile)}
 
   // Render result step
   renderResultStep(result) {
-    const examLabels = { cet4: '四级', cet6: '六级', graduate: '考研' };
-    const levelLabels = { easy: '易', hard: '难' };
+    const examLabels = { cet4: '四级', cet6: '六级', kaoyan1: '考研英语一', kaoyan2: '考研英语二', graduate: '考研（旧版）' };
+    const levelLabels = { easy: '巩固', normal: '对标', hard: '加压' };
     const freqIcons = { excellent: '✅', good: '⚠️', weak: '🔶' };
     const freqTexts = { excellent: '优秀', good: '良好', weak: '需加强' };
 
@@ -756,12 +761,12 @@ ${formatProfileConstraints(profile)}
           <div class="result-detail-grid">
             <div class="result-detail-item">
               <span class="result-detail-icon">${freqIcons[result.highFreqRate]}</span>
-              <span class="result-detail-label">高频词掌握</span>
+              <span class="result-detail-label">高频词阅读表现</span>
               <span class="result-detail-value">${freqTexts[result.highFreqRate]}</span>
             </div>
             <div class="result-detail-item">
               <span class="result-detail-icon">${freqIcons[result.midFreqRate]}</span>
-              <span class="result-detail-label">中频词掌握</span>
+              <span class="result-detail-label">中频词阅读表现</span>
               <span class="result-detail-value">${freqTexts[result.midFreqRate]}</span>
             </div>
             <div class="result-detail-item">
@@ -778,11 +783,11 @@ ${formatProfileConstraints(profile)}
 
           <div class="result-per-article">
             <div class="result-per-article-item">
-              <span>第 1 篇（易）理解率</span>
+              <span>第 1 篇（巩固）理解率</span>
               <strong>${result.perArticleProfiles[0]?.comprehensionAccuracy ?? '暂无'}${result.perArticleProfiles[0]?.comprehensionAccuracy === null ? '' : '%'}</strong>
             </div>
             <div class="result-per-article-item">
-              <span>第 2 篇（难）理解率</span>
+              <span>第 2 篇（加压）理解率</span>
               <strong>${result.perArticleProfiles[1]?.comprehensionAccuracy ?? '暂无'}${result.perArticleProfiles[1]?.comprehensionAccuracy === null ? '' : '%'}</strong>
             </div>
           </div>
@@ -791,15 +796,15 @@ ${formatProfileConstraints(profile)}
             <h3>🎯 推荐设置</h3>
             <div class="result-recommend-grid">
               <div class="result-recommend-item">
-                <span class="result-recommend-label">推荐难度</span>
+                <span class="result-recommend-label">目标考试与材料压力</span>
                 <span class="result-recommend-value">
                   <span class="badge badge-${result.recommendedDifficulty}">${examLabels[result.recommendedDifficulty]}</span>
                   ${levelLabels[result.recommendedLevel]}
                 </span>
               </div>
               <div class="result-recommend-item">
-                <span class="result-recommend-label">新词比例</span>
-                <span class="result-recommend-value">${result.recommendedNewWordPercent}%（覆盖率 ${result.recommendedCoverage}%）</span>
+                <span class="result-recommend-label">材料目标覆盖率</span>
+                <span class="result-recommend-value">${result.recommendedCoverage}%（词汇压力约 ${result.recommendedNewWordPercent}%）</span>
               </div>
             </div>
           </div>
@@ -807,8 +812,8 @@ ${formatProfileConstraints(profile)}
           <div class="result-explain">
             <h3>📖 说明</h3>
             <ul>
-              <li><strong>新词比例 ${result.recommendedNewWordPercent}%</strong>：每100个词中约 ${result.recommendedNewWordPercent} 个是新词，其余 ${result.recommendedCoverage}% 为你已掌握的词汇</li>
-              <li>基于 Nation 的词汇覆盖率研究，${result.recommendedCoverage}% 覆盖率适合舒适阅读</li>
+              <li><strong>材料目标覆盖率 ${result.recommendedCoverage}%</strong>：用于控制生成材料的词汇压力；不是对你已掌握词汇的估计</li>
+              <li>Nation 的词汇覆盖率研究将 98% 作为舒适阅读的参考；本应用该范围设定材料目标，不把它当成个人词汇量结论</li>
               <li>本报告只汇总理解题、阅读速度、显式查词与自评信心；不会由这些行为推算你的词汇总量</li>
               <li>这些设置可以在「设置」页面随时手动调整</li>
             </ul>
@@ -833,14 +838,20 @@ ${formatProfileConstraints(profile)}
     Config.set('assessment_date', new Date().toISOString());
 
     // Apply recommended settings (coverage derived from new_word_percent)
-    Config.set('exam_level', result.recommendedDifficulty);
+    // The chosen target exam is never inferred from performance. This legacy
+    // screen only updates the material pressure; new calibration uses
+    // CalibrationView instead.
+    Config.set('reading_mode', result.recommendedChallenge);
     Config.set('level', result.recommendedLevel);
     Config.set('new_word_percent', result.recommendedNewWordPercent.toString());
     Config.set('coverage', result.recommendedCoverage.toString());
 
+    const challengeLabel = result.recommendedChallenge === 'support' ? '巩固'
+      : result.recommendedChallenge === 'stretch' ? '加压' : '对标';
     alert('设置已应用！\n\n' +
-      `难度：${DIFFICULTY_LABELS[result.recommendedDifficulty]}（${result.recommendedLevel === 'easy' ? '易' : '难'}）\n` +
-      `新词比例：${result.recommendedNewWordPercent}%（覆盖率 ${result.recommendedCoverage}%）\n\n` +
+      `目标考试：${DIFFICULTY_LABELS[result.recommendedDifficulty]}\n` +
+      `材料压力：${challengeLabel}\n` +
+      `材料目标覆盖率：${result.recommendedCoverage}%（词汇压力约 ${result.recommendedNewWordPercent}%）\n\n` +
       '可在「设置」页面随时调整。'
     );
 

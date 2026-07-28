@@ -20,7 +20,7 @@ const CATEGORY_LABELS = {
 
 export const ReadingListView = {
   _articles: [],
-  _currentFilter: 'all',       // difficulty: all/cet4/cet6/graduate
+  _currentFilter: 'all',       // difficulty: all/cet4/cet6/kaoyan1/kaoyan2/graduate
   _currentCategory: 'all',     // category: all/science/world/society/culture/other
 
   cleanup() {},
@@ -91,7 +91,9 @@ export const ReadingListView = {
               <button class="reading-list-tab active" onclick="ReadingListView.filterByDifficulty('all')">全部</button>
               <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('cet4')">四级</button>
               <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('cet6')">六级</button>
-              <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('graduate')">考研</button>
+              <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('kaoyan1')">考研英语一</button>
+              <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('kaoyan2')">考研英语二</button>
+              <button class="reading-list-tab" onclick="ReadingListView.filterByDifficulty('graduate')">考研（旧版）</button>
             </div>
             <div class="empty-state">暂无文章</div>
           </section>`;
@@ -116,8 +118,15 @@ export const ReadingListView = {
 
   // Render articles with difficulty + category tab filter
   _renderArticles(container, articles) {
-    const difficulties = ['all', 'cet4', 'cet6', 'graduate'];
-    const tabLabels = { all: '全部', cet4: '四级', cet6: '六级', graduate: '考研' };
+    const difficulties = ['all', 'cet4', 'cet6', 'kaoyan1', 'kaoyan2', 'graduate'];
+    const tabLabels = {
+      all: '全部',
+      cet4: '四级',
+      cet6: '六级',
+      kaoyan1: '考研英语一',
+      kaoyan2: '考研英语二',
+      graduate: '考研（旧版）'
+    };
 
     // 双重过滤: difficulty + category
     const filtered = articles.filter(a => {

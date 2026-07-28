@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-26",
+  "runtime": {
+    "id": "udpipe-wasm",
+    "packageVersion": "0.1.0",
+    "packageSource": "https://github.com/exp-ouroborous/udpipe-wasm",
+    "license": "MPL-2.0",
+    "status": "bundled",
+    "moduleId": "udpipe-wasm-v1",
+    "loaderUrl": "bundled:udpipe-wasm-v1",
+    "wasmUrl": "bundled:udpipe-wasm-v1",
+    "sha256": null,
+    "workerContract": "grammar-parser-loader-v1"
+  },
+  "model": {
+    "id": "english-ud-2.1-20180111",
+    "source": "https://github.com/bnosac/udpipe.models.ud",
+    "sourceUrl": "https://raw.githubusercontent.com/bnosac/udpipe.models.ud/master/models/english-ud-2.1-20180111.udpipe",
+    "license": "CC-BY-SA-4.0",
+    "attribution": "UD English 2.1 model by bnosac/udpipe.models.ud; trained from Universal Dependencies English data.",
+    "sourceSha256": "20432A6F87B1F258927207B8FBD2DC21EBFF9722B381B7A36CEF34C8C9A380DC",
+    "sourceBytes": 16368326,
+    "status": "bundled",
+    "url": "/models/grammar/english-ud-2.1-20180111.udpipe",
+    "sha256": "20432A6F87B1F258927207B8FBD2DC21EBFF9722B381B7A36CEF34C8C9A380DC"
+  },
+  "blocker": {
+    "code": "ANDROID_DEVICE_VALIDATION_REQUIRED",
+    "reason": "The bundled parser must still pass Android WebView load, memory, startup-time and APK-size validation before release."
+  }
+}

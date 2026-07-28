@@ -5,10 +5,15 @@
 
 import { DB } from '../db.js';
 import { Dictionary } from '../dictionary.js';
-import { AudioCache } from '../audio-cache.js';
-import { Affixes } from '../affixes.js';
-import { Examples } from '../examples.js';
 import { esc } from '../helpers.js';
+import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
+import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
+import { WordStudyDetail } from '../components/word-study-detail.js';
+
+function renderDefinitionPreview(word) {
+  const primary = getDefinitionDisplayLines(word)[0];
+  return primary ? `${primary.label} ${primary.glossZh}` : getSavableTranslation(word) || '待重新查询';
+}
 
 export const VocabularyView = {
   manageMode: false,
@@ -44,9 +49,9 @@ export const VocabularyView = {
                ${!this.manageMode ? `onclick="VocabularyView.showWordDetail(${word.id})"` : ''}>
             <div class="vocab-word">
               <span class="word">${esc(word.word)}</span>
-              ${word.phonetic ? `<span class="phonetic">[${esc(word.phonetic)}]</span>` : ''}
+              ${formatPhonetic(word.phonetic) ? `<span class="phonetic">${esc(formatPhonetic(word.phonetic))}</span>` : ''}
             </div>
-            <div class="vocab-translation">${esc(word.translation)}</div>
+            <div class="vocab-translation">${esc(renderDefinitionPreview(word))}</div>
             ${deleteBtn}
           </div>`;
       });
@@ -89,96 +94,21 @@ export const VocabularyView = {
   // Show word detail popup
   async showWordDetail(id) {
     const words = await DB.getAllWords();
-    const word = words.find(w => w.id === id);
+    let word = words.find(w => w.id === id);
     if (!word) return;
 
-    let translation = word.translation || '';
-    let phonetic = word.phonetic || '';
-    if (!translation) {
-      try {
-        const dictResult = await Dictionary.lookup(word.word);
-        translation = dictResult.translation || '暂无翻译';
-        phonetic = phonetic || dictResult.phonetic || '';
-      } catch {
-        translation = '暂无翻译';
+    word = await ensureSavedWordDefinition(word, {
+      lookup: Dictionary.lookup.bind(Dictionary),
+      update: DB.updateWordDefinition.bind(DB)
+    });
+    WordStudyDetail.open({
+      word: word.word,
+      definition: word,
+      sourceMeta: {
+        eyebrow: 'WORD NOTE',
+        contextSentence: word.contextSentence || ''
       }
-    }
-
-    let overlay = document.getElementById('wordDetailOverlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'wordDetailOverlay';
-      overlay.className = 'modal-overlay';
-      overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:center';
-      document.body.appendChild(overlay);
-    }
-
-    overlay.innerHTML = `
-      <div class="modal word-detail-modal" role="dialog" aria-modal="true" aria-label="${esc(word.word)} 的单词详情">
-        <header class="word-detail-head">
-          <div>
-            <p class="page-eyebrow">WORD NOTE</p>
-            <div class="word-detail-title">${esc(word.word)} <button class="btn-speak" data-word="${esc(word.word)}" aria-label="朗读 ${esc(word.word)}">听</button></div>
-          </div>
-        </header>
-        ${phonetic ? `<div class="word-detail-phonetic">[${esc(phonetic)}]</div>` : ''}
-        <div class="word-detail-translation">${esc(translation)}</div>
-        ${word.contextSentence ? `<blockquote class="word-detail-context">${esc(word.contextSentence)}</blockquote>` : ''}
-        <div id="wordDetailExtras" class="word-detail-extras"><div class="text-muted">正在整理词根与例句…</div></div>
-        <div class="modal-actions">
-          <button class="btn" onclick="document.getElementById('wordDetailOverlay').style.display='none'">关闭笔记</button>
-        </div>
-      </div>`;
-
-    overlay.style.display = 'flex';
-    overlay.onclick = (e) => {
-      if (e.target === overlay) overlay.style.display = 'none';
-    };
-
-    const speakBtn = overlay.querySelector('.btn-speak');
-    if (speakBtn) {
-      speakBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (window.AudioCache) window.AudioCache.getAudio(word.word);
-      });
-    }
-
-    this._loadWordExtras(word.word);
-  },
-
-  async _loadWordExtras(word) {
-    const el = document.getElementById('wordDetailExtras');
-    if (!el) return;
-
-    try {
-      const [examples, rootAnalysis] = await Promise.all([
-        Examples.getExamples(word).catch(() => []),
-        Affixes.getAnalysis(word).catch(() => null)
-      ]);
-
-      let html = '';
-
-      if (rootAnalysis) {
-        if (rootAnalysis.breakdown) {
-          html += `<div style="margin-bottom:8px"><span style="font-size:13px;color:var(--text-muted)">🔤 词根拆解</span><div style="margin-top:4px">${esc(rootAnalysis.breakdown)}</div></div>`;
-        }
-        if (rootAnalysis.memoryTip) {
-          html += `<div style="margin-bottom:8px"><span style="font-size:13px;color:var(--text-muted)">💡 记忆法</span><div style="margin-top:4px">${esc(rootAnalysis.memoryTip)}</div></div>`;
-        }
-      }
-
-      if (examples.length > 0) {
-        html += `<div><span style="font-size:13px;color:var(--text-muted)">📝 例句</span>`;
-        examples.forEach(ex => {
-          html += `<div style="margin-top:4px;font-size:14px;color:var(--text-secondary)">• ${esc(ex)}</div>`;
-        });
-        html += '</div>';
-      }
-
-      el.innerHTML = html || '<div style="color:var(--text-muted);font-size:13px">暂无详情</div>';
-    } catch {
-      el.innerHTML = '';
-    }
+    });
   },
 
   // Clear all words

@@ -1,5 +1,5 @@
 {
-  "appId": "com.englishreader.app",
+  "appId": "com.example.englishreader",
   "appName": "英语阅读助手",
   "webDir": "www",
   "server": {

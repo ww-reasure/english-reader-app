@@ -43,3 +43,55 @@ test('reading follow-ups receive the active sentence analysis, including its imi
   assert.match(joined, /Students who practise daily improve steadily/);
   assert.match(joined, /仿写/);
 });
+
+test('home context retains generated article facts and safe generation failures', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'home',
+    summary: '',
+    messages: [
+      {
+        role: 'assistant',
+        kind: 'article',
+        createdAt: 100,
+        article: {
+          id: 7,
+          title: 'The Temp Work Phenomenon',
+          titleZh: '临时工作现象',
+          difficulty: 'cet4',
+          topic: '社会',
+          wordCount: 254,
+          content: 'This is the generated reading body.'
+        }
+      },
+      {
+        role: 'assistant',
+        kind: 'generation_failure',
+        createdAt: 200,
+        failure: { message: '第 2 篇缺少复习词，已跳过。' }
+      }
+    ],
+    userMessage: '刚刚为什么只成功了一篇？'
+  });
+  const joined = messages.map(message => message.content).join('\n');
+
+  assert.match(joined, /The Temp Work Phenomenon/);
+  assert.match(joined, /临时工作现象/);
+  assert.match(joined, /This is the generated reading body/);
+  assert.match(joined, /第 2 篇缺少复习词/);
+});
+
+test('home agent prompt restricts writing tools to the current user request', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'home',
+    summary: '',
+    messages: [],
+    userMessage: '这是一篇什么类型的文章？'
+  });
+  const system = messages.find(message => message.role === 'system')?.content || '';
+
+  assert.match(system, /当前用户消息/);
+  assert.match(system, /不得.*历史/);
+  assert.match(system, /普通回答/);
+});

@@ -9,25 +9,42 @@ import { formatProfileConstraints, getDifficultyProfile } from './difficulty-pro
 const VOCABULARY_GUIDANCE = {
   cet4: {
     support: '优先使用高频词汇和基础学术词，避免堆砌生僻词。',
-    standard: '以四级核心词汇为主，适度使用常见学术词和抽象表达。',
-    stretch: '以四级核心词汇为主，可加入适量进阶学术词，但保持语义自然。'
+    standard: '以可追溯的通用高频词和常见学术词为主，适度使用抽象表达。',
+    stretch: '以通用高频词为骨架，可加入适量进阶学术词，但保持语义自然。'
   },
   cet6: {
-    support: '以高频四、六级词汇为主，适度使用常见学术词。',
-    standard: '使用六级核心词汇和常见学术词，保持语篇清晰。',
-    stretch: '使用六级核心词汇和适量进阶学术词，避免为难度而堆词。'
+    support: '以通用高频词和常见学术词为主，优先保证清晰可读。',
+    standard: '使用可追溯的通用高频词和常见学术词，保持语篇清晰。',
+    stretch: '以通用高频词为骨架，适量使用进阶学术词，避免为难度而堆词。'
+  },
+  kaoyan1: {
+    support: '以高频词和通用学术词为主，优先保证英语一导向训练的自然可读。',
+    standard: '使用通用高频词与常见学术表达，保持英语一导向的论证自然完整。',
+    stretch: '使用通用高频词与适量进阶学术表达，避免不自然的术语堆砌。'
+  },
+  kaoyan2: {
+    support: '以高频词和通用学术词为主，优先保证英语二导向训练的清晰可读。',
+    standard: '使用通用高频词与常见学术表达，保持英语二导向的文章逻辑清楚。',
+    stretch: '使用通用高频词与适量进阶学术表达，避免为难度而堆词。'
   },
   graduate: {
-    support: '使用考研常见词汇和社科学术表达，优先保证可读性。',
-    standard: '使用考研词汇和常见学术表达，保持论证自然完整。',
-    stretch: '使用考研词汇和适量进阶学术表达，避免不自然的术语堆砌。'
+    support: '使用通用高频词和社科学术表达，优先保证可读性。',
+    standard: '使用通用高频词和常见学术表达，保持论证自然完整。',
+    stretch: '使用通用高频词和适量进阶学术表达，避免不自然的术语堆砌。'
   }
 };
 
 const MAX_GENERATION_PREFERENCE_LENGTH = 2400;
 const MAX_VALIDATION_CORRECTION_LENGTH = 1800;
+const CONSERVATIVE_CORE_GUIDANCE = '- 材料构成硬性检查：至少 90% 的可词形还原词次来自可追溯核心频率层，且至少 80% 来自 NGSL 1-3 层；NGSL 4 及以上词次不超过 12%。这些是材料来源约束，不是学习者掌握率。';
 
 const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
+const CHINESE_TEXT = /[\u3400-\u9fff]/u;
+
+function validChineseTranslation(value) {
+  const translation = String(value || '').trim();
+  return CHINESE_TEXT.test(translation) ? translation : null;
+}
 
 const resolveArticleSpecification = (difficulty, wordCount, profile) => {
   const selectedProfile = getDifficultyProfile(profile?.track || difficulty, profile?.challenge);
@@ -53,6 +70,31 @@ const preferenceWithoutCorrection = (prompt, correction) => {
     ? rawPreference.slice(0, -rawCorrection.length).trim()
     : rawPreference;
   return clipText(preference, MAX_GENERATION_PREFERENCE_LENGTH);
+};
+
+const buildPersonalizationGuidance = personalization => {
+  if (personalization?.mode === 'evidence_collecting') {
+    return [
+      '- 学习者初测已完成，当前继续收集独立证据：优先高频核心词、清晰衔接和可读句法。',
+      CONSERVATIVE_CORE_GUIDANCE,
+      '- 不得声称具体覆盖率、读者确定掌握比例或任何能力结论。'
+    ].join('\n');
+  }
+  if (personalization?.mode === 'evidence_calibrated') {
+    const targetCoverage = Number(personalization.targetCoverage);
+    if (Number.isFinite(targetCoverage) && targetCoverage >= 0 && targetCoverage <= 100) {
+      return [
+        `- 本轮材料匹配目标为预计掌握覆盖约 ${targetCoverage}%。`,
+        '- 该数字仅供本地词汇/个人证据校验使用；不得把它写成学习者的词汇量或确定能力结论。',
+        '- 若无法自然满足该约束，宁可保持文本自然并让本地校验请求精修。'
+      ].join('\n');
+    }
+  }
+  return [
+    '- 当前为未校准保守模式：优先高频基础词、较短句和清晰衔接，只少量加入目标考试导向词。',
+    CONSERVATIVE_CORE_GUIDANCE,
+    '- 不得声称具体覆盖率、词汇量，或“读者大概率认识”的比例。'
+  ].join('\n');
 };
 
 const buildAuthoritativeSpecification = specification => {
@@ -99,124 +141,21 @@ const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCor
 };
 
 export const API = {
-  // 6-level difficulty rules (difficulty + level combination)
-  difficultyRules: {
-    'cet4_easy': `四级（易）难度要求：
-
-【词汇】
-- 使用高频3000词汇，避免生僻词
-- 基础学术词：important, result, problem, develop, increase, change
-
-【句式】
-- 以简单句和并列句为主，每句12-18个单词
-- 少量定语从句（that/which引导）
-- 避免复杂嵌套结构
-
-【文章结构】
-- 250-300词，3-4个段落
-- 线性叙述结构，主题句明确
-- 基础连接词：and, but, so, because, first, second`,
-
-    'cet4_hard': `四级（难）难度要求：
-
-【词汇】
-- 使用四级大纲词汇（约4500词），包含学术词汇
-- 学术词：significant, demonstrate, phenomenon, consequently, approximately, perspective, implication
-
-【句式】
-- 复合句为主，每句18-25个单词
-- 包含定语从句、状语从句、宾语从句
-- 适当使用被动语态、形式主语（It is...that...）
-
-【文章结构】
-- 300-400词，4-5个段落
-- 议论文结构：提出观点→举例论证→得出结论
-- 连接词：however, furthermore, therefore, in contrast, nevertheless`,
-
-    'cet6_easy': `六级（易）难度要求：
-
-【词汇】
-- 使用5000词汇量，包含四级词汇+部分六级词汇
-- 学术词：analyze, evaluate, significant, potential, fundamental
-
-【句式】
-- 复合句为主，少量嵌套，每句20-28个单词
-- 可使用定语从句、状语从句
-- 适当使用被动语态
-
-【文章结构】
-- 350-400词，4-5个段落
-- 多角度论述，有数据或案例引用
-- 连接词：moreover, however, therefore, similarly`,
-
-    'cet6_hard': `六级（难）难度要求：
-
-【词汇】
-- 使用六级大纲词汇（约6000词），包含专业术语
-- 高级词：notwithstanding, paradigm, empirical, hypothetical, proliferation, exacerbate, ubiquitous
-
-【句式】
-- 长难句为主，每句25-35个单词
-- 多层从句嵌套（定语+状语+名词性从句）
-- 使用倒装句、省略句、独立主格
-
-【文章结构】
-- 400-500词，5-6个段落
-- 学术论证结构：背景→论点→多角度论证→总结
-- 高级连接词：conversely, inasmuch as, presuppose`,
-
-    'graduate_easy': `考研（易）难度要求：
-
-【词汇】
-- 考研大纲词汇（约5500词），包含学术词汇
-- 核心词：significant, demonstrate, implication, perspective, substantial
-
-【句式】
-- 长难句为主，含同位语、插入语，每句22-30个单词
-- 定语从句+状语从句组合
-- 适当使用被动语态和形式主语
-
-【文章结构】
-- 350-400词，4-5个段落
-- 社科类议论文结构
-- 逻辑连接词：however, therefore, moreover, nevertheless`,
-
-    'graduate_hard': `考研（难）难度要求：
-
-【词汇】
-- 考研大纲词汇+学术高频词+熟词僻义
-- 熟词僻义：address(处理), sound(合理的), yield(产出), figure(认为), coin(创造)
-- 高级词：albeit, whereby, therein, thereof, notwithstanding, insofar as
-
-【句式】
-- 复杂长难句，每句30-40个单词
-- 多重嵌套：主句+定语从句+状语从句+同位语从句
-- 插入语、破折号补充说明
-- 倒装、省略、虚拟语气、强调句型
-
-【文章结构】
-- 400-500词，5-7个段落
-- 学术论文风格：提出问题→分析论证→辩证思考→提出建议
-- 严密逻辑链条：因果、转折、递进、让步
-- 观点客观中立，避免绝对化表述`
-  },
-
   // Build system prompt for article generation
-  buildArticlePrompt(difficulty, wordCount, keywords, profile) {
+  buildArticlePrompt(difficulty, wordCount, keywords, profile, personalization = null) {
     const specification = resolveArticleSpecification(difficulty, wordCount, profile);
     const { profile: selectedProfile, wordCount: desiredWordCount } = specification;
-    const vocabularyGuidance = VOCABULARY_GUIDANCE[selectedProfile.track][selectedProfile.challenge];
+    const vocabularyGuidance = VOCABULARY_GUIDANCE[selectedProfile.track]?.[selectedProfile.challenge]
+      || VOCABULARY_GUIDANCE.cet4.standard;
     const rules = `${formatProfileConstraints(selectedProfile)}
 - 推荐目标字数约为 ${desiredWordCount} 词，但不得超出上述总字数范围
-- 这是 ${selectedProfile.track.toUpperCase()} 导向练习，不得宣称与真实试题等效
+- 这是 ${selectedProfile.track.toUpperCase()} 的目标考试导向训练材料，不得宣称与真实试题等效
 - 指定学习词必须自然出现；避免为了堆难度而写不自然的超长嵌套句。
 - 词汇建议：${vocabularyGuidance}`;
 
-    // Get coverage settings
-    const coverage = Config.get('coverage') || '95';
-    const newWordPercent = Config.get('new_word_percent') || '5';
+    const personalizationGuidance = buildPersonalizationGuidance(personalization);
 
-    return `你是一位专业的英语考试辅导教师，擅长编写符合真实考试标准的阅读材料。请严格按照难度要求生成文章。
+    return `你是一位专业的英语阅读教练，擅长编写目标考试导向训练材料。请严格按照可审计的生成规格生成文章。
 
 请以 JSON 格式回复，包含以下字段：
 - "title": 英文文章标题（简短，学术风格）
@@ -226,16 +165,15 @@ export const API = {
 
 ${rules}
 
-生词比例控制：
-- 文章中约 ${coverage}% 的词汇应为常见高频词汇（读者大概率认识的词）
-- 新词（较难/生僻词）控制在约 ${newWordPercent}% 左右
-- 新词应在文章中自然重复出现 2-3 次，帮助读者通过上下文理解
+个人匹配约束：
+${personalizationGuidance}
+- 有意识引入的新词应在文章中自然重复出现，帮助读者通过上下文理解。
 
 其他要求：
 - 自然地融入以下关键词：${keywords || '无'}
 - 不要使用 markdown，不要加评论，只输出文章正文
 - 段落之间用双换行分隔
-- 文章要像真实的考试阅读材料，有深度、有逻辑、有论证
+- 文章应有清晰的阅读训练价值、逻辑和论证；不能声称或模仿为真实试题
 
 中文翻译要求：
 - 逐段翻译，与英文段落结构完全对应
@@ -286,12 +224,13 @@ ${rules}
   },
 
   // Send a general learning-chat request.
-  async chat(messages, { tools = [], signal = null, temperature = 0.45 } = {}) {
+  async chat(messages, { tools = [], signal = null, temperature = 0.45, responseFormat = null } = {}) {
     const body = { messages, temperature };
     if (tools.length) {
       body.tools = tools;
       body.tool_choice = 'auto';
     }
+    if (responseFormat) body.response_format = responseFormat;
     const data = await this.fetch('/chat/completions', body, 60000, signal);
     return data.choices?.[0]?.message || { content: '' };
   },
@@ -302,7 +241,7 @@ ${rules}
     const specification = resolveArticleSpecification(difficulty, wordCount, options.profile);
     const data = await this.fetch('/chat/completions', {
       messages: [
-        { role: 'system', content: this.buildArticlePrompt(difficulty, specification.wordCount, keywords, specification.profile) },
+        { role: 'system', content: this.buildArticlePrompt(difficulty, specification.wordCount, keywords, specification.profile, options.personalization) },
         {
           role: 'user',
           content: buildArticleUserMessage({
@@ -343,9 +282,9 @@ ${rules}
       });
 
       const r = JSON.parse(data.choices[0].message.content);
-      return r.translation || word;
+      return validChineseTranslation(r?.translation);
     } catch {
-      return word;
+      return null;
     }
   },
 

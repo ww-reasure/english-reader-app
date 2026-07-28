@@ -34,7 +34,9 @@ test('validator reports measurable deviations instead of claiming a prompt met a
 test('formats one authoritative prompt constraint section from a selected profile', () => {
   const constraints = formatProfileConstraints(getDifficultyProfile('cet4', 'support'));
 
-  assert.match(constraints, /总字数必须控制在 240-320 词/);
-  assert.match(constraints, /平均句长必须控制在 10-17 词/);
-  assert.match(constraints, /约 5-7% 学术词/);
+  assert.match(constraints, /硬性校验：总字数必须控制在 240-320 词/);
+  assert.match(constraints, /硬性校验：平均句长必须控制在 10-17 词/);
+  assert.match(constraints, /词汇方向（观察指标，不是未经校准的真题阈值）：约 5-7% 学术词/);
+  assert.match(constraints, /句法方向仅记录本地依存句法指标；语料基线尚未激活，不宣称与真题等值/);
+  assert.doesNotMatch(constraints, /所有要求必须同时满足/);
 });

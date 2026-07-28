@@ -17,6 +17,7 @@ import { ChatService } from './chat-service.js';
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { renderLearningMarkdown } from './rich-text.js';
+import { createSentenceRangeForTextNodes, findSentenceOffsets } from './sentence-selection.mjs';
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService({
@@ -421,71 +422,18 @@ export const AIAnalysis = {
   // Find sentence boundaries from a text node and offset
   findSentenceBoundaries(node, offset) {
     const text = node.textContent;
-    if (!text) return null;
+    return findSentenceOffsets(text, offset);
+  },
 
-    // Sentence ending pattern: .!? followed by space, newline, or end of text
-    // Exclude common abbreviations: Mr. Mrs. Dr. U.S. U.K. etc.
-    const sentenceEnders = /[.!?]/;
-    const abbreviations = /(?:Mr|Mrs|Dr|Ms|Prof|Sr|Jr|St|vs|etc|inc|Ltd|Corp|Jr|Sr|U\.S|U\.K|e\.g|i\.e|a\.m|p\.m)\.$/;
-
-    // Find start of sentence (go backward)
-    let start = offset;
-    while (start > 0) {
-      // Check if current position is a sentence ender
-      if (sentenceEnders.test(text[start - 1])) {
-        // Check if it's an abbreviation
-        const before = text.substring(Math.max(0, start - 10), start);
-        if (abbreviations.test(before)) {
-          start -= 2; // Skip the abbreviation period
-          continue;
-        }
-        // Check if followed by space or newline (true sentence end)
-        if (start < text.length && /[\s\n]/.test(text[start])) {
-          break;
-        }
-        // Period at end of text node
-        if (start === text.length) {
-          break;
-        }
-      }
-      start--;
-    }
-
-    // Skip leading whitespace
-    while (start < text.length && /[\s\n]/.test(text[start])) {
-      start++;
-    }
-
-    // Find end of sentence (go forward)
-    let end = offset;
-    while (end < text.length) {
-      if (sentenceEnders.test(text[end])) {
-        // Check if it's an abbreviation
-        const before = text.substring(Math.max(0, end - 10), end + 1);
-        if (abbreviations.test(before + '.')) {
-          end++;
-          continue;
-        }
-        // Include the punctuation
-        end++;
-        break;
-      }
-      end++;
-    }
-
-    // If we reached end of text without finding sentence end, use end
-    if (end >= text.length) {
-      end = text.length;
-    }
-
-    // Trim trailing whitespace
-    while (end > start && /[\s\n]/.test(text[end - 1])) {
-      end--;
-    }
-
-    if (end <= start) return null;
-
-    return { start, end };
+  getParagraphTextNodes(node) {
+    const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    const paragraph = element?.closest?.('.en-paragraph');
+    if (!paragraph) return [];
+    const walker = document.createTreeWalker(paragraph, globalThis.NodeFilter?.SHOW_TEXT || 4);
+    const textNodes = [];
+    let current;
+    while ((current = walker.nextNode())) textNodes.push(current);
+    return textNodes;
   },
 
   // Auto-select sentence on long press
@@ -512,23 +460,22 @@ export const AIAnalysis = {
     if (!node || node.nodeType !== Node.TEXT_NODE) return;
     this.updateParagraphContext(node);
 
-    const offset = range.startOffset;
-    const boundaries = this.findSentenceBoundaries(node, offset);
+    const sentence = createSentenceRangeForTextNodes({
+      textNodes: this.getParagraphTextNodes(node),
+      pointNode: node,
+      pointOffset: range.startOffset,
+      createRange: () => document.createRange()
+    });
+    if (!sentence) return;
 
-    if (!boundaries) return;
-
-    // Select the sentence
     const selection = window.getSelection();
     selection.removeAllRanges();
-    const newRange = document.createRange();
-    newRange.setStart(node, boundaries.start);
-    newRange.setEnd(node, boundaries.end);
-    selection.addRange(newRange);
+    selection.addRange(sentence.range);
 
     // Show "Ask AI" button
-    const selectedText = selection.toString().trim();
+    const selectedText = sentence.text.trim();
     if (selectedText.length > 3) {
-      const rect = newRange.getBoundingClientRect();
+      const rect = sentence.range.getBoundingClientRect();
       this.showButton(rect.left + rect.width / 2, rect.bottom, selectedText);
     }
 

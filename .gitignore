@@ -37,3 +37,7 @@ Thumbs.db
 *.log
 js_backup_20260606/
 css_backup_20260606/
+
+# Reproducible, checksum-verified lexicon source cache. The reviewed core
+# artifact in public/data is committed; raw source snapshots are regenerated.
+data/lexicon-sources/

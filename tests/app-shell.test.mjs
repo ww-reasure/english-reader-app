@@ -26,3 +26,20 @@ test('reserves the clear-context header action for the chat route', async () => 
   assert.match(source, /appClearContextBtn/);
   assert.match(source, /app-header-actions/);
 });
+
+test('keeps the settings action on the chat home only', async () => {
+  const { AppShell } = await loadShell();
+
+  assert.match(AppShell.getHeaderActions('chat'), /href="#\/settings"/);
+  assert.doesNotMatch(AppShell.getHeaderActions('reading-list'), /href="#\/settings"/);
+  assert.doesNotMatch(AppShell.getHeaderActions('vocab'), /href="#\/settings"/);
+});
+
+test('keeps settings navigation out of non-home page content', async () => {
+  const [profile, calibration] = await Promise.all([
+    readFile(new URL('../src/views/stats.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/calibration.js', import.meta.url), 'utf8')
+  ]);
+  assert.doesNotMatch(profile, /href="#\/settings"/);
+  assert.doesNotMatch(calibration, /href="#\/settings"/);
+});

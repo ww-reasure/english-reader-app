@@ -43,6 +43,34 @@ test('keeps recent messages and expires stale article sessions', async () => {
   assert.equal(store.hasSession('reading:8'), false);
 });
 
+test('compacts home article and failure events into a safe, concise summary', async () => {
+  const { ConversationStore } = await loadStore();
+  const store = new ConversationStore(memory(), () => 1000);
+
+  store.append('home', { role: 'assistant', kind: 'article', article: {
+    title: 'A Saved Reading',
+    titleZh: '一篇已保存阅读',
+    difficulty: 'cet4',
+    topic: '科技',
+    wordCount: 280,
+    content: 'x'.repeat(5000)
+  } });
+  store.append('home', { role: 'assistant', kind: 'generation_failure', failure: {
+    message: '第 2 篇缺少复习词，已跳过。',
+    reason: 'validation_failed',
+    generation: { difficulty: 'cet4', challenge: 'support', wordCount: 300 }
+  } });
+  for (let index = 0; index < 4; index += 1) {
+    store.append('home', { role: 'user', kind: 'text', content: `消息 ${index}` });
+  }
+
+  const { summary } = store.compact('home', 2);
+  assert.match(summary, /A Saved Reading/);
+  assert.match(summary, /一篇已保存阅读/);
+  assert.match(summary, /第 2 篇缺少复习词/);
+  assert.equal(summary.includes('x'.repeat(300)), false);
+});
+
 test('replaces and removes a persisted generation failure by its stable id', async () => {
   const { ConversationStore } = await loadStore();
   const store = new ConversationStore(memory(), () => 1000);

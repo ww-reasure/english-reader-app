@@ -89,3 +89,85 @@ final result: passed
 - A non-user test profile or a user profile with a due word is needed for final visual QA of the recall-card state. No application data was seeded or changed solely to create a screenshot.
 
 final result: blocked
+
+---
+
+# Dossier Word Study Detail Design QA — 2026-07-28
+
+## Comparison target
+
+- Source visual truth: `C:\Users\a3284\.codex\generated_images\019fa68e-a619-7d03-85f5-d2d9fa9445db\exec-b9e09eac-2108-40c6-a04c-0b72e624e144.png`.
+- Rendered implementation: `design-audit/10-dossier-final-390.png`.
+- Full-view comparison: `design-audit/11-dossier-comparison-390.png` (source left, implementation right).
+- Viewport: 390 × 844 CSS pixels, browser screenshot 390 × 844 pixels, device scale factor 1. The 854 × 1844 source was normalized to the same 390 × 844 comparison canvas; its 2-pixel aspect-ratio difference is immaterial to the mobile composition.
+- State: light theme, reading route `#/reading/6`, `healthcare` opened through the existing compact Tooltip, full learning detail open on the `例句` tab.
+
+## Findings
+
+- No actionable P0, P1, or P2 differences remain.
+- The source's small angled notches at the definition-band seam are a decorative illustration treatment. The implementation keeps a real, responsive semantic boundary instead of recreating that ornament with CSS art; this is an acceptable P3 difference.
+- The visible focus ring around the close control in the automated capture is intentional keyboard accessibility feedback, not a default visual state.
+
+## Required fidelity surfaces
+
+- **Fonts and typography:** Both views use a high-contrast serif word display, compact monospaced `WORD NOTE` label, muted phonetic line, and more restrained serif examples. The implementation keeps Chinese definitions at a readable mobile scale without truncation.
+- **Spacing and layout rhythm:** The 95dvh detail sheet preserves the large pine cover, a separate glossary band, a spacious numbered example field, and a persistent bottom index. The 320px capture showed no overlap; labels remain horizontally scrollable rather than compressed.
+- **Colors and visual tokens:** Existing semantic pine, warm paper, moss, and coral tokens map directly to the selected design. Coral is limited to the note marker, example enumeration, and selected-tab underline; contrast stays readable on the pine cover and paper panel.
+- **Image quality and asset fidelity:** The existing local `assets/learning-paper-texture.png` is reused as the cover texture. No new image substitutes, custom SVGs, emoji, or CSS illustrations were added.
+- **Copy and content:** `WORD NOTE`, `例句 / 词根 / 同根词 / 词组 / 记忆法`, real dictionary definitions, and real examples are product content rather than mock filler.
+- **Icons, states, and accessibility:** The close action remains a labelled 48px semantic button with focus feedback; phonetic and word remain playable controls. The tablist retains tab semantics and horizontal scrolling, while the material panel alone scrolls vertically.
+
+## Comparison history
+
+1. **P2 — The first dossier pass was too short and the examples lacked the source's numbered guideline.**
+   - Evidence: `design-audit/09-dossier-implementation-390.png` showed a shorter cover and only a weak list rhythm.
+   - Fix: increased the full-detail sheet to `95dvh`, increased cover/title spacing, and added the coral left guideline with numbered rows.
+   - Post-fix evidence: `design-audit/10-dossier-final-390.png` and `design-audit/11-dossier-comparison-390.png` show the matching large pine cover, distinct glossary band, full three-example rhythm, and bottom tab rail.
+
+2. **Final comparison — passed.**
+   - The selected design's visual hierarchy is present in the rendered application without sacrificing the existing Tooltip entry point, five-tab interaction model, safe focus treatment, or narrow-screen horizontal tab scrolling.
+
+## Validation
+
+- Primary interaction checked: reading-word Tooltip opens; `查看学习详情` opens the complete detail sheet; existing word and phonetic playback controls remain semantic buttons; the five tabs are rendered as a labelled tablist.
+- Browser checks: live in-app browser, 390 × 844 and 320 × 844 responsive passes; no console warnings or errors.
+- Automated checks: `node --test tests/*.test.mjs` — 417 passed.
+- Build check: `npm run build` passed, including Capacitor Android sync. The existing `udpipe-wasm` browser-compatibility warnings for `node:fs` and `node:crypto` remain non-blocking and unchanged.
+
+## Follow-up polish
+
+- P3: if a future visual reference makes the seam ornament a brand asset rather than a decorative treatment, add a supplied raster asset instead of approximating it in CSS.
+
+final result: passed
+
+---
+
+# Shared Word Study Detail Design QA — 2026-07-28
+
+## Comparison target
+
+- Source visual truth: `E:\Download\Screenshot_20260728_102853.jpg` for the fixed study shell and tab rail; `E:\Download\Screenshot_20260728_103143.jpg` for the complete word-note content hierarchy.
+- Implementation routes: `http://127.0.0.1:5175/#/learn-words`, `http://127.0.0.1:5175/#/vocab`, and the full-detail entry exposed by the reading Tooltip.
+- Intended viewports: 320px and 390px mobile widths, light and dark themes.
+
+## Implemented fidelity surfaces
+
+- **Hierarchy:** fixed word head, independently scrolling learning-material panel, and fixed horizontally scrollable `例句 / 词根 / 同根词 / 词组 / 记忆法` rail.
+- **Consistency:** learning vocabulary, saved vocabulary, and flashcard study reuse the same material renderer; source-specific SRS or reading-context metadata stays in the shared header.
+- **Interaction:** every new word opens on `例句`; phrases load only when selected, cache locally, and reject fewer than three valid target-word phrases. Closing, switching words, routing away, or Android back invalidates late requests.
+- **Typography and color:** the existing learning-notebook serif hierarchy, warm semantic paper surfaces, pine accent, safe-area spacing, and dark-theme tokens are reused instead of introducing a second visual language.
+- **Accessibility:** the full detail uses a modal dialog, labelled close control, keyboard Escape handling, focus restoration, tab roles, and 48px close target.
+
+## Validation
+
+- Automated checks: all 416 Node regressions pass, including the final minimum-three-phrases assertion.
+- Production build: Vite build and Capacitor Android sync passed. Existing `udpipe-wasm` browser-compatibility warnings remain non-blocking.
+- Static overflow checks: the five tabs use intrinsic minimum widths and horizontal scrolling; the material panel owns vertical scrolling; the 320px rule stacks long related-word and phrase rows.
+
+## Browser QA blocker
+
+- The in-app browser tab was still on its generated connection-error `data:` page from before the local server started. Browser control correctly blocked navigation and DOM inspection from that untrusted error page.
+- The local preview is now listening on port 5175, but no implementation screenshot was captured through an alternate browser or automation surface because the selected-browser policy forbids that workaround.
+- Manual refresh of the user-visible tab is required before a same-state source/prototype screenshot comparison can be completed.
+
+final result: blocked

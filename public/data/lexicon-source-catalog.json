@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026.07.27",
+  "publicDirectionSources": [
+    {
+      "id": "kylebing-english-vocabulary-cet",
+      "role": "exam-focus",
+      "tracks": ["cet4", "cet6"],
+      "status": "active-public-direction-only",
+      "repositoryUrl": "https://github.com/KyleBing/english-vocabulary",
+      "commit": "8814e02b40f69a2a6e016dbde087010304fcedfc",
+      "artifact": "exam-focus.json",
+      "useBoundary": "exam-direction-only-not-official-truth",
+      "license": "No explicit license stated by the source repository; use authorized by the product owner for this app.",
+      "reason": "A fixed public CET-4/CET-6 wordlist is used only for word-level direction tags and aggregate focus counts. It does not claim to be an official syllabus, a licensed examination corpus, or a source of syntax thresholds, frequency bands, Chinese-definition truth, mastery evidence, or coverage guarantees."
+    }
+  ],
+  "pendingSources": [
+    {
+      "id": "ecdict-mini-2025",
+      "role": "zh-gloss-candidate",
+      "status": "blocked-sample-not-learning-ready",
+      "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/ecdict.mini.csv",
+      "version": "repository commit bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b; ecdict.mini.csv",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/LICENSE",
+      "retrievedAt": "2026-07-26",
+      "sha256": "6133bcc38ccfc1ed8eaf8f52a5cb567fb78f028d079647a85b4b92a99c3cf025",
+      "byteSize": 4204,
+      "recordCount": 53,
+      "snapshotPath": "ecdict/ecdict.mini.csv",
+      "attribution": "ECDICT by Linwei, MIT License.",
+      "reason": "The immutable mini CSV contains only 53 data records, dominated by fragments, domain terms, proper names, and phrases. After common-learning-sense filtering it cannot provide the 24 independent high-confidence calibration items required by the app, so it is deliberately blocked rather than treated as a small general dictionary.",
+      "requiredBeforeActivation": [
+        "at least 24 independently reviewed common learning senses",
+        "domain-tag rejection",
+        "high-frequency regression review"
+      ]
+    },
+    {
+      "id": "target-focus-cet4",
+      "role": "exam-focus",
+      "track": "cet4",
+      "status": "blocked-corpus-provenance",
+      "publicReferenceUrl": "https://cet.neea.edu.cn/",
+      "reason": "No versioned, licensable historical reading corpus has been accepted for the CET-4 focus layer.",
+      "requiredBeforeActivation": [
+        "corpus provenance",
+        "redistribution permission or derived-statistics policy",
+        "versioned tokenization output",
+        "SHA-256 digest"
+      ],
+      "activationGuard": {
+        "registryId": "track-baseline-registry",
+        "allowRawExamTextInApk": false,
+        "acceptedBuildOutput": "derived-statistics-only",
+        "requiredEvidence": [
+          "licensed-or-permitted-raw-corpus",
+          "immutable-source-snapshot-and-sha256",
+          "reproducible-tokenization-and-derived-statistics",
+          "same-tokenizer-and-udpipe-metric-schema",
+          "per-track-sample-size-and-distribution-report",
+          "human-legal-and-methodology-review"
+        ]
+      }
+    },
+    {
+      "id": "target-focus-cet6",
+      "role": "exam-focus",
+      "track": "cet6",
+      "status": "blocked-corpus-provenance",
+      "publicReferenceUrl": "https://cet.neea.edu.cn/",
+      "reason": "No versioned, licensable historical reading corpus has been accepted for the CET-6 focus layer.",
+      "requiredBeforeActivation": [
+        "corpus provenance",
+        "redistribution permission or derived-statistics policy",
+        "versioned tokenization output",
+        "SHA-256 digest"
+      ],
+      "activationGuard": {
+        "registryId": "track-baseline-registry",
+        "allowRawExamTextInApk": false,
+        "acceptedBuildOutput": "derived-statistics-only",
+        "requiredEvidence": [
+          "licensed-or-permitted-raw-corpus",
+          "immutable-source-snapshot-and-sha256",
+          "reproducible-tokenization-and-derived-statistics",
+          "same-tokenizer-and-udpipe-metric-schema",
+          "per-track-sample-size-and-distribution-report",
+          "human-legal-and-methodology-review"
+        ]
+      }
+    },
+    {
+      "id": "target-focus-kaoyan1",
+      "role": "exam-focus",
+      "track": "kaoyan1",
+      "status": "blocked-corpus-provenance",
+      "publicReferenceUrl": "https://yz.chsi.com.cn/",
+      "reason": "No versioned, licensable historical reading corpus has been accepted for the English I focus layer.",
+      "requiredBeforeActivation": [
+        "corpus provenance",
+        "redistribution permission or derived-statistics policy",
+        "versioned tokenization output",
+        "SHA-256 digest"
+      ],
+      "activationGuard": {
+        "registryId": "track-baseline-registry",
+        "allowRawExamTextInApk": false,
+        "acceptedBuildOutput": "derived-statistics-only",
+        "requiredEvidence": [
+          "licensed-or-permitted-raw-corpus",
+          "immutable-source-snapshot-and-sha256",
+          "reproducible-tokenization-and-derived-statistics",
+          "same-tokenizer-and-udpipe-metric-schema",
+          "per-track-sample-size-and-distribution-report",
+          "human-legal-and-methodology-review"
+        ]
+      }
+    },
+    {
+      "id": "target-focus-kaoyan2",
+      "role": "exam-focus",
+      "track": "kaoyan2",
+      "status": "blocked-corpus-provenance",
+      "publicReferenceUrl": "https://yz.chsi.com.cn/",
+      "reason": "No versioned, licensable historical reading corpus has been accepted for the English II focus layer.",
+      "requiredBeforeActivation": [
+        "corpus provenance",
+        "redistribution permission or derived-statistics policy",
+        "versioned tokenization output",
+        "SHA-256 digest"
+      ],
+      "activationGuard": {
+        "registryId": "track-baseline-registry",
+        "allowRawExamTextInApk": false,
+        "acceptedBuildOutput": "derived-statistics-only",
+        "requiredEvidence": [
+          "licensed-or-permitted-raw-corpus",
+          "immutable-source-snapshot-and-sha256",
+          "reproducible-tokenization-and-derived-statistics",
+          "same-tokenizer-and-udpipe-metric-schema",
+          "per-track-sample-size-and-distribution-report",
+          "human-legal-and-methodology-review"
+        ]
+      }
+    }
+  ]
+}

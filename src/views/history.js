@@ -58,7 +58,9 @@ export const HistoryView = {
             <option value="" ${this.difficultyFilter === '' ? 'selected' : ''}>全部难度</option>
             <option value="cet4" ${this.difficultyFilter === 'cet4' ? 'selected' : ''}>四级</option>
             <option value="cet6" ${this.difficultyFilter === 'cet6' ? 'selected' : ''}>六级</option>
-            <option value="graduate" ${this.difficultyFilter === 'graduate' ? 'selected' : ''}>考研</option>
+            <option value="kaoyan1" ${this.difficultyFilter === 'kaoyan1' ? 'selected' : ''}>考研英语一</option>
+            <option value="kaoyan2" ${this.difficultyFilter === 'kaoyan2' ? 'selected' : ''}>考研英语二</option>
+            <option value="graduate" ${this.difficultyFilter === 'graduate' ? 'selected' : ''}>考研（旧版）</option>
           </select>
           <select onchange="HistoryView.filterFavorite(this.value)">
             <option value="all" ${this.filterMode === 'all' ? 'selected' : ''}>全部文章</option>

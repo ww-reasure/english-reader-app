@@ -57,7 +57,9 @@ test('the legacy SRS facade delegates scheduling and queue selection to schedule
 test('database migration stores immutable review events with the word update', async () => {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
 
-  assert.match(source, /DB_VERSION:\s*7/);
+  const version = source.match(/DB_VERSION:\s*(\d+)/)?.[1];
+  assert.ok(version, 'database version should be declared');
+  assert.ok(Number(version) >= 9, 'review-event migration requires database version 9 or later');
   assert.match(source, /createObjectStore\('reviewEvents'/);
   assert.match(source, /recordLearnWordReview\(id, srsData, event\)/);
   assert.match(source, /addReviewEvent\(event\)/);
@@ -69,5 +71,6 @@ test('flashcard records explicit answer visibility with every score', async () =
 
   assert.match(source, /DB\.recordLearnWordReview\(word\.id, srsData, \{/);
   assert.match(source, /source:\s*'flashcard'/);
-  assert.match(source, /sawAnswer:\s*this\.reviewState\.meaningRevealed/);
+  assert.match(source, /const meaningRevealed = Boolean\(this\.reviewState\.meaningRevealed\);/);
+  assert.match(source, /sawAnswer:\s*meaningRevealed/);
 });

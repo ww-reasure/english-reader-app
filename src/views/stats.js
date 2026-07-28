@@ -26,7 +26,7 @@ export const StatsView = {
     const streak = this.calculateStreak(articles);
 
     // Difficulty distribution
-    const diffDist = { cet4: 0, cet6: 0, graduate: 0 };
+    const diffDist = { cet4: 0, cet6: 0, kaoyan1: 0, kaoyan2: 0, graduate: 0 };
     articles.forEach(a => { diffDist[a.difficulty] = (diffDist[a.difficulty] || 0) + 1; });
 
     // Favorite count
@@ -50,7 +50,6 @@ export const StatsView = {
           <p class="page-eyebrow">05 / STUDY ARCHIVE</p>
           <div class="profile-heading-row">
             <div><h1 class="page-title">学习档案</h1><p class="page-desc">把每一次阅读，留成看得见的积累。</p></div>
-            <a class="btn-icon" href="#/settings" title="打开设置" aria-label="打开设置">⚙</a>
           </div>
         </header>
 
@@ -136,7 +135,9 @@ export const StatsView = {
           <div class="stats-diff-bars">
             ${this.renderDiffBar('四级', diffDist.cet4, totalArticles, 'cet4')}
             ${this.renderDiffBar('六级', diffDist.cet6, totalArticles, 'cet6')}
-            ${this.renderDiffBar('考研', diffDist.graduate, totalArticles, 'graduate')}
+            ${this.renderDiffBar('考研英语一', diffDist.kaoyan1, totalArticles, 'kaoyan1')}
+            ${this.renderDiffBar('考研英语二', diffDist.kaoyan2, totalArticles, 'kaoyan2')}
+            ${this.renderDiffBar('考研（旧版）', diffDist.graduate, totalArticles, 'graduate')}
           </div>
         </div>
 

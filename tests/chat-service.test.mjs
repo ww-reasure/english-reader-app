@@ -34,5 +34,6 @@ test('retries once without tools after a tools-unsupported response', async () =
   });
 
   assert.equal(reply.content, '你有 2 个待复习词');
+  assert.equal(reply.toolSupport, 'unsupported');
   assert.equal(calls.length, 2);
 });

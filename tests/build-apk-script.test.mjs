@@ -36,3 +36,25 @@ test('APK build preflight rejects stale version.json metadata before Gradle runs
     /version\.json/
   );
 });
+
+test('minor releases rebuild the OEWN derivative after the lexicon and before versioning or APK build', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+
+  assert.equal(
+    packageJson.scripts['release:minor'],
+    'npm run release:preflight && npm run version:minor && npm run build:apk'
+  );
+  assert.equal(
+    packageJson.scripts['release:preflight'],
+    'npm run exam-focus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify'
+  );
+  assert.equal(packageJson.scripts['oewn:fetch'], 'node scripts/fetch-oewn-source.mjs');
+  assert.equal(packageJson.scripts['oewn:build'], 'node scripts/build-oewn-artifact.mjs');
+  assert.equal(packageJson.scripts['oewn:verify'], 'npm run oewn:fetch && npm run oewn:build');
+  assert.equal(packageJson.scripts['exam-focus:build'], 'node scripts/build-exam-focus.mjs');
+  assert.equal(packageJson.scripts['exam-focus:verify'], 'node scripts/build-exam-focus.mjs');
+  assert.equal(
+    packageJson.scripts['release:patch'],
+    'npm run release:preflight && npm run version:patch && npm run build:apk'
+  );
+});

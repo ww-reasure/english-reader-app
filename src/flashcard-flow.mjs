@@ -9,7 +9,9 @@ export function createReviewState() {
     meaningRevealed: false,
     pendingQuality: null,
     quality: null,
-    isSubmitting: false
+    isSubmitting: false,
+    isCorrecting: false,
+    ratingCorrected: false
   };
 }
 
@@ -35,6 +37,29 @@ export function finishRating(state) {
     quality: state.pendingQuality,
     pendingQuality: null,
     isSubmitting: false
+  };
+}
+
+export function canCorrectKnownRating(state) {
+  return state.phase === REVIEW_PHASES.STUDY
+    && state.quality === 5
+    && !state.isSubmitting
+    && !state.ratingCorrected;
+}
+
+export function startRatingCorrection(state) {
+  if (!canCorrectKnownRating(state)) return null;
+  return { ...state, isSubmitting: true, isCorrecting: true };
+}
+
+export function finishRatingCorrection(state) {
+  if (state.phase !== REVIEW_PHASES.STUDY || !state.isCorrecting || !state.isSubmitting) return state;
+  return {
+    ...state,
+    quality: 1,
+    isSubmitting: false,
+    isCorrecting: false,
+    ratingCorrected: true
   };
 }
 

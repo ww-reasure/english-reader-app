@@ -10,9 +10,23 @@ export function abortTransaction(tx, error) {
   return error;
 }
 
+function updateRecordFields(db, storeName, id, fields) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const record = getReq.result;
+      if (record) store.put({ ...record, ...fields });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 7,  // v7: immutable review history and scheduler-v2 evidence
+  DB_VERSION: 10, // v10: independent evidence counters are normalized by the profile repository
 
   // Open database connection with retry
   open(retries = 3) {
@@ -83,6 +97,40 @@ export const DB = {
           store.createIndex('reviewedAt', 'reviewedAt');
           store.createIndex('source', 'source');
         }
+
+        // v8: evidence-backed personal knowledge profile. Do not migrate
+        // vocabulary or learnWords records: saving a word is not proof of knowing it.
+        if (!db.objectStoreNames.contains('knowledgeWords')) {
+          const store = db.createObjectStore('knowledgeWords', { keyPath: 'lemma' });
+          store.createIndex('status', 'status');
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('knowledgeBands')) {
+          const store = db.createObjectStore('knowledgeBands', { keyPath: 'band' });
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('knowledgeEvidence')) {
+          const store = db.createObjectStore('knowledgeEvidence', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('lemma', 'lemma');
+          store.createIndex('band', 'band');
+          store.createIndex('occurredAt', 'occurredAt');
+          store.createIndex('articleId', 'articleId');
+          store.createIndex('questionId', 'questionId');
+          store.createIndex('calibrationKey', 'calibrationKey', { unique: true });
+        } else if (e.oldVersion < 9) {
+          const store = e.target.transaction.objectStore('knowledgeEvidence');
+          if (!store.indexNames.contains('calibrationKey')) {
+            store.createIndex('calibrationKey', 'calibrationKey', { unique: true });
+          }
+        }
+        if (!db.objectStoreNames.contains('knowledgeProfileMeta')) {
+          db.createObjectStore('knowledgeProfileMeta', { keyPath: 'key' });
+        }
+
+        // v10 is intentionally a field-only migration. Existing derived
+        // knowledge snapshots stay intact; knowledge-profile.mjs supplies
+        // zero-valued independent counters when older records are read, so we
+        // never invent independent evidence or rewrite user data in bulk.
       };
 
       req.onsuccess = () => resolve(req.result);
@@ -255,6 +303,10 @@ export const DB = {
     });
   },
 
+  async updateWordDefinition(id, fields) {
+    return updateRecordFields(await this.open(), 'vocabulary', id, fields);
+  },
+
   async deleteWord(id) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -299,6 +351,10 @@ export const DB = {
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+  },
+
+  async updateLearnWordDefinition(id, fields) {
+    return updateRecordFields(await this.open(), 'learnWords', id, fields);
   },
 
   async deleteLearnWord(id) {
@@ -370,6 +426,72 @@ export const DB = {
     });
   },
 
+  // Correct the current card's saved rating in place. The original score is
+  // retained as audit metadata, while scheduling and the effective event use
+  // the corrected score so a mistaken tap never becomes two reviews.
+  async correctLearnWordReview(id, srsData, correction = {}) {
+    const attemptId = String(correction.attemptId || '').trim();
+    if (!attemptId) throw new TypeError('评分更正需要本次复习标识');
+
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
+      const words = tx.objectStore('learnWords');
+      const events = tx.objectStore('reviewEvents');
+      let updatedWord = null;
+      let failure = null;
+
+      const fail = (message) => {
+        failure = abortTransaction(tx, new Error(message));
+      };
+
+      const wordRequest = words.get(id);
+      wordRequest.onsuccess = () => {
+        const word = wordRequest.result;
+        if (!word) {
+          fail('学习词不存在');
+          return;
+        }
+
+        const eventRequest = events.index('wordId').getAll(id);
+        eventRequest.onsuccess = () => {
+          const matching = eventRequest.result
+            .filter(item => item.attemptId === attemptId && !item.correctedAt)
+            .sort((a, b) => (b.reviewedAt - a.reviewedAt) || (b.id - a.id))[0];
+          if (!matching) {
+            fail('本次评分无法更正');
+            return;
+          }
+
+          updatedWord = { ...word, ...srsData };
+          words.put(updatedWord);
+          events.put({
+            ...matching,
+            rating: 1,
+            sawAnswer: Boolean(correction.sawAnswer),
+            nextInterval: Number(srsData.interval) || 0,
+            nextState: srsData.state || 'legacy',
+            schedulerVersion: srsData.schedulerVersion || matching.schedulerVersion || 1,
+            originalRating: matching.originalRating ?? matching.rating,
+            correctedAt: Date.now(),
+            correctionReason: correction.correctionReason || 'mistaken-known'
+          });
+        };
+        eventRequest.onerror = () => {
+          failure = eventRequest.error;
+          tx.abort();
+        };
+      };
+      wordRequest.onerror = () => {
+        failure = wordRequest.error;
+        tx.abort();
+      };
+      tx.oncomplete = () => resolve(updatedWord);
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('评分更正失败'));
+    });
+  },
+
   async getReviewEventsForWord(wordId) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -394,6 +516,97 @@ export const DB = {
         ...event
       });
       req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  // ===== Personal Knowledge Profile =====
+  // Kept deliberately separate from saved vocabulary and SRS cards.
+
+  async getKnowledgeWord(lemma) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeWords', 'readonly');
+      const req = tx.objectStore('knowledgeWords').get(lemma);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getKnowledgeBand(band) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeBands', 'readonly');
+      const req = tx.objectStore('knowledgeBands').get(band);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getKnowledgeProfileMeta(key) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeProfileMeta', 'readonly');
+      const req = tx.objectStore('knowledgeProfileMeta').get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async saveKnowledgeProfileMeta(record) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeProfileMeta', 'readwrite');
+      const req = tx.objectStore('knowledgeProfileMeta').put({ ...record });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  // Store the derived word/band snapshots and the immutable evidence in one
+  // transaction, so later UI never sees a half-applied mastery update.
+  async saveKnowledgeProfileUpdate({ word, band, evidence }) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['knowledgeWords', 'knowledgeBands', 'knowledgeEvidence'], 'readwrite');
+      const words = tx.objectStore('knowledgeWords');
+      const bands = tx.objectStore('knowledgeBands');
+      const events = tx.objectStore('knowledgeEvidence');
+      let evidenceId = null;
+
+      words.put({ ...word });
+      bands.put({ ...band });
+      const evidenceRequest = events.add({ ...evidence });
+      evidenceRequest.onsuccess = () => {
+        evidenceId = evidenceRequest.result;
+      };
+      evidenceRequest.onerror = () => reject(evidenceRequest.error);
+      tx.oncomplete = () => resolve({
+        word: { ...word },
+        band: { ...band },
+        evidence: { ...evidence, id: evidenceId }
+      });
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('知识证据保存失败'));
+    });
+  },
+
+  async getKnowledgeEvidenceForWord(lemma) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeEvidence', 'readonly');
+      const req = tx.objectStore('knowledgeEvidence').index('lemma').getAll(lemma);
+      req.onsuccess = () => resolve(req.result.sort((a, b) => (a.occurredAt - b.occurredAt) || (a.id - b.id)));
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getKnowledgeEvidenceByCalibrationKey(calibrationKey) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeEvidence', 'readonly');
+      const req = tx.objectStore('knowledgeEvidence').index('calibrationKey').get(calibrationKey);
+      req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
   },

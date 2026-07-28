@@ -2,6 +2,32 @@ const KEY = 'learningConversationsV2';
 const VERSION = 2;
 
 const emptySession = now => ({ updatedAt: now(), summary: '', messages: [] });
+const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+
+const summaryLineFor = (item, key) => {
+  if (item.kind === 'text') return (item.role === 'user' ? '用户：' : '助手：') + clip(item.content, 500);
+  if (key !== 'home' || item.kind === 'notice' || item.kind === 'error') return '';
+  if (item.kind === 'article') {
+    const article = item.article || {};
+    const title = clip(article.title, 120) || '未命名文章';
+    const titleZh = clip(article.titleZh, 120);
+    const details = [
+      `成功生成文章：${title}${titleZh ? `（${titleZh}）` : ''}`,
+      clip(article.difficulty, 32),
+      clip(article.topic, 60),
+      Number.isFinite(Number(article.wordCount)) ? `${Number(article.wordCount)} 词` : ''
+    ].filter(Boolean);
+    return details.join('；');
+  }
+  if (item.kind === 'generation_failure') {
+    const failure = item.failure || {};
+    const generation = failure.generation || {};
+    const spec = [clip(generation.difficulty, 32), clip(generation.challenge, 32), Number.isFinite(Number(generation.wordCount)) ? `${Number(generation.wordCount)} 词` : '']
+      .filter(Boolean).join(' / ');
+    return `文章生成未完成：${clip(failure.message, 360) || '内容不完整'}${spec ? `（${spec}）` : ''}`;
+  }
+  return '';
+};
 
 export class ConversationStore {
   constructor(storage = localStorage, now = () => Date.now()) {
@@ -90,9 +116,10 @@ export class ConversationStore {
     const recent = session.messages.slice(-keep);
     const archived = session.messages.slice(0, -keep);
     const lines = archived
-      .filter(item => item.kind === 'text')
+      .map(item => summaryLineFor(item, key))
+      .filter(Boolean)
       .slice(-8)
-      .map(item => (item.role === 'user' ? '用户：' : '助手：') + item.content);
+      ;
     const summary = [session.summary, ...lines].filter(Boolean).join('\n').slice(-1800);
 
     this.replaceSession(key, { ...session, summary, messages: recent });

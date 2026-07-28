@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createConfigStorage } from '../src/config-storage.mjs';
+import { CONFIG_STORAGE_KEYS, createConfigStorage } from '../src/config-storage.mjs';
 
 function createWebStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -114,4 +114,10 @@ test('serializes native writes so a slow earlier save cannot overwrite later set
     base_url: 'https://example.test/v1',
     model: 'example-model'
   });
+});
+
+test('persists the separate target, recommendation and calibration migration settings', () => {
+  for (const key of ['reading_mode', 'target_track_selection_required', 'calibration_status', 'lexicon_version']) {
+    assert.ok(CONFIG_STORAGE_KEYS.includes(key), `${key} should survive the native-settings migration`);
+  }
 });

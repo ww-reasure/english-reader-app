@@ -57,3 +57,23 @@ test('assessment cleanup invalidates a pending wait loop immediately', async () 
 
   assert.match(cleanup, /this\.state\.assessmentRunId \+= 1;/);
 });
+
+test('legacy assessment and feature guide describe coverage as a material target, not learner mastery or true-exam equivalence', async () => {
+  const [source, features] = await Promise.all([
+    readFile(new URL('../src/views/assessment.js', import.meta.url), 'utf8'),
+    readFile(new URL('../docs/FEATURES.md', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(source, /材料目标覆盖率/);
+  assert.match(source, /不是对你已掌握词汇的估计/);
+  assert.match(source, /高频词阅读表现/);
+  assert.match(source, /中频词阅读表现/);
+  assert.doesNotMatch(source, /其余 \$\{result\.recommendedCoverage\}% 为你已掌握的词汇/);
+  assert.doesNotMatch(source, /高频词掌握/);
+  assert.doesNotMatch(source, /中频词掌握/);
+
+  assert.match(features, /目标考试导向阅读/);
+  assert.match(features, /材料目标覆盖率/);
+  assert.doesNotMatch(features, /接近真题难度/);
+  assert.doesNotMatch(features, /\| 四级（易） \| 3000 词 \|/);
+});

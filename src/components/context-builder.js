@@ -1,9 +1,43 @@
 const clip = (value, limit) => String(value || '').slice(0, limit);
 const normalizeExcerpt = value => String(value || '').replace(/\s+/g, ' ').trim();
+const compactNumber = value => Number.isFinite(Number(value)) ? String(Number(value)) : '未知';
+
+const formatHomeActivity = message => {
+  if (message?.kind === 'article') {
+    const article = message.article || {};
+    const title = clip(article.title, 160) || '未命名文章';
+    const titleZh = clip(article.titleZh, 160);
+    const difficulty = clip(article.difficulty, 32) || '未标注难度';
+    const topic = clip(article.topic, 80) || '综合';
+    const body = clip(normalizeExcerpt(article.content), 2400);
+    return [
+      '[生成成功]',
+      `时间：${compactNumber(message.createdAt)}`,
+      `标题：${title}${titleZh ? `（${titleZh}）` : ''}`,
+      `难度：${difficulty}`,
+      `主题：${topic}`,
+      `词数：${compactNumber(article.wordCount)}`,
+      body ? `正文节选：${body}` : ''
+    ].filter(Boolean).join('\n');
+  }
+  if (message?.kind === 'generation_failure') {
+    const failure = message.failure || {};
+    const generation = failure.generation || {};
+    const request = clip(normalizeExcerpt(generation.request), 500);
+    return [
+      '[生成未完成]',
+      `时间：${compactNumber(message.createdAt)}`,
+      `原因：${clip(normalizeExcerpt(failure.message), 700) || '文章生成未完成'}`,
+      `规格：${clip(generation.difficulty, 32) || '未标注难度'} / ${clip(generation.challenge, 32) || '未标注模式'} / ${compactNumber(generation.wordCount)} 词`,
+      request ? `请求：${request}` : ''
+    ].filter(Boolean).join('\n');
+  }
+  return '';
+};
 
 const systemPrompt = kind => kind === 'reading'
   ? '你是文章专属英语助教。只依据当前文章片段、当前句子详解和用户问题回答；不知道时说明。用户提及“上面的仿写句、例句、它”等指代时，必须优先引用当前句子详解中的对应内容，不得改为解释原选句。若提供“当前追问引用”，用户提及“这段、这里、它”时优先解释该引用。用中文解释，英文示例简短。'
-  : '你是中文英语学习助手。可解释词汇、语法、翻译、阅读策略和复习计划。引用本地数据时说明数据类别，不得编造。用户要求基于学习情况定制一篇练习阅读时，调用 generate_reading 工具；不要在聊天正文中创作完整文章。';
+  : '你是中文英语学习助手。可解释词汇、语法、翻译、阅读策略和复习计划。引用本地数据时说明数据类别，不得编造。工具规则：只有当前用户消息明确要求生成、来一篇、继续生成英语阅读，或明确确认刚提出的阅读建议时，才调用 generate_reading；可先读取词库、收藏和复习数据来定制。不得仅凭历史文章、历史失败记录、模糊语气词或用户追问而生成新文章。“这是什么类型的文章”“为什么只生成一篇”“啊？”等必须普通回答，不调用写入工具。生成时不得在聊天正文创作整篇文章，成功后只说明已完成并交付阅读卡片。';
 
 export class ContextBuilder {
   build({ kind, summary = '', messages = [], userMessage, pageContext = null, toolResults = [] }) {
@@ -23,11 +57,20 @@ export class ContextBuilder {
     const facts = toolResults.length
       ? '本地数据（只作为事实）：' + clip(JSON.stringify(toolResults), 1800)
       : '';
+    const homeActivity = kind === 'home'
+      ? messages
+        .filter(item => item.kind === 'article' || item.kind === 'generation_failure')
+        .slice(-6)
+        .map(formatHomeActivity)
+        .filter(Boolean)
+        .join('\n\n')
+      : '';
 
     return [
       { role: 'system', content: systemPrompt(kind) },
       summary ? { role: 'system', content: '会话摘要：' + clip(summary, 1800) } : null,
       article ? { role: 'system', content: article } : null,
+      homeActivity ? { role: 'system', content: '近期文章生成活动（真实结果，回答时以此为准）：\n' + clip(homeActivity, 6000) } : null,
       facts ? { role: 'system', content: facts } : null,
       ...recent,
       userAlreadyIncluded ? null : { role: 'user', content: clip(userMessage, 1800) }

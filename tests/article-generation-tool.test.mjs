@@ -175,6 +175,56 @@ test('retries one time with the measured deviations before saving a corrected ar
   assert.equal(result.article.id, 8);
 });
 
+test('awaits an injected asynchronous quality gate and forwards cancellation-safe validation options', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  const received = [];
+  const tool = new ArticleGenerationTool({
+    api: { generateArticle: async () => ({ title: 'Async', content: 'Validated article.', translation: '', wordCount: 2 }) },
+    db: { getAllLearnWords: async () => [], saveArticle: async () => 12, deleteArticle: async () => {} },
+    validate: async (_content, _profile, _targets, options) => {
+      await Promise.resolve();
+      received.push(options);
+      return { passed: true, metrics: { wordCount: 2 }, deviations: [] };
+    }
+  });
+
+  await tool.execute({ request: '生成文章' }, {
+    validationOptions: { calibrationStatus: 'skipped', targetCoverage: null }
+  });
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].calibrationStatus, 'skipped');
+  assert.equal(received[0].targetCoverage, null);
+  assert.equal(typeof received[0].isActive, 'function');
+});
+
+test('forwards the resolved personalization contract to the generation API', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  const calls = [];
+  const personalization = {
+    mode: 'uncalibrated_conservative',
+    calibrationStatus: 'skipped',
+    challenge: 'support',
+    targetCoverage: null,
+    prompt: 'Use high-frequency core vocabulary.'
+  };
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticle: async (...args) => {
+        calls.push(args);
+        return { title: 'Conservative', content: 'A short article.', translation: '', wordCount: 3 };
+      }
+    },
+    db: { getAllLearnWords: async () => [], saveArticle: async () => 15, deleteArticle: async () => {} },
+    validate: () => ({ passed: true, metrics: { wordCount: 3 }, deviations: [] })
+  });
+
+  await tool.execute({ request: '生成文章' }, { personalization });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][6].personalization, personalization);
+});
+
 test('formats a retry correction with measured limits and missing target words', async () => {
   const { formatValidationCorrection } = await loadTool();
   const correction = formatValidationCorrection({
@@ -196,6 +246,80 @@ test('formats a retry correction with measured limits and missing target words',
   assert.match(correction, /实际总字数：287 词；要求：320-420 词/);
   assert.match(correction, /实际平均句长：9\.5 词；要求：14-22 词/);
   assert.match(correction, /缺失目标词：journey/);
+});
+
+test('uses safe lexical, grammar and personal-fit metrics in a refinement request', async () => {
+  const { ArticleValidationError, formatValidationCorrection } = await loadTool();
+  const validation = {
+    passed: false,
+    metrics: {
+      wordCount: 340,
+      averageSentenceLength: 17,
+      lexicon: { tokenCount: 340, unknownTokenCount: 4, unbandedTokenCount: 1, unverifiedTokenCount: 0 },
+      grammar: { maxDependencyDepth: 8, subordinateRate: 0.2, passiveRate: 0.1, nonFiniteRate: 0.1 },
+      personalFit: {
+        estimatedCoverage: 93,
+        targetCoverage: 96,
+        confidence: 0.4,
+        traceableCoreCoveragePercent: 76,
+        foundationCoveragePercent: 63,
+        upperFrequencyCoveragePercent: 19
+      }
+    },
+    lexiconProfile: { unknownLemmas: ['secret-unpublished-token'] },
+    deviations: [
+      { code: 'dependency_depth', expected: { min: 3, max: 6 }, value: 8, source: 'local' },
+      { code: 'personal_coverage', expected: { min: 96, max: 100 }, actual: 93 },
+      { code: 'conservative_core_coverage', expected: { min: 90, max: 100 }, actual: 76 },
+      { code: 'conservative_foundation_coverage', expected: { min: 80, max: 100 }, actual: 63 },
+      { code: 'conservative_upper_frequency_coverage', expected: { min: 0, max: 12 }, actual: 19 }
+    ]
+  };
+
+  const correction = formatValidationCorrection(validation, {
+    wordRange: { min: 320, max: 420 },
+    sentenceRange: { min: 14, max: 22 }
+  });
+  const error = new ArticleValidationError({ validation });
+
+  assert.match(correction, /词汇校验：未分类或未验证词 5 个/);
+  assert.match(correction, /句法校验：依存深度 8，目标 3-6/);
+  assert.match(correction, /个人匹配：预计掌握覆盖 93%，目标至少 96%/);
+  assert.match(correction, /保守材料构成：可追溯核心词 76%，基础 NGSL 1-3 词 63%，NGSL 4 及以上词 19%/);
+  assert.doesNotMatch(correction, /secret-unpublished-token/);
+  assert.equal(error.validation.metrics.lexicon.unknownTokenCount, 4);
+  assert.equal(error.validation.metrics.grammar.maxDependencyDepth, 8);
+  assert.equal(error.validation.metrics.personalFit.estimatedCoverage, 93);
+  assert.equal(error.validation.metrics.personalFit.traceableCoreCoveragePercent, 76);
+  assert.doesNotMatch(JSON.stringify(error), /secret-unpublished-token/);
+});
+
+test('explains conservative material-policy failures without presenting them as learner mastery', async () => {
+  const { formatValidationSummary } = await loadTool();
+  const summary = formatValidationSummary({
+    passed: false,
+    metrics: {
+      wordCount: 348,
+      averageSentenceLength: 17,
+      personalFit: {
+        traceableCoreCoveragePercent: 76,
+        foundationCoveragePercent: 63,
+        upperFrequencyCoveragePercent: 19
+      }
+    },
+    deviations: [
+      { code: 'conservative_core_coverage', expected: { min: 90, max: 100 }, actual: 76 },
+      { code: 'conservative_foundation_coverage', expected: { min: 80, max: 100 }, actual: 63 },
+      { code: 'conservative_upper_frequency_coverage', expected: { min: 0, max: 12 }, actual: 19 }
+    ]
+  }, {
+    wordRange: { min: 320, max: 420 },
+    sentenceRange: { min: 14, max: 22 }
+  });
+
+  assert.match(summary, /可追溯基础词比例不符合保守材料要求/);
+  assert.match(summary, /不代表你的词汇掌握率/);
+  assert.doesNotMatch(summary, /预计掌握覆盖/);
 });
 
 test('reports drafting, checking and refining while retrying with the detailed correction', async () => {
@@ -296,15 +420,128 @@ test('throws a safe structured validation error without keeping article content'
   assert.equal(saveCalls, 0);
 });
 
-test('review-generated readings use the validated article tool instead of direct API saves', async () => {
+test('review-generated readings delegate to the home article tool instead of direct API saves', async () => {
   const [flashcard, reading] = await Promise.all([
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/reading.js', import.meta.url), 'utf8')
   ]);
 
   for (const source of [flashcard, reading]) {
-    assert.match(source, /ArticleGenerationTool/);
-    assert.match(source, /reviewArticleTool\.execute\(/);
+    assert.match(source, /ChatView\.generateReviewReadings/);
     assert.doesNotMatch(source, /API\.generateArticle\(/);
   }
+});
+
+const buildArticleContent = (wordCount, extra = '') => {
+  const words = Array.from({ length: wordCount }, () => 'practice');
+  if (extra) words.splice(4, 0, ...extra.split(/\s+/));
+  const chunk = Math.ceil(words.length / 3);
+  return [
+    words.slice(0, chunk).join(' ') + '.',
+    words.slice(chunk, chunk * 2).join(' ') + '.',
+    words.slice(chunk * 2).join(' ') + '.'
+  ].join(' ');
+};
+
+test('admits structurally complete articles inside the light 70 to 140 percent range', async () => {
+  const { admitArticle } = await loadTool();
+  const result = admitArticle({
+    title: 'Practice and Progress',
+    titleZh: '练习与进步',
+    content: buildArticleContent(240),
+    translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+  }, { targetWordCount: 300 });
+
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.wordCount, 240);
+  assert.deepEqual(result.deviations, []);
+});
+
+test('requires every review target word but does not require advisory words for ordinary generation', async () => {
+  const { admitArticle } = await loadTool();
+  const article = {
+    title: 'Practice and Progress',
+    titleZh: '练习与进步',
+    content: buildArticleContent(300, 'memory'),
+    translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+  };
+
+  const ordinary = admitArticle(article, { targetWordCount: 300, advisoryWords: ['memory', 'missing'] });
+  const review = admitArticle(article, { targetWordCount: 300, reviewWords: ['memory', 'missing'] });
+
+  assert.equal(ordinary.passed, true);
+  assert.equal(review.passed, false);
+  assert.deepEqual(review.deviations.map(item => item.code), ['review_word']);
+  assert.deepEqual(review.missingReviewWords, ['missing']);
+});
+
+test('saves an admitted article after one model request while quality inspection stays non-blocking', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  let generationCalls = 0;
+  let inspectStarted = false;
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticle: async () => {
+        generationCalls += 1;
+        return {
+          title: 'Saved immediately',
+          titleZh: '立即保存',
+          content: buildArticleContent(300),
+          translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+        };
+      }
+    },
+    db: { getAllLearnWords: async () => [], saveArticle: async () => 17, updateArticle: async () => {} },
+    admit: () => ({ passed: true, metrics: { wordCount: 300 }, deviations: [] }),
+    inspectQuality: async () => {
+      inspectStarted = true;
+      throw new Error('background grammar unavailable');
+    },
+    validate: () => {
+      throw new Error('legacy deep validator must not block admission');
+    }
+  });
+
+  const result = await tool.execute({ request: '生成一篇文章', difficulty: 'cet4', wordCount: 300 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(generationCalls, 1);
+  assert.equal(result.article.id, 17);
+  assert.equal(result.article.difficultyReport.passed, true);
+  assert.equal(inspectStarted, true);
+});
+
+test('records an unavailable background observation without withdrawing an admitted article', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  let qualityUpdate = null;
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticle: async () => ({
+        title: 'Saved with observation',
+        titleZh: '带观察结果保存',
+        content: buildArticleContent(300),
+        translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+      })
+    },
+    db: {
+      getAllLearnWords: async () => [],
+      saveArticle: async () => 18,
+      updateArticle: async (_id, fields) => { qualityUpdate = fields; }
+    },
+    admit: () => ({ passed: true, metrics: { wordCount: 300 }, deviations: [] }),
+    inspectQuality: async () => ({
+      status: 'unavailable',
+      reason: 'GRAMMAR_MODEL_UNAVAILABLE',
+      report: { lexiconProfile: { status: 'available' } }
+    }),
+    scheduleBackground: callback => callback()
+  });
+
+  const result = await tool.execute({ request: '生成一篇文章', difficulty: 'cet4', wordCount: 300 });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(result.article.id, 18);
+  assert.equal(qualityUpdate.qualityReport.status, 'unavailable');
+  assert.equal(qualityUpdate.qualityReport.reason, 'GRAMMAR_MODEL_UNAVAILABLE');
 });

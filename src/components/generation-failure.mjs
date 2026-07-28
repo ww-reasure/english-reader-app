@@ -1,11 +1,14 @@
-const DIFFICULTIES = new Set(['cet4', 'cet6', 'graduate']);
+const DIFFICULTIES = new Set(['cet4', 'cet6', 'kaoyan1', 'kaoyan2', 'graduate']);
 const CHALLENGES = new Set(['support', 'standard', 'stretch']);
 const MAX_MESSAGE_LENGTH = 900;
 
 const clip = (value, limit) => String(value || '').trim().slice(0, limit);
 const isTimeout = error => /超时|timeout|timed out/i.test(String(error?.message || ''));
 
-export const isValidationFailure = error => error?.code === 'ARTICLE_VALIDATION_FAILED';
+export const isValidationFailure = error => (
+  error?.code === 'ARTICLE_VALIDATION_FAILED'
+  || error?.code === 'ARTICLE_ADMISSION_FAILED'
+);
 export const isCancelledGenerationRequest = error => error?.name === 'AbortError' || /请求已取消/.test(String(error?.message || ''));
 
 const failureReason = error => {

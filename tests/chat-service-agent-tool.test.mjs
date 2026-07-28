@@ -51,6 +51,34 @@ test('returns a generation failure artifact without asking the model to continue
   assert.deepEqual(reply.artifacts, [{ type: 'generation_failure', failure }]);
 });
 
+test('returns to normal conversation when the home safety gate rejects a generation tool call', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const service = new ChatService({
+    api: {
+      chat: async (_messages, options) => {
+        requests.push(options);
+        return requests.length === 1
+          ? { tool_calls: [{ function: { name: 'generate_reading', arguments: '{}' } }] }
+          : { content: '这是一篇关于注意力与数字生活的说明文。' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: input => input }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '这是一篇什么类型的文章', kind: 'home',
+    tools: [{ function: { name: 'generate_reading' } }],
+    executeTool: async () => ({ result: { status: 'generation_not_authorized' } })
+  });
+
+  assert.equal(reply.content, '这是一篇关于注意力与数字生活的说明文。');
+  assert.deepEqual(reply.artifacts, []);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[1].tools, []);
+});
+
 test('executes only the first generate_reading call from one model turn', async () => {
   const { ChatService } = await loadChatService();
   const calls = [];

@@ -1,0 +1,562 @@
+{
+  "reviewProtocol": {
+    "reviewedAt": "2026-07-26",
+    "reviewer": "English Reader lexical review",
+    "zhGlossPolicy": "Each shipped ECDICT gloss is a manually selected common learning sense. Domain-tagged, proper-name, abbreviation, and specialized senses are excluded rather than copied verbatim.",
+    "sourceScope": "Only these reviewed entries are bundled. ECDICT full CSV remains a build-time source cache and is not an application dictionary."
+  },
+  "entries": [
+    {
+      "lemma": "a",
+      "forms": ["a", "an"],
+      "senses": [{ "pos": "determiner", "glossZh": "不定冠词（表示泛指）", "quality": "high", "sourceRecord": "ecdict.csv:a; manually standardized neutral article sense", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 6, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "abandon",
+      "forms": ["abandon", "abandons", "abandoned", "abandoning"],
+      "senses": [{
+        "pos": "verb",
+        "glossZh": "放弃；遗弃",
+        "quality": "high",
+        "sourceRecord": "ecdict.csv:abandon",
+        "sourceRefs": ["ecdict-2025-full"]
+      }],
+      "layers": {
+        "frequency": [{ "band": "ngsl-4", "rank": 1965, "sourceRef": "ngsl-1.2-stats" }]
+      },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "achieve",
+      "forms": ["achieve", "achieves", "achieved", "achieving"],
+      "senses": [{ "pos": "verb", "glossZh": "完成；达到", "quality": "high", "sourceRecord": "ecdict.csv:achieve", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 746, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "adapt",
+      "forms": ["adapt", "adapts", "adapted", "adapting"],
+      "senses": [{ "pos": "verb", "glossZh": "适应；改编", "quality": "high", "sourceRecord": "ecdict.csv:adapt", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2372, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "adjustment",
+      "forms": ["adjustment", "adjustments"],
+      "senses": [{ "pos": "noun", "glossZh": "调整；调节", "quality": "high", "sourceRecord": "ecdict.csv:adjustment", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2717, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "although",
+      "forms": ["although"],
+      "senses": [{ "pos": "conjunction", "glossZh": "虽然；尽管", "quality": "high", "sourceRecord": "ecdict.csv:although", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 278, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "analysis",
+      "forms": ["analysis", "analyses"],
+      "senses": [{ "pos": "noun", "glossZh": "分析", "quality": "high", "sourceRecord": "ecdict.csv:analysis", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 756, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "and",
+      "forms": ["and"],
+      "senses": [{ "pos": "conjunction", "glossZh": "和；而且", "quality": "high", "sourceRecord": "ecdict.csv:and", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 3, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "approach",
+      "forms": ["approach", "approaches", "approached", "approaching"],
+      "senses": [{ "pos": "noun", "glossZh": "方法；接近", "quality": "high", "sourceRecord": "ecdict.csv:approach", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 495, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "available",
+      "forms": ["available"],
+      "senses": [{ "pos": "adjective", "glossZh": "可获得的；可用的", "quality": "high", "sourceRecord": "ecdict.csv:available", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 459, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "be",
+      "forms": ["be", "am", "is", "are", "was", "were", "been", "being"],
+      "senses": [{ "pos": "verb", "glossZh": "是；在；处于", "quality": "high", "sourceRecord": "ecdict.csv:be", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 2, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "because",
+      "forms": ["because"],
+      "senses": [{ "pos": "conjunction", "glossZh": "因为", "quality": "high", "sourceRecord": "ecdict.csv:because", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 62, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "benefit",
+      "forms": ["benefit", "benefits", "benefited", "benefiting"],
+      "senses": [{ "pos": "noun", "glossZh": "益处；使受益", "quality": "high", "sourceRecord": "ecdict.csv:benefit", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 543, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "can",
+      "forms": ["can", "could"],
+      "senses": [{ "pos": "modal", "glossZh": "能；可以", "quality": "high", "sourceRecord": "ecdict.csv:can", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 38, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "challenge",
+      "forms": ["challenge", "challenges", "challenged", "challenging"],
+      "senses": [{ "pos": "noun", "glossZh": "挑战；质疑", "quality": "high", "sourceRecord": "ecdict.csv:challenge", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 766, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "coherent",
+      "forms": ["coherent"],
+      "senses": [{ "pos": "adjective", "glossZh": "连贯的；一致的", "quality": "high", "sourceRecord": "ecdict.csv:coherent", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "contribute",
+      "forms": ["contribute", "contributes", "contributed", "contributing"],
+      "senses": [{ "pos": "verb", "glossZh": "贡献；促成", "quality": "high", "sourceRecord": "ecdict.csv:contribute", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1238, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "create",
+      "forms": ["create", "creates", "created", "creating"],
+      "senses": [{ "pos": "verb", "glossZh": "创造；产生", "quality": "high", "sourceRecord": "ecdict.csv:create", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 386, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "crucial",
+      "forms": ["crucial"],
+      "senses": [{ "pos": "adjective", "glossZh": "关键的；至关重要的", "quality": "high", "sourceRecord": "ecdict.csv:crucial", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-4", "rank": 1983, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "decline",
+      "forms": ["decline", "declines", "declined", "declining"],
+      "senses": [{ "pos": "verb", "glossZh": "下降；拒绝", "quality": "high", "sourceRecord": "ecdict.csv:decline", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1129, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "demonstrate",
+      "forms": ["demonstrate", "demonstrates", "demonstrated", "demonstrating"],
+      "senses": [{ "pos": "verb", "glossZh": "证明；展示", "quality": "high", "sourceRecord": "ecdict.csv:demonstrate", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1272, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "do",
+      "forms": ["do", "does", "did", "done", "doing"],
+      "senses": [{ "pos": "verb", "glossZh": "做；进行；完成", "quality": "high", "sourceRecord": "ecdict.csv:do", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 21, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "determine",
+      "forms": ["determine", "determines", "determined", "determining"],
+      "senses": [{ "pos": "verb", "glossZh": "决定；确定", "quality": "high", "sourceRecord": "ecdict.csv:determine", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 708, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "develop",
+      "forms": ["develop", "develops", "developed", "developing"],
+      "senses": [{ "pos": "verb", "glossZh": "发展；开发", "quality": "high", "sourceRecord": "ecdict.csv:develop", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 350, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "evidence",
+      "forms": ["evidence", "evidences", "evidenced", "evidencing"],
+      "senses": [{ "pos": "noun", "glossZh": "证据；迹象", "quality": "high", "sourceRecord": "ecdict.csv:evidence", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 592, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "factor",
+      "forms": ["factor", "factors", "factored", "factoring"],
+      "senses": [{ "pos": "noun", "glossZh": "因素", "quality": "high", "sourceRecord": "ecdict.csv:factor", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 636, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "function",
+      "forms": ["function", "functions", "functioned", "functioning"],
+      "senses": [{ "pos": "noun", "glossZh": "功能；起作用", "quality": "high", "sourceRecord": "ecdict.csv:function", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 702, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "have",
+      "forms": ["have", "has", "had", "having"],
+      "senses": [{ "pos": "verb", "glossZh": "有；拥有；已经", "quality": "high", "sourceRecord": "ecdict.csv:have", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 8, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "however",
+      "forms": ["however"],
+      "senses": [{ "pos": "adverb", "glossZh": "然而；不过", "quality": "high", "sourceRecord": "ecdict.csv:however", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 203, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "inhibit",
+      "forms": ["inhibit", "inhibits", "inhibited", "inhibiting"],
+      "senses": [{ "pos": "verb", "glossZh": "抑制；阻碍", "quality": "high", "sourceRecord": "ecdict.csv:inhibit", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "increase",
+      "forms": ["increase", "increases", "increased", "increasing"],
+      "senses": [{ "pos": "verb", "glossZh": "增加；增长", "quality": "high", "sourceRecord": "ecdict.csv:increase", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 230, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "intervene",
+      "forms": ["intervene", "intervenes", "intervened", "intervening"],
+      "senses": [{ "pos": "verb", "glossZh": "干预；介入", "quality": "high", "sourceRecord": "ecdict.csv:intervene", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "maintain",
+      "forms": ["maintain", "maintains", "maintained", "maintaining"],
+      "senses": [{ "pos": "verb", "glossZh": "保持；维持", "quality": "high", "sourceRecord": "ecdict.csv:maintain", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 943, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "may",
+      "forms": ["may", "might"],
+      "senses": [{ "pos": "modal", "glossZh": "可以；可能", "quality": "high", "sourceRecord": "ecdict.csv:may", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 97, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "methodology",
+      "forms": ["methodology", "methodologies"],
+      "senses": [{ "pos": "noun", "glossZh": "方法论", "quality": "high", "sourceRecord": "ecdict.csv:methodology", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "obtain",
+      "forms": ["obtain", "obtains", "obtained", "obtaining"],
+      "senses": [{ "pos": "verb", "glossZh": "获得；得到", "quality": "high", "sourceRecord": "ecdict.csv:obtain", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "occur",
+      "forms": ["occur", "occurs", "occurred", "occurring"],
+      "senses": [{ "pos": "verb", "glossZh": "发生；出现", "quality": "high", "sourceRecord": "ecdict.csv:occur", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 718, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "of",
+      "forms": ["of"],
+      "senses": [{ "pos": "preposition", "glossZh": "…的；属于", "quality": "high", "sourceRecord": "ecdict.csv:of", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 4, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "paradigm",
+      "forms": ["paradigm", "paradigms"],
+      "senses": [{ "pos": "noun", "glossZh": "范式；典范", "quality": "high", "sourceRecord": "ecdict.csv:paradigm", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "policy",
+      "forms": ["policy", "policies"],
+      "senses": [{ "pos": "noun", "glossZh": "政策；方针", "quality": "high", "sourceRecord": "ecdict.csv:policy", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 399, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "require",
+      "forms": ["require", "requires", "required", "requiring"],
+      "senses": [{ "pos": "verb", "glossZh": "需要；要求", "quality": "high", "sourceRecord": "ecdict.csv:require", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 402, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "research",
+      "forms": ["research", "researches", "researched", "researching"],
+      "senses": [{ "pos": "noun", "glossZh": "研究；调查", "quality": "high", "sourceRecord": "ecdict.csv:research", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 423, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "significant",
+      "forms": ["significant"],
+      "senses": [{ "pos": "adjective", "glossZh": "重要的；显著的", "quality": "high", "sourceRecord": "ecdict.csv:significant", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 720, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "simulate",
+      "forms": ["simulate", "simulates", "simulated", "simulating"],
+      "senses": [{ "pos": "verb", "glossZh": "模拟；仿真", "quality": "high", "sourceRecord": "ecdict.csv:simulate", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "source",
+      "forms": ["source", "sources", "sourced", "sourcing"],
+      "senses": [{ "pos": "noun", "glossZh": "来源；根源", "quality": "high", "sourceRecord": "ecdict.csv:source", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 623, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "strategy",
+      "forms": ["strategy", "strategies"],
+      "senses": [{ "pos": "noun", "glossZh": "策略", "quality": "high", "sourceRecord": "ecdict.csv:strategy", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 839, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "support",
+      "forms": ["support", "supports", "supported", "supporting"],
+      "senses": [{ "pos": "verb", "glossZh": "支持；支撑", "quality": "high", "sourceRecord": "ecdict.csv:support", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 272, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "the",
+      "forms": ["the"],
+      "senses": [{ "pos": "determiner", "glossZh": "定冠词；用于特指", "quality": "high", "sourceRecord": "ecdict.csv:the", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 1, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "theory",
+      "forms": ["theory", "theories"],
+      "senses": [{ "pos": "noun", "glossZh": "理论；学说", "quality": "high", "sourceRecord": "ecdict.csv:theory", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-2", "rank": 876, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "valid",
+      "forms": ["valid"],
+      "senses": [{ "pos": "adjective", "glossZh": "有效的；合理的", "quality": "high", "sourceRecord": "ecdict.csv:valid", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "academic": [{ "membership": "nawl-1.2", "sourceRef": "nawl-1.2-research" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "nawl-1.2-research"]
+    },
+    {
+      "lemma": "vary",
+      "forms": ["vary", "varies", "varied", "varying"],
+      "senses": [{ "pos": "verb", "glossZh": "变化；不同", "quality": "high", "sourceRecord": "ecdict.csv:vary", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1359, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "will",
+      "forms": ["will", "would"],
+      "senses": [{ "pos": "modal", "glossZh": "将；愿意", "quality": "high", "sourceRecord": "ecdict.csv:will", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-1", "rank": 28, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "acquire",
+      "forms": ["acquire", "acquires", "acquired", "acquiring"],
+      "senses": [{ "pos": "verb", "glossZh": "获得；学到", "quality": "high", "sourceRecord": "ecdict.csv:acquire", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1464, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "context",
+      "forms": ["context", "contexts"],
+      "senses": [{ "pos": "noun", "glossZh": "上下文；背景", "quality": "high", "sourceRecord": "ecdict.csv:context", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-3", "rank": 1049, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "acknowledge",
+      "forms": ["acknowledge", "acknowledges", "acknowledged", "acknowledging"],
+      "senses": [{ "pos": "verb", "glossZh": "承认；答谢", "quality": "high", "sourceRecord": "ecdict.csv:acknowledge", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-4", "rank": 1747, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "enhance",
+      "forms": ["enhance", "enhances", "enhanced", "enhancing"],
+      "senses": [{ "pos": "verb", "glossZh": "提高；加强", "quality": "high", "sourceRecord": "ecdict.csv:enhance", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-4", "rank": 1889, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "relevant",
+      "forms": ["relevant"],
+      "senses": [{ "pos": "adjective", "glossZh": "相关的；有关的", "quality": "high", "sourceRecord": "ecdict.csv:relevant", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-4", "rank": 1504, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "sufficient",
+      "forms": ["sufficient"],
+      "senses": [{ "pos": "adjective", "glossZh": "足够的；充分的", "quality": "high", "sourceRecord": "ecdict.csv:sufficient", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-4", "rank": 1932, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "adequate",
+      "forms": ["adequate"],
+      "senses": [{ "pos": "adjective", "glossZh": "足够的；适当的", "quality": "high", "sourceRecord": "ecdict.csv:adequate", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2358, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "emphasis",
+      "forms": ["emphasis"],
+      "senses": [{ "pos": "noun", "glossZh": "强调；重点", "quality": "high", "sourceRecord": "ecdict.csv:emphasis", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2031, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "external",
+      "forms": ["external", "externals"],
+      "senses": [{ "pos": "adjective", "glossZh": "外部的；外来的", "quality": "high", "sourceRecord": "ecdict.csv:external", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2125, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "framework",
+      "forms": ["framework", "frameworks"],
+      "senses": [{ "pos": "noun", "glossZh": "框架；结构", "quality": "high", "sourceRecord": "ecdict.csv:framework", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2044, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "phenomenon",
+      "forms": ["phenomenon", "phenomena"],
+      "senses": [{ "pos": "noun", "glossZh": "现象", "quality": "high", "sourceRecord": "ecdict.csv:phenomenon", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-5", "rank": 2096, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "consume",
+      "forms": ["consume", "consumes", "consumed", "consuming"],
+      "senses": [{ "pos": "verb", "glossZh": "消耗；消费", "quality": "high", "sourceRecord": "ecdict.csv:consume", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2659, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "logic",
+      "forms": ["logic", "logics"],
+      "senses": [{ "pos": "noun", "glossZh": "逻辑；逻辑学", "quality": "high", "sourceRecord": "ecdict.csv:logic", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2684, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "supplement",
+      "forms": ["supplement", "supplements", "supplemented", "supplementing"],
+      "senses": [{ "pos": "verb", "glossZh": "补充；增补", "quality": "high", "sourceRecord": "ecdict.csv:supplement", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2716, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "theoretical",
+      "forms": ["theoretical"],
+      "senses": [{ "pos": "adjective", "glossZh": "理论的", "quality": "high", "sourceRecord": "ecdict.csv:theoretical", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2777, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    },
+    {
+      "lemma": "undergo",
+      "forms": ["undergo", "undergoes", "underwent", "undergone", "undergoing"],
+      "senses": [{ "pos": "verb", "glossZh": "经历；遭受", "quality": "high", "sourceRecord": "ecdict.csv:undergo", "sourceRefs": ["ecdict-2025-full"] }],
+      "layers": { "frequency": [{ "band": "ngsl-6", "rank": 2557, "sourceRef": "ngsl-1.2-stats" }] },
+      "quality": "high",
+      "sourceRefs": ["ecdict-2025-full", "ngsl-1.2-stats"]
+    }
+  ]
+}

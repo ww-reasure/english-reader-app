@@ -14,15 +14,24 @@ import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
 import { ChatView } from './chat.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
-import { ArticleGenerationTool, chunkTargetWords, normalizeTargetWords } from '../components/article-generation-tool.js';
+import { normalizeTargetWords } from '../components/article-generation-tool.js';
+import { createKnowledgeProfileRepository } from '../knowledge-profile.mjs';
+import { applyReadingEaseFeedback, isQualifiedReading, minimumActiveReadingSeconds } from '../calibration-engine.mjs';
+import { createLexiconLoader } from '../lexicon-runtime.mjs';
+import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
+import { requiresTargetTrackSelection } from '../learning-track.mjs';
+import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
+import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
 
-const reviewArticleTool = new ArticleGenerationTool({ api: API, db: DB });
+const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
+  lexiconLoader: createLexiconLoader(),
+  storage: DB
+});
 
 export const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],
-  MIN_READ_TIME: 15,
   reviewMode: false,
   reviewWordsMap: new Map(), // stem -> word data
   paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
@@ -84,15 +93,25 @@ export const ReadingView = {
     AIAnalysis.clearArticleContext();
     if (this._resumeHandler) {
       document.removeEventListener('touchstart', this._resumeHandler);
-      document.removeEventListener('scroll', this._resumeHandler);
       this._resumeHandler = null;
+    }
+    if (this._readingScrollTarget && this._scrollProgressHandler) {
+      this._readingScrollTarget.removeEventListener('scroll', this._scrollProgressHandler);
+    }
+    this._readingScrollTarget = null;
+    this._scrollProgressHandler = null;
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
     }
     if (this.timer) { this.timer.stop(); this.timer = null; }
   },
 
   async render(container, articleId) {
     this.cleanup();
+    this.container = container;
     this.clickedWords = [];
+    this.readingScrollDepth = 0;
     this.reviewWordsMap = new Map();
     const article = await DB.getArticle(articleId);
     if (!article) {
@@ -250,12 +269,27 @@ export const ReadingView = {
         const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord);
         if (!shown) return;
 
+        // An intentional lookup is evidence of current uncertainty. It is
+        // separate from saving/favouriting a word and becomes a no-op until
+        // the versioned lexicon can assign an audited frequency band.
+        void knowledgeEvidenceBridge.recordLookup({
+          word,
+          source: 'reading-word-lookup',
+          articleId: this.articleData?.id,
+          attemptId: `reading-lookup:${this.articleData?.id || 'article'}:${lookupId}`,
+          contextId: `tooltip:${lookupId}`
+        });
+
         if (recordLookup && !this.clickedWords.some(w => w.stem === stem)) {
           this.clickedWords.push({
             word: word.toLowerCase(),
             stem,
-            translation: data.translation || '',
+            translation: getSavableTranslation(data),
             phonetic: data.phonetic || '',
+            pos: data.pos || '',
+            definitionSenses: getDefinitionSenses(data),
+            definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+            definitionLexiconVersion: data.lexiconVersion || '',
             freqLevel: data.freqLevel || 'unknown',
             isReviewWord,
             quality: isReviewWord ? 3 : null,
@@ -359,43 +393,99 @@ export const ReadingView = {
 
     this.timer.start();
 
-    // Resume on touch/scroll
+    // Count only foreground reading time. Page Visibility is especially
+    // important on Android where an activity can remain mounted in background.
     this._resumeHandler = () => { if (this.timer?.isPaused) this.timer.resume(); };
+    this._visibilityHandler = () => {
+      if (!this.timer) return;
+      if (document.hidden) this.timer.pauseForVisibility();
+      else this.timer.resume();
+    };
+    this._readingScrollTarget = document.querySelector('.app-page-outlet') || document.scrollingElement || document.documentElement;
+    this._scrollProgressHandler = () => {
+      this._updateReadingScrollDepth();
+      this._resumeHandler();
+    };
     document.addEventListener('touchstart', this._resumeHandler, { passive: true });
-    document.addEventListener('scroll', this._resumeHandler, { passive: true });
+    document.addEventListener('visibilitychange', this._visibilityHandler);
+    this._readingScrollTarget?.addEventListener('scroll', this._scrollProgressHandler, { passive: true });
+    this._updateReadingScrollDepth();
+  },
+
+  _updateReadingScrollDepth() {
+    const scroller = this._readingScrollTarget || document.scrollingElement || document.documentElement;
+    const scrollHeight = Number(scroller?.scrollHeight) || 0;
+    const clientHeight = Number(scroller?.clientHeight) || 0;
+    const scrollTop = Number(scroller?.scrollTop) || 0;
+    if (scrollHeight <= clientHeight) {
+      this.readingScrollDepth = 1;
+      return this.readingScrollDepth;
+    }
+    this.readingScrollDepth = Math.max(this.readingScrollDepth || 0, Math.min(1, (scrollTop + clientHeight) / scrollHeight));
+    return this.readingScrollDepth;
   },
 
   // Finish reading
   async finishReading() {
+    const elapsed = this.timer?.elapsed || 0;
+    const wordCount = this.articleData?.wordCount || 0;
+    const minimumReadTime = minimumActiveReadingSeconds(wordCount);
+    if (elapsed < minimumReadTime) {
+      const remaining = Math.max(1, Math.ceil(minimumReadTime - elapsed));
+      alert(`前台有效阅读还差约 ${remaining} 秒。本次未完成计入校准条件，不计入校准；请返回前台继续阅读后再完成。`);
+      return;
+    }
+
     this.timer?.stop();
+    const scrollDepthAtFinish = this._updateReadingScrollDepth();
+    const qualifiesForCalibration = isQualifiedReading({
+      completed: true,
+      scrollDepth: scrollDepthAtFinish,
+      activeSeconds: elapsed,
+      wordCount
+    });
 
     // Clean up listeners
     if (this._resumeHandler) {
       document.removeEventListener('touchstart', this._resumeHandler);
-      document.removeEventListener('scroll', this._resumeHandler);
       this._resumeHandler = null;
     }
-
-    const elapsed = this.timer?.elapsed || 0;
-
-    // Check minimum time threshold
-    if (elapsed < this.MIN_READ_TIME) {
-      // Too short, don't count — cleanup 全部监听再返回(避免靠下次 render 才回收)
-      this.cleanup();
-      this.goBack();
-      return;
+    if (this._readingScrollTarget && this._scrollProgressHandler) {
+      this._readingScrollTarget.removeEventListener('scroll', this._scrollProgressHandler);
+    }
+    this._readingScrollTarget = null;
+    this._scrollProgressHandler = null;
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
     }
 
     // Save reading stat
     const wpm = this.timer?.getWPM() || 0;
-    const wordCount = this.articleData?.wordCount || 0;
+    const scrollDepth = scrollDepthAtFinish;
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
       wordCount,
       elapsed,
+      activeSeconds: elapsed,
+      scrollDepth,
+      completed: true,
       wpm,
       clickCount: this.clickedWords.length,
       clickedWords: this.clickedWords.map(w => w.word)
+    });
+
+    // A completed, sufficiently read article is useful calibration evidence,
+    // but it must never be interpreted as direct knowledge of any individual word.
+    // Await this small, local write so the third completed article can offer
+    // its single calibration feedback prompt in the summary immediately.
+    await knowledgeEvidenceBridge.recordQualifiedReadingObservation({
+      articleId: this.articleData?.id,
+      wordCount,
+      completed: true,
+      scrollDepth,
+      activeSeconds: elapsed,
+      occurredAt: Date.now()
     });
 
     // Update SRS for review mode
@@ -404,11 +494,12 @@ export const ReadingView = {
     }
 
     // Show summary popup
-    await this.showSummary(elapsed, wpm);
+    await this.showSummary(elapsed, wpm, { qualifiesForCalibration });
   },
 
-  async showSummary(elapsed, wpm) {
+  async showSummary(elapsed, wpm, readingQualification = {}) {
     const avgWpm = await DB.getAverageWPM();
+    const feedbackCheckpoint = await this._getReadingFeedbackCheckpoint();
     const diff = avgWpm > 0 ? wpm - avgWpm : 0;
     const diffPct = avgWpm > 0 ? Math.round(diff / avgWpm * 100) : 0;
     const clickCount = this.clickedWords.length;
@@ -476,6 +567,21 @@ export const ReadingView = {
             ${reviewClicked.map(w => `<span class="summary-word-chip">${esc(w.word)}</span>`).join('')}
           </div>
         </div>` : ''}
+        ${!readingQualification?.qualifiesForCalibration ? `
+        <section class="reading-calibration-notice" aria-label="校准进度提示">
+          <h3>本篇未计入校准进度</h3>
+          <p>阅读记录已保存，但正文浏览未达到 70%，因此不会作为难度校正的有效阅读。完整浏览后完成阅读即可计入。</p>
+        </section>` : ''}
+        ${feedbackCheckpoint?.shouldRequestFeedback ? `
+        <section class="reading-ease-feedback" aria-label="阅读难度反馈">
+          <h3>这三篇阅读对你来说如何？</h3>
+          <p>这会帮助我们校正保守模式；不会改变你选择的目标考试。</p>
+          <div class="reading-ease-feedback-actions">
+            <button class="btn btn-outline btn-sm" onclick="ReadingView.saveReadingEaseFeedback('too_hard')">偏难</button>
+            <button class="btn btn-outline btn-sm" onclick="ReadingView.saveReadingEaseFeedback('fitting')">合适</button>
+            <button class="btn btn-outline btn-sm" onclick="ReadingView.saveReadingEaseFeedback('too_easy')">偏易</button>
+          </div>
+        </section>` : ''}
         <div class="modal-actions summary-actions">
           ${!this.reviewMode && this.clickedWords.length > 0 ? `
           <button class="btn btn-outline" onclick="ReadingView.addToReview()">加入词库</button>
@@ -513,6 +619,10 @@ export const ReadingView = {
           word: w.word,
           translation: w.translation || '',
           phonetic: w.phonetic || '',
+          pos: w.pos || '',
+          definitionSenses: w.definitionSenses || [],
+          definitionSchemaVersion: w.definitionSchemaVersion || 0,
+          definitionLexiconVersion: w.definitionLexiconVersion || '',
           createdAt: Date.now()
         });
         added++;
@@ -524,8 +634,18 @@ export const ReadingView = {
     alert(msg);
   },
 
+  ensureTargetTrackBeforeGeneration() {
+    if (!requiresTargetTrackSelection(Config.get('exam_level'), Config.get('target_track_selection_required'))) {
+      return false;
+    }
+    alert('生成巩固阅读前，请先选择目标考试。初测页面可选择四级、六级、考研英语一或考研英语二。');
+    location.hash = '#/assessment';
+    return true;
+  },
+
   // Generate review article from clicked words
   async generateReview() {
+    if (this.ensureTargetTrackBeforeGeneration()) return;
     if (!Config.hasApiKey()) { Modal.showApiSettings(); return; }
     const allWords = normalizeTargetWords(this.clickedWords.map(w => w.word), Number.POSITIVE_INFINITY);
     if (allWords.length < 2) { alert('查词太少，无法生成'); return; }
@@ -534,40 +654,36 @@ export const ReadingView = {
     location.hash = '#/chat';
     await new Promise(r => setTimeout(r, 100));
 
-    const difficulty = this.articleData?.difficulty || 'cet4';
-    const selectedBatches = chunkTargetWords(allWords).slice(0, 2);
-    const selectedWords = selectedBatches.flat();
-    const deferredCount = Math.max(0, allWords.length - selectedWords.length);
-    ChatView.addMessage('system', `📝 使用本篇查词生成巩固阅读。${deferredCount > 0 ? `本次优先巩固 ${selectedWords.length} / ${allWords.length} 个词，其余 ${deferredCount} 个词将在下次生成时继续处理。` : `本次将巩固全部 ${selectedWords.length} 个词。`}`);
-    const generationSession = ChatView.startArticleGenerationSession();
-    ChatView.showArticleGenerationStatus('正在制作巩固阅读…');
+    return ChatView.generateReviewReadings({
+      reviewWords: allWords,
+      difficulty: Config.get('exam_level') || 'cet4',
+      topic: '阅读巩固',
+      sourceLabel: '本篇查词'
+    });
+  },
+
+  async _getReadingFeedbackCheckpoint() {
+    if (Config.get('calibration_status') !== 'skipped') return null;
     try {
-      const articles = [];
-      for (const [index, batch] of selectedBatches.entries()) {
-        const result = await reviewArticleTool.execute({
-          request: `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`,
-          difficulty,
-          topic: '阅读巩固',
-          wordCount: selectedBatches.length > 1 ? 300 : 350
-        }, {
-          fallbackDifficulty: difficulty,
-          fallbackChallenge: 'support',
-          targetWords: batch,
-          articleFields: { reviewMode: true, usedWords: batch },
-          signal: generationSession.signal,
-          isActive: generationSession.isActive
-        });
-        if (!generationSession.isActive()) return;
-        articles.push(result.article);
-        ChatView.addArticleCard(result.article);
-      }
-      ChatView.addMessage('system', `✅ 已生成 ${articles.length} 篇巩固阅读，覆盖 ${selectedWords.length} 个词。${deferredCount > 0 ? `剩余 ${deferredCount} 个词待下次处理。` : ''}`);
-    } catch (err) {
-      if (generationSession.isActive()) ChatView.addMessage('error', `生成失败：${err.message}`);
-    } finally {
-      const stillActive = generationSession.isActive();
-      generationSession.release();
-      if (stillActive) ChatView.removeArticleGenerationStatus();
+      const profile = createKnowledgeProfileRepository(DB);
+      return await profile.getQualifiedReadingObservationCheckpoint();
+    } catch (error) {
+      console.warn('Unable to prepare reading ease feedback.', error);
+      return null;
+    }
+  },
+
+  async saveReadingEaseFeedback(choice) {
+    try {
+      const profile = createKnowledgeProfileRepository(DB);
+      await profile.saveQualifiedReadingDifficultyFeedback(choice);
+      const adjusted = applyReadingEaseFeedback({ recommendedChallenge: Config.get('reading_mode') || 'support' }, choice);
+      Config.set('reading_mode', adjusted.recommendedChallenge);
+      Config.set('level', adjusted.recommendedChallenge === 'support' ? 'easy' : adjusted.recommendedChallenge === 'stretch' ? 'hard' : 'normal');
+      const section = document.querySelector('.reading-ease-feedback');
+      if (section) section.innerHTML = '<p class="text-muted">已记录。后续材料会据此微调，目标考试保持不变。</p>';
+    } catch (error) {
+      alert(error?.message || '反馈保存失败，请稍后再试。');
     }
   },
 

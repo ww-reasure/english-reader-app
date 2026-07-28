@@ -6,6 +6,7 @@
 import { Capacitor } from '@capacitor/core';
 import { SecureStorage } from '@aparajita/capacitor-secure-storage';
 import { createConfigStorage } from './config-storage.mjs';
+import { requiresTargetTrackSelection } from './learning-track.mjs';
 
 export const ARTICLE_SERVER_URL = 'https://ww-d3g9m97i69d544809.service.tcloudbase.com';
 
@@ -22,15 +23,40 @@ export const Config = {
     base_url: 'https://api.deepseek.com/v1',
     model: 'deepseek-v4-flash',
     theme: 'light',
-    exam_level: 'cet4',
+    // A display control may visually default to CET-4, but a new learner must
+    // make a deliberate target choice before the app creates reading material.
+    exam_level: '',
     level: 'easy',
-    coverage: '95',
-    new_word_percent: '5',
+    // `exam_level` is the fixed target; recommendation is stored separately.
+    reading_mode: 'support',
+    coverage: '97',
+    new_word_percent: '3',
+    target_track_selection_required: 'true',
+    calibration_status: 'new',
+    lexicon_version: '',
     assessment_done: 'false'
   },
 
   async initialize() {
     await this.storage.initialize();
+    // Migrate presentation-era settings without relabelling old articles or
+    // silently deciding whether an old "考研" target meant English I or II.
+    if (!this.storage.get('reading_mode')) {
+      const legacyLevel = this.storage.get('level');
+      this.set('reading_mode', legacyLevel === 'hard' ? 'stretch' : legacyLevel === 'easy' ? 'support' : 'standard');
+    }
+    const storedTargetTrack = this.storage.get('exam_level');
+    const storedTargetSelectionRequirement = this.storage.get('target_track_selection_required');
+    if (requiresTargetTrackSelection(storedTargetTrack, storedTargetSelectionRequirement)) {
+      this.set('target_track_selection_required', 'true');
+    } else if (!storedTargetSelectionRequirement) {
+      // A persisted CET-4/CET-6/English I/English II choice from an earlier
+      // version is a real user choice, so keep it without a needless prompt.
+      this.set('target_track_selection_required', 'false');
+    }
+    if (!this.storage.get('calibration_status')) {
+      this.set('calibration_status', this.storage.get('assessment_done') === 'true' ? 'legacy' : 'new');
+    }
   },
 
   // Get a setting value from the initialized in-memory cache.
