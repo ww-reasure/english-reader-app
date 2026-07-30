@@ -151,6 +151,23 @@ export function createKnowledgeEvidenceBridge({
     }));
   }
 
+  async function recordContextReview(input = {}) {
+    const result = asNonEmptyString(input.result)?.toLocaleLowerCase('en-US') || '';
+    if (!['known', 'uncertain', 'unknown'].includes(result)) {
+      return { accepted: false, reason: 'unsupported-context-result' };
+    }
+    return safelyWrite(input.word, ({ lemma, band }) => ({
+      word: lemma,
+      band,
+      kind: 'context',
+      contextResult: result,
+      assistedLookupCount: Math.max(0, Math.trunc(Number(input.assistedLookupCount) || 0)),
+      source: asNonEmptyString(input.source) || 'context-review',
+      ...optionalFields(input),
+      occurredAt: Number.isFinite(Number(input.occurredAt)) ? Number(input.occurredAt) : now()
+    }));
+  }
+
   async function recordQualifiedReadingObservation(input = {}) {
     if (typeof repository.recordQualifiedReadingObservation !== 'function') {
       return { accepted: false, reason: 'reading-observation-unavailable' };
@@ -168,6 +185,8 @@ export function createKnowledgeEvidenceBridge({
     recordFlashcardRatingNonBlocking: recordFlashcardRating,
     recordLookup,
     recordLookupNonBlocking: recordLookup,
+    recordContextReview,
+    recordContextReviewNonBlocking: recordContextReview,
     recordQualifiedReadingObservation,
     recordQualifiedReadingObservationNonBlocking: recordQualifiedReadingObservation
   };

@@ -46,13 +46,14 @@ test('minor releases rebuild the OEWN derivative after the lexicon and before ve
   );
   assert.equal(
     packageJson.scripts['release:preflight'],
-    'npm run exam-focus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify'
+    'npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify'
   );
   assert.equal(packageJson.scripts['oewn:fetch'], 'node scripts/fetch-oewn-source.mjs');
   assert.equal(packageJson.scripts['oewn:build'], 'node scripts/build-oewn-artifact.mjs');
   assert.equal(packageJson.scripts['oewn:verify'], 'npm run oewn:fetch && npm run oewn:build');
   assert.equal(packageJson.scripts['exam-focus:build'], 'node scripts/build-exam-focus.mjs');
   assert.equal(packageJson.scripts['exam-focus:verify'], 'node scripts/build-exam-focus.mjs');
+  assert.equal(packageJson.scripts['exam-corpus:verify'], 'node scripts/build-exam-corpus.mjs');
   assert.equal(
     packageJson.scripts['release:patch'],
     'npm run release:preflight && npm run version:patch && npm run build:apk'

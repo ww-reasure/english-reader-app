@@ -59,6 +59,29 @@ function createMemoryStorage() {
 
 const FIRST = Date.parse('2026-07-26T08:00:00.000Z');
 
+test('context successes stay separate while only context failure lowers mastery', async () => {
+  const storage = createMemoryStorage();
+  const profile = createKnowledgeProfileRepository(storage, { now: () => FIRST });
+
+  const known = await profile.recordEvidence({ word: 'context', band: 'ngsl-1', kind: 'context', contextResult: 'known', assistedLookupCount: 0 });
+  assert.equal(known.word.contextKnownCount, 1);
+  assert.equal(known.word.successCount, 0);
+  assert.equal(known.word.status, KnowledgeEvidenceStatus.OBSERVABLE);
+
+  const assisted = await profile.recordEvidence({ word: 'context', band: 'ngsl-1', kind: 'context', contextResult: 'known', assistedLookupCount: 1 });
+  assert.equal(assisted.word.assistedContextKnownCount, 1);
+  assert.equal(assisted.word.successCount, 0);
+
+  const uncertain = await profile.recordEvidence({ word: 'context', band: 'ngsl-1', kind: 'context', contextResult: 'uncertain' });
+  assert.equal(uncertain.word.contextUncertainCount, 1);
+  assert.equal(uncertain.word.failureCount, 0);
+
+  const failed = await profile.recordEvidence({ word: 'context', band: 'ngsl-1', kind: 'context', contextResult: 'unknown' });
+  assert.equal(failed.word.contextFailureCount, 1);
+  assert.equal(failed.word.failureCount, 1);
+  assert.equal(failed.word.status, KnowledgeEvidenceStatus.OBSERVABLE);
+});
+
 test('short repeated successes in one context do not inflate independent success, while a new context does', async () => {
   const storage = createMemoryStorage();
   const profile = createKnowledgeProfileRepository(storage, { now: () => FIRST });

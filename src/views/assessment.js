@@ -728,7 +728,7 @@ ${formatProfileConstraints(profile)}
 
   // Render result step
   renderResultStep(result) {
-    const examLabels = { cet4: '四级', cet6: '六级', kaoyan1: '考研英语一', kaoyan2: '考研英语二', graduate: '考研（旧版）' };
+    const examLabels = { cet4: '四级', cet6: '六级', kaoyan1: '考研英语一', kaoyan2: '考研英语二', graduate: '考研通用' };
     const levelLabels = { easy: '巩固', normal: '对标', hard: '加压' };
     const freqIcons = { excellent: '✅', good: '⚠️', weak: '🔶' };
     const freqTexts = { excellent: '优秀', good: '良好', weak: '需加强' };

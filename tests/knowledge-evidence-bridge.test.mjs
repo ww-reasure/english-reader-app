@@ -119,6 +119,22 @@ test('lookup is negative evidence and uses the lexicon lemma instead of an infle
   }]);
 });
 
+test('context recognition keeps known, assisted, uncertain and failed evidence distinct', async () => {
+  const fixture = createBridge();
+
+  await fixture.bridge.recordContextReview({ word: 'researcher', result: 'known', assistedLookupCount: 0, attemptId: 'independent' });
+  await fixture.bridge.recordContextReview({ word: 'researcher', result: 'known', assistedLookupCount: 2, attemptId: 'assisted' });
+  await fixture.bridge.recordContextReview({ word: 'researcher', result: 'uncertain', attemptId: 'uncertain' });
+  await fixture.bridge.recordContextReview({ word: 'researcher', result: 'unknown', attemptId: 'failed' });
+
+  assert.deepEqual(fixture.calls.map(({ kind, contextResult, assistedLookupCount, attemptId }) => ({ kind, contextResult, assistedLookupCount, attemptId })), [
+    { kind: 'context', contextResult: 'known', assistedLookupCount: 0, attemptId: 'independent' },
+    { kind: 'context', contextResult: 'known', assistedLookupCount: 2, attemptId: 'assisted' },
+    { kind: 'context', contextResult: 'uncertain', assistedLookupCount: 0, attemptId: 'uncertain' },
+    { kind: 'context', contextResult: 'unknown', assistedLookupCount: 0, attemptId: 'failed' }
+  ]);
+});
+
 test('records a qualified article-level reading observation without resolving or changing word evidence', async () => {
   const fixture = createBridge();
 

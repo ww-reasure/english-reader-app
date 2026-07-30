@@ -4,6 +4,43 @@
  */
 
 import { getStemForm } from './helpers.js';
+import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
+
+function normalizeStoredCloudMetadata(article = {}) {
+  return normalizeCloudArticleMetadata(article);
+}
+
+function buildCloudArticleMetadataPatch(serverArticle, existing = {}) {
+  const metadata = normalizeStoredCloudMetadata(serverArticle);
+  const fields = {};
+
+  // Only promote a proven past-exam source. A partial cloud response must not
+  // downgrade metadata already stored on the device.
+  if (metadata.sourceType === 'past-exam' || !existing.sourceType) {
+    fields.sourceType = metadata.sourceType;
+  }
+
+  [
+    'examType',
+    'examTypeConfidence',
+    'examYear',
+    'examName',
+    'examText',
+    'examTopic',
+    'articleGenre',
+    'topicConfidence',
+    'genreConfidence',
+    'classificationConfidence',
+    'classificationVersion',
+    'classificationSource',
+    'classifiedAt'
+  ].forEach(key => {
+    if (metadata[key] !== null && metadata[key] !== existing[key]) {
+      fields[key] = metadata[key];
+    }
+  });
+  return fields;
+}
 
 export function abortTransaction(tx, error) {
   tx.abort();
@@ -26,7 +63,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 11, // v11: reset legacy reading history and reading-calibration progress under the stricter qualification rule
+  DB_VERSION: 13, // v13: cloud article catalog metadata cache
 
   // Open database connection with retry
   open(retries = 3) {
@@ -127,6 +164,23 @@ export const DB = {
           db.createObjectStore('knowledgeProfileMeta', { keyPath: 'key' });
         }
 
+        if (!db.objectStoreNames.contains('contextReviewSentences')) {
+          const store = db.createObjectStore('contextReviewSentences', { keyPath: 'key' });
+          store.createIndex('wordId', 'wordId');
+          store.createIndex('lastUsedAt', 'lastUsedAt');
+          store.createIndex('targetTrack', 'targetTrack');
+        }
+        if (!db.objectStoreNames.contains('contextReviewSessions')) {
+          const store = db.createObjectStore('contextReviewSessions', { keyPath: 'id' });
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+
+        // v13: one metadata-only cloud shelf snapshot. This store is
+        // additive and never rewrites articles, learning data or reading logs.
+        if (!db.objectStoreNames.contains('articleCatalog')) {
+          db.createObjectStore('articleCatalog', { keyPath: 'key' });
+        }
+
         // v10 is intentionally a field-only migration. Existing derived
         // knowledge snapshots stay intact; knowledge-profile.mjs supplies
         // zero-valued independent counters when older records are read, so we
@@ -188,6 +242,28 @@ export const DB = {
     });
   },
 
+  // ===== Cloud article catalog cache =====
+
+  async getArticleCatalog(key = 'cloud-main') {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('articleCatalog', 'readonly');
+      const req = tx.objectStore('articleCatalog').get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async saveArticleCatalog(record) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('articleCatalog', 'readwrite');
+      tx.objectStore('articleCatalog').put(record);
+      tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
   // Update article fields (e.g., favorite)
   async updateArticle(id, fields) {
     const db = await this.open();
@@ -219,15 +295,19 @@ export const DB = {
     const articleUrl = serverArticle.url || serverArticle.sourceUrl || '';
     const newContent = (serverArticle.content || '').trim();
     const serverTitleZh = String(serverArticle.titleZh || '').trim();
+    const cloudMetadata = normalizeStoredCloudMetadata(serverArticle);
     // Check if already exists by URL
     const existing = await this.findArticleByUrl(articleUrl);
 
     // 已有本地记录: 始终允许补齐云端标题，正文仅在本地为空时补写。
     if (existing) {
       const localEmpty = !(existing.content && existing.content.trim());
-      const fields = {};
+      const fields = buildCloudArticleMetadataPatch(serverArticle, existing);
       if (serverTitleZh && serverTitleZh !== String(existing.titleZh || '').trim()) {
         fields.titleZh = serverTitleZh;
+      }
+      if (serverArticle.source && serverArticle.source !== existing.source) {
+        fields.source = serverArticle.source;
       }
       if (localEmpty && newContent) {
         fields.content = serverArticle.content;
@@ -253,7 +333,7 @@ export const DB = {
         wordCount: serverArticle.wordCount || 0,
         topic: serverArticle.source || 'reading',
         source: serverArticle.source || '',
-        sourceType: 'rss',
+        ...cloudMetadata,
         url: articleUrl,
         publishedAt: serverArticle.publishedAt || Date.now(),
         summary: serverArticle.summary || '',
@@ -336,7 +416,7 @@ export const DB = {
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readwrite');
-      const req = tx.objectStore('learnWords').add({ ...wordData, word: stemWord, createdAt: Date.now() });
+      const req = tx.objectStore('learnWords').add({ ...wordData, word: stemWord, reviewRevision: Math.max(0, Number(wordData.reviewRevision) || 0), createdAt: Date.now() });
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -349,6 +429,16 @@ export const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readonly');
       const req = tx.objectStore('learnWords').index('word').get(stemWord);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async findLearnWordById(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readonly');
+      const req = tx.objectStore('learnWords').get(id);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
@@ -415,7 +505,12 @@ export const DB = {
           failure = abortTransaction(tx, new Error('学习词不存在'));
           return;
         }
-        updatedWord = { ...word, ...srsData };
+        const currentRevision = Math.max(0, Number(word.reviewRevision) || 0);
+        if (event.expectedRevision !== undefined && Number(event.expectedRevision) !== currentRevision) {
+          failure = abortTransaction(tx, new Error('该单词已在另一种复习方式中更新'));
+          return;
+        }
+        updatedWord = { ...word, ...srsData, reviewRevision: currentRevision + 1 };
         words.put(updatedWord);
         events.add({
           wordId: id,
@@ -428,6 +523,7 @@ export const DB = {
           previousState: word.state || (!word.reviewCount ? 'new' : 'legacy'),
           nextState: srsData.state || 'legacy',
           schedulerVersion: srsData.schedulerVersion || 1,
+          reviewRevision: currentRevision + 1,
           ...event
         });
       };
@@ -531,6 +627,64 @@ export const DB = {
     });
   },
 
+  // ===== Context review sentence bank and resumable sessions =====
+
+  async saveContextReviewSentences(items = []) {
+    const rows = Array.isArray(items) ? items.filter(item => item?.key) : [];
+    if (!rows.length) return [];
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSentences', 'readwrite');
+      const store = tx.objectStore('contextReviewSentences');
+      rows.forEach(item => store.put({ ...item }));
+      tx.oncomplete = () => resolve(rows.map(item => ({ ...item })));
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getContextReviewSentencesForWord(wordId, limit = 10) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSentences', 'readonly');
+      const req = tx.objectStore('contextReviewSentences').index('wordId').getAll(wordId);
+      req.onsuccess = () => resolve(req.result
+        .sort((left, right) => (Number(right.lastUsedAt) || 0) - (Number(left.lastUsedAt) || 0))
+        .slice(0, Math.max(0, Number(limit) || 0)));
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async saveContextReviewSession(session) {
+    if (!session?.id) throw new TypeError('语境复习会话需要稳定标识');
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readwrite');
+      const req = tx.objectStore('contextReviewSessions').put({ ...session });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getContextReviewSession(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readonly');
+      const req = tx.objectStore('contextReviewSessions').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async deleteContextReviewSession(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readwrite');
+      tx.objectStore('contextReviewSessions').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
   // ===== Personal Knowledge Profile =====
   // Kept deliberately separate from saved vocabulary and SRS cards.
 
@@ -625,9 +779,11 @@ export const DB = {
   async clearLearnWords() {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
+      const tx = db.transaction(['learnWords', 'reviewEvents', 'contextReviewSentences', 'contextReviewSessions'], 'readwrite');
       tx.objectStore('learnWords').clear();
       tx.objectStore('reviewEvents').clear();
+      tx.objectStore('contextReviewSentences').clear();
+      tx.objectStore('contextReviewSessions').clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

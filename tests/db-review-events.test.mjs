@@ -7,10 +7,13 @@ let databaseSequence = 0;
 
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
-  const adapted = source.replace(
-    "import { getStemForm } from './helpers.js';",
-    "const getStemForm = word => String(word || '').trim().toLowerCase();"
-  );
+  const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const adapted = source
+    .replace(
+      "import { getStemForm } from './helpers.js';",
+      "const getStemForm = word => String(word || '').trim().toLowerCase();"
+    )
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -129,4 +132,52 @@ test('definition metadata updates preserve saved-word and SRS fields', async () 
   assert.equal(learnWord.interval, 6);
   assert.equal(learnWord.state, 'review');
   assert.deepEqual(learnWord.definitionSenses, fields.definitionSenses);
+});
+
+test('review revisions reject a stale score from another review mode without duplicating events', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({ word: 'shared', reviewRevision: 0 });
+
+  const updated = await DB.recordLearnWordReview(wordId, {
+    state: 'learning', interval: 1, nextReview: 1000
+  }, {
+    rating: 5,
+    source: 'context-review',
+    expectedRevision: 0,
+    contextResult: 'known'
+  });
+  assert.equal(updated.reviewRevision, 1);
+
+  await assert.rejects(DB.recordLearnWordReview(wordId, {
+    state: 'relearning', interval: 0, nextReview: 500
+  }, {
+    rating: 1,
+    source: 'flashcard',
+    expectedRevision: 0
+  }), /已在另一种复习方式中更新/);
+
+  assert.equal((await DB.getReviewEventsForWord(wordId)).length, 1);
+  assert.equal((await DB.findLearnWordById(wordId)).reviewRevision, 1);
+});
+
+test('persists a versioned context sentence bank and resumable session without changing learning words', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({ word: 'retain', interval: 3 });
+  await DB.saveContextReviewSentences([{
+    key: 'v1:cet4:retain:one',
+    wordId,
+    lemma: 'retain',
+    sentence: 'Good notes help students retain the most important ideas.',
+    targetTrack: 'cet4',
+    savedAt: 100,
+    lastUsedAt: 100
+  }]);
+  await DB.saveContextReviewSession({ id: 'session-1', currentIndex: 2, updatedAt: 200 });
+
+  assert.equal((await DB.getContextReviewSentencesForWord(wordId))[0].lemma, 'retain');
+  assert.equal((await DB.getContextReviewSession('session-1')).currentIndex, 2);
+  assert.equal((await DB.findLearnWordById(wordId)).interval, 3);
+
+  await DB.deleteContextReviewSession('session-1');
+  assert.equal(await DB.getContextReviewSession('session-1'), null);
 });

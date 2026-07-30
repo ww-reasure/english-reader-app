@@ -6,6 +6,7 @@ test('tooltip imports compact metadata badges for the four learning tracks', asy
   const source = await readFile(new URL('../src/components/tooltip.js', import.meta.url), 'utf8');
 
   assert.match(source, /renderTooltipWordBadges/);
+  assert.match(source, /renderTooltipWordBadges\(data, esc, targetTrack\)/);
   assert.match(source, /word\.length < 2 && word\.toLowerCase\(\) !== 'a'/);
 });
 

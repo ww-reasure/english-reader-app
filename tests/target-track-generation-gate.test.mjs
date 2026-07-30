@@ -32,9 +32,9 @@ test('every article-writing entry point routes an unselected target through cali
 
       if (view.file.endsWith('/chat.js') && ['async executeHomeTool', 'async handleGenerate'].includes(entry)) {
         const resolutionIndex = entryBody.indexOf('this.resolveDirectGenerationRequest');
-        const writeIndex = entryBody.indexOf('articleGenerationTool.execute');
+        const writeIndex = entryBody.indexOf('this.startHomeGenerationJob');
         assert.ok(resolutionIndex >= 0 && resolutionIndex < gateIndex, `${entry} must resolve a direct user target before the gate`);
-        assert.ok(writeIndex >= 0 && gateIndex < writeIndex, `${entry} must still gate before article persistence`);
+        assert.ok(writeIndex >= 0 && gateIndex < writeIndex, `${entry} must still gate before a persistent generation task begins`);
       } else {
         assert.ok(gateIndex < 700, `${entry} must gate before generation work starts`);
       }

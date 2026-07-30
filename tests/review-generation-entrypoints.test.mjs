@@ -12,7 +12,10 @@ test('all review-reading entry points delegate to the one-by-one four-batch home
   assert.match(chat, /planReviewBatches/);
   assert.match(chat, /maxArticles:\s*4/);
   assert.match(chat, /正在制作第 \$\{index \+ 1\}/);
-  assert.match(chat, /publishReviewArticles\(\[result\.article\], generationSession\)/);
+  assert.match(chat, /async executeReviewGenerationJob\(job, runtime\)/);
+  assert.match(chat, /completedBatches/);
+  assert.match(chat, /generationJobId: batchGenerationJobId/);
+  assert.match(chat, /await this\.publishHomeGenerationArticle\(job, article, '', runtime, index\)/);
   assert.match(chat, /addReviewContinueAction/);
   assert.match(flashcard, /ChatView\.generateReviewReadings/);
   assert.match(reading, /ChatView\.generateReviewReadings/);

@@ -8,6 +8,8 @@ import { ReadingView } from './views/reading.js';
 import { HistoryView } from './views/history.js';
 import { VocabularyView } from './views/vocabulary.js';
 import { FlashcardView } from './views/flashcard.js';
+import { ReviewModeView } from './views/review-mode.js';
+import { ContextReviewView } from './views/context-review.js';
 import { LearnWordsView } from './views/learn-words.js';
 import { SettingsView } from './views/settings.js';
 import { StatsView } from './views/stats.js';
@@ -20,7 +22,7 @@ import { RouteHistory } from './components/route-history.js';
 import { WordStudyDetail } from './components/word-study-detail.js';
 
 const views = {
-  ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView,
+  ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView, ReviewModeView, ContextReviewView,
   LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView
 };
 
@@ -64,7 +66,13 @@ export const Router = {
         view = VocabularyView;
         break;
       case hash === '#/flashcard':
+        view = ReviewModeView;
+        break;
+      case hash === '#/flashcard/recall':
         view = FlashcardView;
+        break;
+      case hash === '#/flashcard/context':
+        view = ContextReviewView;
         break;
       case hash === '#/learn-words':
         view = LearnWordsView;

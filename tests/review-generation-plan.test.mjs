@@ -5,7 +5,7 @@ import { planReviewBatches } from '../src/components/review-generation-plan.mjs'
 
 const at = (day, hour = 12) => new Date(2026, 6, day, hour, 0, 0, 0).getTime();
 
-test('plans at most four eight-word review readings and skips words already saved today', () => {
+test('plans up to four compact review readings without a fixed eight-word cap', () => {
   const words = Array.from({ length: 60 }, (_value, index) => `word${index + 1}`);
   const plan = planReviewBatches({
     words,
@@ -18,10 +18,11 @@ test('plans at most four eight-word review readings and skips words already save
   });
 
   assert.equal(plan.coveredWords.length, 3);
-  assert.equal(plan.batches.length, 4);
-  assert.deepEqual(plan.batches[0], ['word4', 'word5', 'word6', 'word7', 'word8', 'word9', 'word10', 'word11']);
-  assert.equal(plan.selectedWords.length, 32);
-  assert.equal(plan.remainingWords.length, 25);
+  assert.equal(plan.batches.length, 3);
+  assert.deepEqual(plan.batches[0].slice(0, 8), ['word4', 'word5', 'word6', 'word7', 'word8', 'word9', 'word10', 'word11']);
+  assert.ok(plan.batches[0].length > 8);
+  assert.equal(plan.selectedWords.length, 57);
+  assert.equal(plan.remainingWords.length, 0);
 });
 
 test('keeps an unsaved failed batch eligible for the next review attempt', () => {

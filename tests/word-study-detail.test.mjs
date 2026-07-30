@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   WORD_STUDY_TABS,
+  mergeWordStudyExamples,
   renderWordStudyPanel,
   renderWordStudyTabs
 } from '../src/components/word-study-materials.mjs';
@@ -55,6 +56,33 @@ test('phrase panel has loading, retryable failure, and empty states', () => {
   assert.match(renderWordStudyPanel({ activeTab: 'phrases', phrases: { status: 'ready', items: [] } }), /暂无可用词组/);
 });
 
+test('true exam examples lead the example panel with an honest source and cached translation', () => {
+  const examples = mergeWordStudyExamples([
+    {
+      id: 'exam-1',
+      sentenceEn: 'The author explains why the policy changed.',
+      translationZh: '作者解释了政策为何发生变化。',
+      sourceKind: 'passage',
+      paperLabel: '考研英语一 2024',
+      positionLabel: '文章原文 · 第2段'
+    }
+  ], [
+    'The author wrote a short note.',
+    'The author explains why the policy changed.'
+  ]);
+
+  assert.equal(examples.length, 2);
+  assert.equal(examples[0].isExam, true);
+  assert.equal(examples[1].isExam, false);
+
+  const html = renderWordStudyPanel({ activeTab: 'examples', examples });
+  assert.match(html, /真题正文/);
+  assert.match(html, /考研英语一 2024/);
+  assert.match(html, /文章原文 · 第2段/);
+  assert.match(html, /data-cached-translation="作者解释了政策为何发生变化。"/);
+  assert.match(html, /The author wrote a short note\./);
+});
+
 test('all full word details share the study sheet while tooltip stays compact with a detail entry', async () => {
   const [detail, vocabulary, learnWords, flashcard, tooltip, css] = await Promise.all([
     read('../src/components/word-study-detail.js'),
@@ -71,13 +99,19 @@ test('all full word details share the study sheet while tooltip stays compact wi
   assert.match(learnWords, /WordStudyDetail\.open/);
   assert.match(flashcard, /WORD_STUDY_TABS/);
   assert.match(flashcard, /phrases/);
+  assert.match(flashcard, /ExamCorpus\.getExamples/);
+  assert.match(flashcard, /mergeWordStudyExamples/);
   assert.match(tooltip, /查看学习详情/);
   assert.match(tooltip, /WordStudyDetail\.open/);
+  assert.match(tooltip, /targetTrack/);
+  assert.match(detail, /ExamCorpus\.getExamples/);
+  assert.match(detail, /mergeWordStudyExamples/);
+  assert.match(detail, /renderExamCorpusDetail/);
   assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto minmax\(0,1fr\) auto/s);
   assert.match(css, /\.word-study-tabs\s*\{[^}]*overflow-x:auto/s);
 });
 
-test('full and review details use the selected dossier cover and glossary-band hierarchy', async () => {
+test('full details keep the dossier hierarchy while review uses the focused study stage', async () => {
   const [detail, flashcard, css] = await Promise.all([
     read('../src/components/word-study-detail.js'),
     read('../src/views/flashcard.js'),
@@ -86,12 +120,15 @@ test('full and review details use the selected dossier cover and glossary-band h
 
   assert.match(detail, /word-study-dossier-cover/);
   assert.match(detail, /word-study-definition-band/);
-  assert.match(flashcard, /flashcard-study-dossier-cover/);
-  assert.match(flashcard, /flashcard-study-definition-band/);
+  assert.match(flashcard, /flashcard-study-masthead/);
+  assert.match(flashcard, /flashcard-study-info-trigger/);
+  assert.match(flashcard, /flashcard-focused-example/);
   assert.match(css, /\.word-study-dossier-cover\s*\{[^}]*background:var\(--pine\)/s);
   assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*height:min\(95dvh,820px\)/s);
   assert.match(css, /\.word-study-definition-band\s*\{/);
   assert.match(css, /\.word-study-title-row\s*\{[^}]*margin-top:40px/s);
   assert.match(css, /\.word-study-example-list\s*\{[^}]*border-left:1px solid/s);
   assert.match(css, /\.word-study-tab\.active\s*\{[^}]*background:var\(--pine\)/s);
+  assert.match(css, /\.flashcard-study-masthead\s*\{[^}]*background:transparent/s);
+  assert.match(css, /\.flashcard-study-panel \.flashcard-focused-example\s*\{[^}]*min-height:100%/s);
 });

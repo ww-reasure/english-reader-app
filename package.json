@@ -1,6 +1,6 @@
 {
   "name": "english-reader-app",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
@@ -12,13 +12,15 @@
     "lexicon:verify": "npm run lexicon:fetch && npm run lexicon:build",
     "exam-focus:build": "node scripts/build-exam-focus.mjs",
     "exam-focus:verify": "node scripts/build-exam-focus.mjs",
+    "exam-corpus:build": "node scripts/build-exam-corpus.mjs",
+    "exam-corpus:verify": "node scripts/build-exam-corpus.mjs",
     "oewn:fetch": "node scripts/fetch-oewn-source.mjs",
     "oewn:build": "node scripts/build-oewn-artifact.mjs",
     "oewn:verify": "npm run oewn:fetch && npm run oewn:build",
     "track-baseline:verify": "node scripts/verify-track-baselines.mjs",
     "version:patch": "node scripts/bump-version.js patch",
     "version:minor": "node scripts/bump-version.js minor",
-    "release:preflight": "npm run exam-focus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify",
+    "release:preflight": "npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify",
     "release:patch": "npm run release:preflight && npm run version:patch && npm run build:apk",
     "release:minor": "npm run release:preflight && npm run version:minor && npm run build:apk",
     "preview": "vite preview"

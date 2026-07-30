@@ -1,5 +1,7 @@
+import { resolveArticleTrack } from './cloud-article-metadata.mjs';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DIFFICULTY_KEYS = ['cet4', 'cet6', 'kaoyan1', 'kaoyan2', 'graduate'];
+const DIFFICULTY_KEYS = ['cet4', 'cet6', 'kaoyan1', 'kaoyan2', 'kaoyan-general', 'graduate'];
 
 const asNumber = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const asTimestamp = value => Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -23,10 +25,17 @@ function readingSeconds(reading = {}) {
 }
 
 function readingDifficulty(reading = {}, articleById = new Map()) {
-  const snapshotDifficulty = String(reading.articleSnapshot?.difficulty || '').trim();
-  if (snapshotDifficulty) return snapshotDifficulty;
-  const articleDifficulty = String(articleById.get(reading.articleId)?.difficulty || '').trim();
-  return articleDifficulty || 'unknown';
+  const snapshot = reading.articleSnapshot || {};
+  const article = articleById.get(reading.articleId);
+  if (article) {
+    const articleTarget = resolveArticleTrack(article).targetTrack;
+    if (articleTarget !== 'unknown') return articleTarget;
+  }
+
+  const snapshotTarget = String(snapshot.targetTrack || '').trim();
+  if (snapshotTarget) return resolveArticleTrack({ ...snapshot, targetTrack: snapshotTarget }).targetTrack;
+
+  return resolveArticleTrack(snapshot).targetTrack;
 }
 
 function dayKey(timestamp) {

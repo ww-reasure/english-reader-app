@@ -1,13 +1,18 @@
 import { Affixes } from '../affixes.js';
 import { API } from '../api.js';
 import { AudioCache } from '../audio-cache.js';
+import { Config } from '../config.js';
+import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { Examples } from '../examples.js';
 import { esc } from '../helpers.js';
 import { formatPartOfSpeech, formatPhonetic, getDefinitionDisplayLines, getDefinitionSenses } from './definition-trust.mjs';
 import { WordPhrases } from './word-phrases.js';
 import { WordSimilar } from './word-similar.js';
+import { renderExamCorpusDetail, selectExamCorpusPresentation } from './exam-corpus-presentation.mjs';
 import {
   isWordStudyTab,
+  mergeWordStudyExamples,
+  normalizeWordStudyExample,
   renderWordStudyPanel,
   renderWordStudyTabs
 } from './word-study-materials.mjs';
@@ -88,6 +93,8 @@ export const WordStudyDetail = {
     const phonetic = formatPhonetic(this.definition?.phonetic);
     const status = this.sourceMeta?.status;
     const eyebrow = this.sourceMeta?.eyebrow || 'WORD NOTE';
+    const targetTrack = this.sourceMeta?.targetTrack || Config.get('exam_level') || '';
+    const examPresentation = selectExamCorpusPresentation(this.definition?.examCorpus, targetTrack);
     return `
       <section class="word-study-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="wordStudyDetailTitle">
         <header class="word-study-detail-head">
@@ -105,6 +112,7 @@ export const WordStudyDetail = {
           <div class="word-study-definition-band">
             ${renderContextualSense(this.definition)}
             <div class="word-study-definition-list">${renderDefinitionLines(this.definition)}</div>
+            <div data-word-study-exam-corpus>${renderExamCorpusDetail(examPresentation, esc)}</div>
           </div>
           ${(this.sourceMeta?.schedule || this.sourceMeta?.contextSentence) ? `<div class="word-study-meta-notes">
             ${this.sourceMeta?.schedule ? `<p class="word-study-schedule">${esc(this.sourceMeta.schedule)}</p>` : ''}
@@ -144,14 +152,22 @@ export const WordStudyDetail = {
   },
 
   async loadMaterials(session, word) {
-    const [examples, rootAnalysis] = await Promise.all([
+    const targetTrack = this.sourceMeta?.targetTrack || Config.get('exam_level') || '';
+    const [examExamples, examples, rootAnalysis, examCorpus] = await Promise.all([
+      ExamCorpus.getExamples(word, targetTrack).catch(() => []),
       Examples.getExamples(word).catch(() => []),
-      Affixes.getAnalysis(word).catch(() => null)
+      Affixes.getAnalysis(word).catch(() => null),
+      ExamCorpus.lookupAll(word).catch(() => ({}))
     ]);
     if (!this.isCurrent(session, word)) return;
 
     this.materialStatus = 'ready';
-    this.materials = { examples, rootAnalysis };
+    this.definition = { ...this.definition, examCorpus };
+    this.materials = { examples: mergeWordStudyExamples(examExamples, examples), rootAnalysis };
+    const examTarget = this.overlay?.querySelector('[data-word-study-exam-corpus]');
+    if (examTarget) {
+      examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc);
+    }
     this.renderPanel();
 
     if (rootAnalysis && Affixes.getRelatedWordDetails(rootAnalysis).some(item => !item.translation)) {
@@ -225,10 +241,10 @@ export const WordStudyDetail = {
   },
 
   async translateExample(index, button) {
-    const example = this.materials.examples?.[index];
+    const example = normalizeWordStudyExample(this.materials.examples?.[index]);
     const item = button.closest('.word-study-example-item');
     const target = item?.querySelector(`[data-example-translation="${index}"]`);
-    if (!example || !target) return;
+    if (!example?.sentenceEn || !target) return;
     if (target.textContent) {
       target.textContent = '';
       button.textContent = '译';
@@ -237,7 +253,7 @@ export const WordStudyDetail = {
     button.disabled = true;
     button.textContent = '…';
     try {
-      const translation = await API.translateSentence(example);
+      const translation = example.translationZh || await API.translateSentence(example.sentenceEn);
       if (!button.isConnected || !target.isConnected) return;
       target.textContent = translation || '暂时无法翻译';
       button.textContent = '收';

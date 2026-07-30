@@ -14,7 +14,7 @@
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { Dictionary } from '../dictionary.js';
-import { esc } from '../helpers.js';
+import { esc, getStemForm } from '../helpers.js';
 import { Config } from '../config.js';
 import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
@@ -23,17 +23,22 @@ import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
 import { Tooltip } from '../components/tooltip.js';
 import { AudioCache } from '../audio-cache.js';
+import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { normalizeTargetWords } from '../components/article-generation-tool.js';
 import { createLexiconLoader } from '../lexicon-runtime.mjs';
 import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
 import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
+import { ReviewQueue } from '../review-queue.js';
 import { WordPhrases } from '../components/word-phrases.js';
 import { WordSimilar } from '../components/word-similar.js';
+import { renderExamCorpusDetail, selectExamCorpusPresentation } from '../components/exam-corpus-presentation.mjs';
 import {
   WORD_STUDY_TABS,
   isWordStudyTab,
+  mergeWordStudyExamples,
+  normalizeWordStudyExample,
   renderWordStudyPanel,
   renderWordStudyTabs
 } from '../components/word-study-materials.mjs';
@@ -59,6 +64,44 @@ function renderDefinitionLine(line, className) {
   return `<div class="${className} definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`;
 }
 
+function renderHighlightedStudySentence(sentence, targetWord) {
+  const targetStem = getStemForm(targetWord);
+  return String(sentence || '').split(/([A-Za-z]+(?:['’-][A-Za-z]+)*)/gu).map(part => {
+    if (!/^[A-Za-z]/u.test(part)) return esc(part);
+    const isTarget = getStemForm(part) === targetStem
+      || part.toLocaleLowerCase('en-US') === String(targetWord || '').toLocaleLowerCase('en-US');
+    return isTarget ? `<mark class="flashcard-focused-target">${esc(part)}</mark>` : esc(part);
+  }).join('');
+}
+
+function focusedExampleSourceLabel(example) {
+  if (!example?.isExam) return '学习例句';
+  if (example.sourceKind === 'question') return '真题题干';
+  if (example.sourceKind === 'passage') return '真题例句';
+  return '真题材料';
+}
+
+function getFocusedStudyExamples(examples, limit = 5) {
+  return (Array.isArray(examples) ? examples : [])
+    .map((rawExample, sourceIndex) => ({
+      example: normalizeWordStudyExample(rawExample),
+      sourceIndex
+    }))
+    .filter(item => item.example?.sentenceEn)
+    .map(item => {
+      const wordCount = item.example.sentenceEn.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/gu)?.length || 0;
+      const isComfortableLength = wordCount >= 6 && wordCount <= 28;
+      const bucket = item.example.isExam
+        ? (isComfortableLength ? 0 : 2)
+        : (isComfortableLength ? 1 : 3);
+      return { ...item, bucket, distanceFromIdeal: Math.abs(wordCount - 18) };
+    })
+    .sort((a, b) => a.bucket - b.bucket
+      || a.distanceFromIdeal - b.distanceFromIdeal
+      || a.sourceIndex - b.sourceIndex)
+    .slice(0, limit);
+}
+
 export const FlashcardView = {
   words: [],
   currentIndex: 0,
@@ -66,7 +109,9 @@ export const FlashcardView = {
   reviewedWords: [],       // Current session
   reviewState: createReviewState(),
   studyTab: 'examples',
-  studyDetails: { examples: [], rootAnalysis: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } },
+  studyExampleIndex: 0,
+  studyExamplesExpanded: false,
+  studyDetails: { examples: [], rootAnalysis: null, examPresentation: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } },
   cardSession: 0,
   container: null,
   currentTranslation: '',
@@ -79,6 +124,8 @@ export const FlashcardView = {
   _exampleLookupHandler: null,
   _exampleLookupGlobalHandler: null,
   _exampleTooltipDismissCleanup: null,
+  _studyInfoKeyHandler: null,
+  _studyExampleTouchStartX: null,
   _cardPronunciationController: null,
   _phraseController: null,
   _similarController: null,
@@ -127,7 +174,7 @@ export const FlashcardView = {
     this.cleanupExampleWordLookup();
     this.container = container;
     const allWords = await DB.getAllLearnWords();
-    const dueWords = SpacedRepetition.getDueWords(allWords);
+    const dueWords = await ReviewQueue.getDueWords();
 
     if (dueWords.length === 0) {
       const totalWords = allWords.length;
@@ -175,11 +222,20 @@ export const FlashcardView = {
 
     const session = ++this.cardSession;
     let word = this.words[this.currentIndex];
+    const revisionCheck = await ReviewQueue.revalidate({ id: word.id, expectedRevision: word.expectedRevision });
+    if (!revisionCheck.current) {
+      this.currentIndex++;
+      return this.renderCard(container);
+    }
+    word = { ...revisionCheck.word, expectedRevision: word.expectedRevision };
+    this.words[this.currentIndex] = word;
     this.reviewState = createReviewState();
     this.studyTab = 'examples';
+    this.studyExampleIndex = 0;
+    this.studyExamplesExpanded = false;
     this.cancelPhraseRequest();
     this.cancelSimilarRequest();
-    this.studyDetails = { examples: [], rootAnalysis: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
+    this.studyDetails = { examples: [], rootAnalysis: null, examPresentation: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.reviewNotice = '';
     this.studyNotice = '';
     this.ratingAttempt = null;
@@ -307,50 +363,66 @@ export const FlashcardView = {
 
     if (session !== this.cardSession) return;
     this.reviewState = finishRating(this.reviewState);
-    this.studyDetails = { examples: [], rootAnalysis: null, loading: true, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
+    this.studyDetails = { examples: [], rootAnalysis: null, examPresentation: null, loading: true, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.renderStudy(this.container);
     this.loadStudyDetails(session);
   },
 
   renderStudy(container) {
+    this.closeStudyInfo();
     this.cleanupExampleWordLookup();
     const word = this.words[this.currentIndex];
 
     const canCorrectRating = canCorrectKnownRating(this.reviewState);
     const isCorrecting = Boolean(this.reviewState.isCorrecting);
+    const intervalText = word.interval ? SpacedRepetition.getIntervalText(word.interval) : '';
     container.innerHTML = `
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--study" aria-labelledby="flashcardStudyTitle">
-        <div class="flashcard-container">
+        <div class="flashcard-container flashcard-study-container">
           <h2 id="flashcardStudyTitle" class="sr-only">单词学习详情</h2>
           ${this.renderProgress('STUDY')}
           <section class="flashcard-study-sheet">
-            <div class="flashcard-study-head">
-              <div class="flashcard-study-dossier-cover">
-                <p class="flashcard-study-kicker">03 / STUDY</p>
-                <div class="flashcard-study-word">${esc(word.word)}</div>
-                ${this.currentPhonetic ? `<div class="flashcard-phonetic">${esc(this.currentPhonetic)}</div>` : ''}
-              </div>
-              <div class="flashcard-study-definition-band">
-                <div class="flashcard-study-definition-list">${this.currentDefinitionLines.length
-                  ? this.currentDefinitionLines.map((line) => renderDefinitionLine(line, 'flashcard-study-translation')).join('')
-                  : `<div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>`}</div>
-                ${word.interval ? `<div class="flashcard-interval">当前间隔：${SpacedRepetition.getIntervalText(word.interval)}</div>` : ''}
-              </div>
-            </div>
+            <header class="flashcard-study-head flashcard-study-masthead">
+              <button class="flashcard-study-word" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(word.word)}</button>
+              ${this.currentPhonetic ? `<button class="flashcard-phonetic flashcard-study-phonetic" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(this.currentPhonetic)}</button>` : ''}
+              <div class="flashcard-study-definition-list">${this.currentDefinitionLines.length
+                ? this.currentDefinitionLines.map((line) => renderDefinitionLine(line, 'flashcard-study-translation')).join('')
+                : `<div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>`}</div>
+              <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog">
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+                <span>考试信息与复习间隔</span>
+              </button>
+            </header>
+            <nav class="flashcard-study-tabs" role="tablist" aria-label="学习资料">
+              ${renderWordStudyTabs(this.studyTab)}
+            </nav>
             <div class="flashcard-study-panel" role="tabpanel">
               ${this.renderStudyPanel()}
             </div>
-            <div class="flashcard-study-tabs" role="tablist" aria-label="学习资料">
-              ${renderWordStudyTabs(this.studyTab)}
-            </div>
           </section>
-          <div class="flashcard-study-next">
-            <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
+          <div class="flashcard-study-next flashcard-study-bottom-dock">
             ${this.studyNotice ? `<p class="flashcard-correction-notice" role="status">${esc(this.studyNotice)}</p>` : ''}
+            <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
             ${canCorrectRating || isCorrecting ? `<button class="flashcard-correction-btn" type="button" ${isCorrecting ? 'disabled' : ''} onclick="FlashcardView.correctMistakenKnown()">${isCorrecting ? '正在更正…' : '记错了'}</button>` : ''}
           </div>
         </div>
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
+        <div class="flashcard-study-info-overlay" data-study-info-overlay hidden>
+          <button class="flashcard-study-info-backdrop" type="button" data-study-info-close aria-label="关闭考试信息"></button>
+          <section class="flashcard-study-info-sheet" role="dialog" aria-modal="true" aria-labelledby="flashcardStudyInfoTitle">
+            <header>
+              <div>
+                <p class="page-eyebrow">WORD DOSSIER</p>
+                <h3 id="flashcardStudyInfoTitle">考试信息与复习间隔</h3>
+              </div>
+              <button class="flashcard-study-info-close" type="button" data-study-info-close aria-label="关闭考试信息"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </header>
+            ${this.studyDetails.examPresentation
+              ? `<div class="flashcard-study-exam-detail">${renderExamCorpusDetail(this.studyDetails.examPresentation, esc)}</div>`
+              : '<p class="flashcard-study-info-empty">暂无对应考试频度数据。</p>'}
+            <div class="flashcard-study-info-interval"><span>当前复习间隔</span><strong>${esc(intervalText || '未安排')}</strong></div>
+          </section>
+        </div>
       </main>`;
 
     this.bindStudyActions();
@@ -364,18 +436,61 @@ export const FlashcardView = {
       return '<div class="flashcard-study-loading">正在整理学习资料…</div>';
     }
 
-    return renderWordStudyPanel({
+    if (this.studyTab === 'examples' && !this.studyExamplesExpanded) {
+      return this.renderFocusedStudyExample();
+    }
+
+    const materials = renderWordStudyPanel({
       activeTab: this.studyTab,
       examples: this.studyDetails.examples,
       rootAnalysis: this.studyDetails.rootAnalysis,
       phrases: this.studyDetails.phrases,
       similar: this.studyDetails.similar
     });
+    if (this.studyTab !== 'examples') return materials;
+    return `<div class="flashcard-study-all-examples-head">
+      <button type="button" data-example-focus-one><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> 返回单句学习</button>
+      <span>全部 ${this.studyDetails.examples.length} 句</span>
+    </div>${materials}`;
+  },
+
+  renderFocusedStudyExample() {
+    const examples = getFocusedStudyExamples(this.studyDetails.examples);
+    if (!examples.length) return '<div class="word-study-empty flashcard-study-empty">暂无例句。</div>';
+
+    this.studyExampleIndex = Math.min(Math.max(0, this.studyExampleIndex), examples.length - 1);
+    const index = this.studyExampleIndex;
+    const { example, sourceIndex } = examples[index];
+    const sourceDetails = [example.paperLabel, example.positionLabel].filter(Boolean).join(' · ');
+    const targetWord = this.words[this.currentIndex]?.word || '';
+    const dots = examples.map((_, dotIndex) => `
+      <button type="button" data-example-select="${dotIndex}" class="${dotIndex === index ? 'active' : ''}"
+        aria-label="查看第 ${dotIndex + 1} 条例句" aria-current="${dotIndex === index ? 'true' : 'false'}"></button>`).join('');
+
+    return `<article class="word-study-example-item flashcard-example-item flashcard-focused-example" data-example-carousel>
+      <div class="flashcard-focused-example-topline">
+        <span class="flashcard-focused-source"><i class="fa-solid fa-book-open" aria-hidden="true"></i>${esc(focusedExampleSourceLabel(example))}</span>
+        <button class="example-translate-btn flashcard-focused-translate" type="button" data-example-translate="${sourceIndex}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''}>译</button>
+      </div>
+      <p class="word-study-example-text flashcard-example-text flashcard-focused-sentence" data-example-text>${renderHighlightedStudySentence(example.sentenceEn, targetWord)}</p>
+      <div class="example-translation flashcard-focused-translation" data-example-translation="${sourceIndex}"></div>
+      ${sourceDetails ? `<p class="flashcard-focused-example-source">${esc(sourceDetails)}</p>` : ''}
+      <div class="flashcard-focused-pagination" aria-label="例句分页">
+        <div class="flashcard-focused-dots">${dots}</div>
+        <span>${index + 1} / ${examples.length}</span>
+      </div>
+      <button class="flashcard-show-all-examples" type="button" data-example-show-all>
+        <i class="fa-regular fa-rectangle-list" aria-hidden="true"></i>
+        <span>查看全部例句</span>
+        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+      </button>
+    </article>`;
   },
 
   setStudyTab(tab) {
     if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !isWordStudyTab(tab)) return;
     this.studyTab = tab;
+    this.studyExamplesExpanded = false;
     this.renderStudy(this.container);
     if (tab === 'phrases' && this.studyDetails.phrases.status === 'idle') {
       void this.loadPhrases(this.cardSession);
@@ -389,15 +504,88 @@ export const FlashcardView = {
     this.container?.querySelectorAll('[data-study-tab]').forEach(button => {
       button.addEventListener('click', () => this.setStudyTab(button.dataset.studyTab));
     });
+    this.container?.querySelectorAll('[data-study-audio]').forEach(button => {
+      button.addEventListener('click', () => {
+        void AudioCache.getAudio(button.dataset.studyAudio).catch(() => {});
+      });
+    });
+    this.container?.querySelector('[data-study-info-open]')?.addEventListener('click', () => {
+      this.openStudyInfo();
+    });
+    this.container?.querySelectorAll('[data-study-info-close]').forEach(button => {
+      button.addEventListener('click', () => this.closeStudyInfo());
+    });
     this.container?.querySelectorAll('[data-example-translate]').forEach(button => {
       button.addEventListener('click', () => this.translateExample(Number.parseInt(button.dataset.exampleTranslate, 10), button));
     });
+    this.container?.querySelectorAll('[data-example-select]').forEach(button => {
+      button.addEventListener('click', () => this.selectStudyExample(Number.parseInt(button.dataset.exampleSelect, 10)));
+    });
+    this.container?.querySelector('[data-example-show-all]')?.addEventListener('click', () => {
+      this.showAllStudyExamples();
+    });
+    this.container?.querySelector('[data-example-focus-one]')?.addEventListener('click', () => {
+      this.showFocusedStudyExample();
+    });
+    const carousel = this.container?.querySelector('[data-example-carousel]');
+    if (carousel) {
+      carousel.addEventListener('touchstart', (event) => {
+        this._studyExampleTouchStartX = event.touches?.[0]?.clientX ?? null;
+      }, { passive: true });
+      carousel.addEventListener('touchend', (event) => {
+        const startX = this._studyExampleTouchStartX;
+        this._studyExampleTouchStartX = null;
+        const endX = event.changedTouches?.[0]?.clientX;
+        if (!Number.isFinite(startX) || !Number.isFinite(endX) || Math.abs(endX - startX) < 42) return;
+        this.selectStudyExample(this.studyExampleIndex + (endX < startX ? 1 : -1));
+      }, { passive: true });
+    }
     this.container?.querySelector('[data-retry-phrases]')?.addEventListener('click', () => {
       void this.loadPhrases(this.cardSession);
     });
     this.container?.querySelector('[data-retry-similar]')?.addEventListener('click', () => {
       void this.loadSimilar(this.cardSession);
     });
+  },
+
+  selectStudyExample(index) {
+    const total = Math.min(5, this.studyDetails.examples?.length || 0);
+    if (!total) return;
+    const nextIndex = Math.min(Math.max(0, index), total - 1);
+    if (nextIndex === this.studyExampleIndex) return;
+    this.studyExampleIndex = nextIndex;
+    this.renderStudy(this.container);
+  },
+
+  showAllStudyExamples() {
+    this.studyExamplesExpanded = true;
+    this.renderStudy(this.container);
+  },
+
+  showFocusedStudyExample() {
+    this.studyExamplesExpanded = false;
+    this.renderStudy(this.container);
+  },
+
+  openStudyInfo() {
+    const overlay = this.container?.querySelector('[data-study-info-overlay]');
+    if (!overlay) return;
+    overlay.hidden = false;
+    document.body.classList.add('flashcard-study-info-open');
+    this._studyInfoKeyHandler = (event) => {
+      if (event.key === 'Escape') this.closeStudyInfo();
+    };
+    document.addEventListener('keydown', this._studyInfoKeyHandler);
+    overlay.querySelector('[data-study-info-close]')?.focus();
+  },
+
+  closeStudyInfo() {
+    this.container?.querySelector('[data-study-info-overlay]')?.setAttribute('hidden', '');
+    document.body.classList.remove('flashcard-study-info-open');
+    if (this._studyInfoKeyHandler) {
+      document.removeEventListener('keydown', this._studyInfoKeyHandler);
+      this._studyInfoKeyHandler = null;
+    }
   },
 
   bindExampleWordLookup() {
@@ -425,7 +613,9 @@ export const FlashcardView = {
       const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
       try {
         const data = await Dictionary.lookup(word);
-        await Tooltip.show(lookupId, e.clientX, e.clientY, data);
+        await Tooltip.show(lookupId, e.clientX, e.clientY, data, false, {
+          targetTrack: Config.get('exam_level') || ''
+        });
       } catch {
         if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
@@ -460,14 +650,24 @@ export const FlashcardView = {
 
   async loadStudyDetails(session) {
     const word = this.words[this.currentIndex];
-    const [examples, rootAnalysis] = await Promise.all([
+    const targetTrack = Config.get('exam_level') || '';
+    const [examExamples, examples, rootAnalysis, examCorpus] = await Promise.all([
+      ExamCorpus.getExamples(word.word, targetTrack).catch(() => []),
       Examples.getExamples(word.word).catch(() => []),
-      Affixes.getAnalysis(word.word).catch(() => null)
+      Affixes.getAnalysis(word.word).catch(() => null),
+      ExamCorpus.lookupAll(word.word).catch(() => ({}))
     ]);
 
     if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY) return;
-    this._currentExamples = examples;
-    this.studyDetails = { ...this.studyDetails, examples, rootAnalysis, loading: false };
+    const mergedExamples = mergeWordStudyExamples(examExamples, examples);
+    this._currentExamples = mergedExamples;
+    this.studyDetails = {
+      ...this.studyDetails,
+      examples: mergedExamples,
+      rootAnalysis,
+      examPresentation: selectExamCorpusPresentation(examCorpus, targetTrack),
+      loading: false
+    };
     this.renderStudy(this.container);
     this.loadRelatedTranslations(session, word.word, rootAnalysis);
   },
@@ -555,13 +755,14 @@ export const FlashcardView = {
       initialQuality: quality
     };
     const srsData = SpacedRepetition.calculateNext(attempt.baseline, quality);
-    await DB.recordLearnWordReview(word.id, srsData, {
+    const updatedWord = await DB.recordLearnWordReview(word.id, srsData, {
       rating: quality,
       source: 'flashcard',
       sawAnswer: meaningRevealed,
-      attemptId: attempt.id
+      attemptId: attempt.id,
+      expectedRevision: word.expectedRevision
     });
-    Object.assign(word, srsData);
+    Object.assign(word, updatedWord || srsData, { expectedRevision: updatedWord?.reviewRevision ?? word.expectedRevision });
     this.ratingAttempt = attempt;
     this.pendingKnowledgeEvidence = {
       word: word.word,
@@ -739,11 +940,11 @@ export const FlashcardView = {
     }
 
     btn.textContent = '...';
-    const examples = this._currentExamples;
-    if (!examples || !examples[index]) return;
+    const example = normalizeWordStudyExample(this._currentExamples?.[index]);
+    if (!example?.sentenceEn) return;
 
     try {
-      const translation = await API.translateSentence(examples[index]);
+      const translation = example.translationZh || await API.translateSentence(example.sentenceEn);
       transEl.textContent = translation;
       btn.textContent = '收';
     } catch {
@@ -799,6 +1000,7 @@ export const FlashcardView = {
     this.cancelPhraseRequest();
     this.cancelSimilarRequest();
     this.cleanupExampleWordLookup();
+    this.closeStudyInfo();
   }
 };
 

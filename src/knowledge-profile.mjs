@@ -9,7 +9,7 @@ import {
   minimumActiveReadingSeconds
 } from './calibration-engine.mjs';
 
-export const KNOWLEDGE_PROFILE_SCHEMA_VERSION = 2;
+export const KNOWLEDGE_PROFILE_SCHEMA_VERSION = 3;
 export const CALIBRATION_DIAGNOSTIC_QUESTION_COUNT = CALIBRATION_WORD_QUESTION_COUNT;
 export const CALIBRATION_QUALIFIED_READING_TARGET = 3;
 export const MIN_QUALIFIED_READING_SECONDS = minimumActiveReadingSeconds(0);
@@ -38,7 +38,7 @@ const DIFFICULTY_FEEDBACK_ALIASES = new Map([
 ]);
 
 const DIRECT_EVIDENCE_KINDS = new Set(['diagnostic', 'recall', 'review']);
-const ALLOWED_EVIDENCE_KINDS = new Set([...DIRECT_EVIDENCE_KINDS, 'lookup']);
+const ALLOWED_EVIDENCE_KINDS = new Set([...DIRECT_EVIDENCE_KINDS, 'lookup', 'context']);
 const WORD_STATUSES = new Set(Object.values(KnowledgeEvidenceStatus));
 const storageMutationTails = new WeakMap();
 
@@ -76,6 +76,10 @@ function emptyWordProfile(lemma, now) {
     failureCount: 0,
     independentFailureCount: 0,
     observedReadingCount: 0,
+    contextKnownCount: 0,
+    assistedContextKnownCount: 0,
+    contextUncertainCount: 0,
+    contextFailureCount: 0,
     lastSuccessfulAt: null,
     lastSuccessfulSource: '',
     lastSuccessfulAttemptId: '',
@@ -103,6 +107,10 @@ function emptyBandProfile(band, now) {
     failureCount: 0,
     independentFailureCount: 0,
     observedReadingCount: 0,
+    contextKnownCount: 0,
+    assistedContextKnownCount: 0,
+    contextUncertainCount: 0,
+    contextFailureCount: 0,
     createdAt: now,
     updatedAt: now,
     schemaVersion: KNOWLEDGE_PROFILE_SCHEMA_VERSION
@@ -123,6 +131,10 @@ function normalizeWordProfile(value, lemma, now) {
     failureCount,
     independentFailureCount: Math.min(failureCount, asNonNegativeInteger(existing.independentFailureCount)),
     observedReadingCount: asNonNegativeInteger(existing.observedReadingCount),
+    contextKnownCount: asNonNegativeInteger(existing.contextKnownCount),
+    assistedContextKnownCount: asNonNegativeInteger(existing.assistedContextKnownCount),
+    contextUncertainCount: asNonNegativeInteger(existing.contextUncertainCount),
+    contextFailureCount: asNonNegativeInteger(existing.contextFailureCount),
     lastSuccessfulAt: Number.isFinite(Number(existing.lastSuccessfulAt)) ? Number(existing.lastSuccessfulAt) : null,
     lastSuccessfulSource: normalizeIdentifier(existing.lastSuccessfulSource),
     lastSuccessfulAttemptId: normalizeIdentifier(existing.lastSuccessfulAttemptId),
@@ -157,6 +169,10 @@ function normalizeBandProfile(value, band, now) {
     failureCount,
     independentFailureCount: Math.min(failureCount, asNonNegativeInteger(existing.independentFailureCount)),
     observedReadingCount: asNonNegativeInteger(existing.observedReadingCount),
+    contextKnownCount: asNonNegativeInteger(existing.contextKnownCount),
+    assistedContextKnownCount: asNonNegativeInteger(existing.assistedContextKnownCount),
+    contextUncertainCount: asNonNegativeInteger(existing.contextUncertainCount),
+    contextFailureCount: asNonNegativeInteger(existing.contextFailureCount),
     createdAt: asFiniteTimestamp(existing.createdAt, now),
     updatedAt: asFiniteTimestamp(existing.updatedAt, now),
     schemaVersion: KNOWLEDGE_PROFILE_SCHEMA_VERSION
@@ -182,6 +198,10 @@ export function withBandEstimate(bandProfile) {
     failureCount,
     independentFailureCount,
     observedReadingCount: asNonNegativeInteger(bandProfile.observedReadingCount),
+    contextKnownCount: asNonNegativeInteger(bandProfile.contextKnownCount),
+    assistedContextKnownCount: asNonNegativeInteger(bandProfile.assistedContextKnownCount),
+    contextUncertainCount: asNonNegativeInteger(bandProfile.contextUncertainCount),
+    contextFailureCount: asNonNegativeInteger(bandProfile.contextFailureCount),
     directEvidenceCount,
     masteryProbability: directEvidenceCount ? (successCount + 1) / (directEvidenceCount + 2) : null,
     confidence: directEvidenceCount / (directEvidenceCount + 6),
@@ -251,9 +271,13 @@ function normalizeEvidence(input, now) {
   }
 
   const sawAnswer = Boolean(input.sawAnswer);
-  const outcome = kind === 'lookup' || sawAnswer || input.correct === false
-    ? 'negative'
-    : 'success';
+  const contextResult = kind === 'context' ? normalizeOptionalString(input.contextResult).toLocaleLowerCase('en-US') : '';
+  if (kind === 'context' && !['known', 'uncertain', 'unknown'].includes(contextResult)) {
+    throw new TypeError('语境掌握证据需要有效结果');
+  }
+  const outcome = kind === 'context'
+    ? contextResult === 'unknown' ? 'negative' : contextResult === 'known' ? 'context-success' : 'context-uncertain'
+    : kind === 'lookup' || sawAnswer || input.correct === false ? 'negative' : 'success';
 
   const calibrationKey = normalizeIdentifier(input.calibrationKey);
   const evidence = {
@@ -263,6 +287,8 @@ function normalizeEvidence(input, now) {
     outcome,
     correct: directEvidence ? Boolean(input.correct) : null,
     sawAnswer,
+    contextResult,
+    assistedLookupCount: kind === 'context' ? asNonNegativeInteger(input.assistedLookupCount) : 0,
     source: normalizeIdentifier(input.source) || kind,
     attemptId: normalizeIdentifier(input.attemptId),
     contextId: normalizeIdentifier(input.contextId),
@@ -274,6 +300,33 @@ function normalizeEvidence(input, now) {
   };
   if (calibrationKey) evidence.calibrationKey = calibrationKey;
   return evidence;
+}
+
+function applyContextEvidence(word, band, evidence) {
+  if (evidence.contextResult === 'unknown') {
+    const failed = applyDirectEvidence(word, band, { ...evidence, outcome: 'negative', correct: false });
+    return {
+      word: { ...failed.word, contextFailureCount: failed.word.contextFailureCount + 1 },
+      band: withBandEstimate({ ...failed.band, contextFailureCount: failed.band.contextFailureCount + 1 })
+    };
+  }
+
+  const assisted = evidence.assistedLookupCount > 0;
+  const wordField = evidence.contextResult === 'known'
+    ? assisted ? 'assistedContextKnownCount' : 'contextKnownCount'
+    : 'contextUncertainCount';
+  const nextWord = {
+    ...word,
+    [wordField]: word[wordField] + 1,
+    lastEvidenceAt: evidence.occurredAt,
+    updatedAt: evidence.occurredAt
+  };
+  const nextBand = withBandEstimate({
+    ...band,
+    [wordField]: band[wordField] + 1,
+    updatedAt: evidence.occurredAt
+  });
+  return { word: nextWord, band: nextBand };
 }
 
 function applyDirectEvidence(word, band, evidence) {
@@ -465,7 +518,9 @@ export function createKnowledgeProfileRepository(storage, { now = () => Date.now
     ]);
     const word = normalizeWordProfile(storedWord, evidence.lemma, evidence.occurredAt);
     const band = normalizeBandProfile(storedBand, evidence.band, evidence.occurredAt);
-    const update = applyDirectEvidence(word, band, evidence);
+    const update = evidence.kind === 'context'
+      ? applyContextEvidence(word, band, evidence)
+      : applyDirectEvidence(word, band, evidence);
     return persistence.saveKnowledgeProfileUpdate({ ...update, evidence });
   }
 

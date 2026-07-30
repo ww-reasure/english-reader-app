@@ -62,8 +62,9 @@ test('retrying a failed generation replaces its persisted failure card instead o
   const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
 
   assert.match(source, /retryFailureId/);
-  assert.match(source, /replaceGenerationFailure\(retryFailureId,/);
-  assert.match(source, /removeGenerationFailure\(retryFailureId\)/);
+  assert.match(source, /payload:\s*\{[\s\S]*?retryFailureId,/);
+  assert.match(source, /job\.payload\?\.retryFailureId[\s\S]*?replaceGenerationFailure\(/);
+  assert.match(source, /removeGenerationFailure\(payload\.retryFailureId\)/);
   assert.match(source, /conversationStore\.replaceMessage\('home'/);
   assert.match(source, /conversationStore\.removeMessages\('home'/);
   assert.match(source, /\.finally\(\(\) => this\.setGenerationFailureRetryState\(stableId, false\)\)/);
@@ -106,7 +107,7 @@ test('an unselected target stays visibly unselected while direct user exam text 
   const toolStart = source.indexOf('async executeHomeTool');
   const toolEnd = source.indexOf('buildGenerationContext()', toolStart);
   const directStart = source.indexOf('async handleGenerate');
-  const directEnd = source.indexOf('publishReviewArticles', directStart);
+  const directEnd = source.indexOf('addReviewContinueAction', directStart);
   const toolEntry = source.slice(toolStart, toolEnd);
   const directEntry = source.slice(directStart, directEnd);
 
@@ -129,7 +130,7 @@ test('chat generation entries preserve an unselected target instead of silently 
   const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
   const entries = [
     ['async executeHomeTool', 'buildGenerationContext()'],
-    ['async handleGenerate', 'publishReviewArticles']
+    ['async handleGenerate', 'addReviewContinueAction']
   ];
 
   for (const [startMarker, endMarker] of entries) {
@@ -143,10 +144,11 @@ test('chat generation entries preserve an unselected target instead of silently 
 
 test('chat supersession clears stale UI and keeps agent failure retries safe', async () => {
   const source = (await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
-  const begin = source.match(/beginHomeRequest\(\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
+  const begin = source.match(/beginHomeRequest\(\{ cancelGeneration = false, cancelReason = 'superseded' \} = \{\}\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
 
   assert.ok(begin, 'beginHomeRequest should remain a distinct request-boundary helper');
   assert.match(begin[1], /chatService\.cancel\('home'\)/);
+  assert.match(begin[1], /if \(cancelGeneration\) \{[\s\S]*?homeGenerationCoordinator\?\.cancel\(cancelReason\)/);
   assert.match(begin[1], /resetGenerateButton\(\)/);
   assert.match(begin[1], /removeThinking\(\)/);
   assert.match(begin[1], /removeArticleGenerationStatus\(\)/);
@@ -156,11 +158,11 @@ test('chat supersession clears stale UI and keeps agent failure retries safe', a
   assert.match(source, /if \(!this\.isHomeRequestActive\(epoch, requestVersion\) \|\| signal\?\.aborted\)/);
 });
 
-test('cancelled review generation removes only an unpublished saved article', async () => {
-  const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
+test('cancelled generation removes only an unpublished saved article', async () => {
+  const source = await readFile(new URL('../src/components/article-generation-tool.js', import.meta.url), 'utf8');
 
-  assert.match(source, /await this\.discardReviewArticles\(\[result\.article\]\)/);
-  assert.match(source, /DB\.deleteArticle/);
+  assert.match(source, /const id = await this\.db\.saveArticle\(articleToSave\);/);
+  assert.match(source, /if \(options\.signal\?\.aborted \|\| !isActive\(\)\) \{[\s\S]*?this\.db\.deleteArticle/);
 });
 
 test('generation prompts keep prior article and failure facts while excluding the current duplicated request', async () => {
@@ -175,10 +177,12 @@ test('generation prompts keep prior article and failure facts while excluding th
   assert.match(source, /buildGenerationContext\(\{ excludeUserMessage: generation\.request \}\)/);
 });
 
-test('clearing or superseding the home request releases a review-generation lock', async () => {
+test('only explicit replacement or context clearing releases a review-generation lock', async () => {
   const source = (await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
-  const begin = source.match(/beginHomeRequest\(\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
+  const begin = source.match(/beginHomeRequest\(\{ cancelGeneration = false, cancelReason = 'superseded' \} = \{\}\) \{([\s\S]*?)\n  \},\n\n  isHomeRequestActive/);
 
-  assert.ok(begin, 'beginHomeRequest should remain the shared cancellation boundary');
+  assert.ok(begin, 'beginHomeRequest should remain the shared request boundary');
   assert.match(begin[1], /this\.isReviewGenerating = false/);
+  assert.match(source, /beginHomeRequest\(\{ cancelGeneration: true, cancelReason: 'clear_context' \}\)/);
+  assert.match(source, /beginHomeRequest\(\{ cancelGeneration: true \}\)/);
 });

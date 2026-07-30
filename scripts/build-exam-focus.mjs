@@ -7,7 +7,7 @@ import { assertExamFocusArtifact } from '../src/exam-focus.mjs';
 
 const COMMIT = '8814e02b40f69a2a6e016dbde087010304fcedfc';
 const GENERATED_AT = '2026-07-27T00:00:00.000Z';
-const SOURCE_ID = 'kylebing-english-vocabulary-cet';
+const SOURCE_ID = 'kylebing-english-vocabulary-exam';
 const SOURCE_ROOT = `https://raw.githubusercontent.com/KyleBing/english-vocabulary/${COMMIT}`;
 const TRACK_SOURCES = Object.freeze({
   cet4: {
@@ -25,6 +25,14 @@ const TRACK_SOURCES = Object.freeze({
     byteSize: 231996,
     rawRecordCount: 5651,
     normalizedWordCount: 3991
+  },
+  'kaoyan-general': {
+    url: `${SOURCE_ROOT}/5%20%E8%80%83%E7%A0%94-%E4%B9%B1%E5%BA%8F.txt`,
+    commit: COMMIT,
+    sha256: '8a88f5cc466ec18f86f389460e986530444083f5801a131693a057b6b6a5ab17',
+    byteSize: 531874,
+    rawRecordCount: 9602,
+    normalizedWordCount: 5044
   }
 });
 
@@ -45,7 +53,7 @@ export function parseFocusWordlist(text) {
 
 export function buildExamFocusArtifact({ sources = TRACK_SOURCES, payloads, generatedAt = GENERATED_AT } = {}) {
   const tracks = {};
-  for (const track of ['cet4', 'cet6']) {
+  for (const track of ['cet4', 'cet6', 'kaoyan-general']) {
     const bytes = payloads?.[track];
     const source = sources?.[track];
     if (!Buffer.isBuffer(bytes)) throw new TypeError(`缺少 ${track} 词表字节`);
@@ -57,15 +65,15 @@ export function buildExamFocusArtifact({ sources = TRACK_SOURCES, payloads, gene
   }
   const artifact = {
     schemaVersion: 1,
-    focusVersion: '2026.07.27-kylebing-cet.1',
+    focusVersion: '2026.07.29-kylebing-exam.1',
     generatedAt,
     source: {
       id: SOURCE_ID,
-      title: 'KyleBing English Vocabulary CET-4/CET-6 public wordlists',
+      title: 'KyleBing English Vocabulary CET-4/CET-6/Graduate public wordlists',
       repositoryUrl: 'https://github.com/KyleBing/english-vocabulary',
       sourceType: 'public-wordlist',
       useBoundary: 'exam-direction-only-not-official-truth',
-      attribution: 'Public CET-4/CET-6 wordlists from KyleBing/english-vocabulary, pinned to commit 8814e02b40f69a2a6e016dbde087010304fcedfc. The source does not state an explicit license; this app uses the list under the product owner\'s authorization and never presents it as an official syllabus.',
+      attribution: 'Public CET-4/CET-6/Graduate wordlists from KyleBing/english-vocabulary, pinned to commit 8814e02b40f69a2a6e016dbde087010304fcedfc. The source does not state an explicit license; this app uses the list under the product owner\'s authorization and never presents it as an official syllabus.',
       tracks: sources
     },
     tracks
@@ -75,7 +83,7 @@ export function buildExamFocusArtifact({ sources = TRACK_SOURCES, payloads, gene
 
 export async function fetchPinnedFocusSources({ sources = TRACK_SOURCES, fetchFn = globalThis.fetch } = {}) {
   const payloads = {};
-  for (const track of ['cet4', 'cet6']) {
+  for (const track of ['cet4', 'cet6', 'kaoyan-general']) {
     const response = await fetchFn(sources[track].url);
     if (!response?.ok || typeof response.arrayBuffer !== 'function') {
       throw new Error(`下载 ${track} 公开词表失败（HTTP ${response?.status || '未知'}）`);
@@ -90,7 +98,7 @@ async function runCli() {
   const artifact = buildExamFocusArtifact({ payloads: await fetchPinnedFocusSources() });
   const outputPath = resolve(root, 'public', 'data', 'exam-focus.json');
   await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
-  process.stdout.write(`已构建四、六级重点词表：四级 ${artifact.tracks.cet4.length}，六级 ${artifact.tracks.cet6.length}。\n`);
+  process.stdout.write(`已构建考试方向词表：四级 ${artifact.tracks.cet4.length}，六级 ${artifact.tracks.cet6.length}，考研 ${artifact.tracks['kaoyan-general'].length}。\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

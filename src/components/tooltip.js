@@ -4,6 +4,7 @@
  */
 
 import { DB } from '../db.js';
+import { Config } from '../config.js';
 import { getStemForm, esc } from '../helpers.js';
 import { Affixes } from '../affixes.js';
 import { Examples } from '../examples.js';
@@ -77,7 +78,8 @@ export const Tooltip = {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
 
-    const wordBadges = renderTooltipWordBadges(data, esc);
+    const targetTrack = String(options.targetTrack || Config.get('exam_level') || '').trim();
+    const wordBadges = renderTooltipWordBadges(data, esc, targetTrack);
     let html = `<div class="tooltip-word">
       <div class="tooltip-word-title">
         <button class="tooltip-word-trigger" type="button" data-audio-word="${esc(data.word)}" title="播放发音" aria-label="播放 ${esc(data.word)} 的发音">${esc(data.word)}</button>
@@ -168,7 +170,11 @@ export const Tooltip = {
         WordStudyDetail.open({
           word: data.word,
           definition: { ...data, contextualSenseIndex, contextualSenseReason: options.contextualSenseReason || '' },
-          sourceMeta: { eyebrow: 'WORD NOTE', contextSentence: options.contextSentence || '' }
+          sourceMeta: {
+            eyebrow: 'WORD NOTE',
+            contextSentence: options.contextSentence || '',
+            targetTrack
+          }
         });
       });
     }

@@ -87,7 +87,12 @@ const wordOccurs = (content, word) => new RegExp(`(^|[^A-Za-z])${escapeRegExp(wo
  * Fast, deterministic admission gate.  It deliberately checks only whether a
  * card is usable; deep lexical and grammar analysis runs after the card exists.
  */
-export function admitArticle(article = {}, { targetWordCount, reviewWords = [] } = {}) {
+export function admitArticle(article = {}, {
+  targetWordCount,
+  reviewWords = [],
+  reviewMode = false,
+  reviewMaxWords = 280
+} = {}) {
   const title = clip(article.title, 240);
   const titleZh = clip(article.titleZh, 240);
   const content = String(article.content || '').trim();
@@ -95,11 +100,14 @@ export function admitArticle(article = {}, { targetWordCount, reviewWords = [] }
   const wordCount = countWords(content);
   const sentenceCount = countSentences(content);
   const target = Number.parseInt(targetWordCount, 10);
-  const acceptanceRange = Number.isFinite(target) && target > 0
+  const acceptanceRange = reviewMode
+    ? { min: 0, max: Math.max(1, Number.parseInt(reviewMaxWords, 10) || 280) }
+    : Number.isFinite(target) && target > 0
     ? { min: Math.ceil(target * 0.7), max: Math.floor(target * 1.4) }
     : null;
   const normalizedReviewWords = normalizeTargetWords(reviewWords, Number.POSITIVE_INFINITY);
   const missingReviewWords = normalizedReviewWords.filter(word => !wordOccurs(content, word));
+  const matchedReviewWords = normalizedReviewWords.filter(word => !missingReviewWords.includes(word));
   const deviations = [];
 
   if (!containsEnglish(title)) deviations.push({ code: 'title' });
@@ -107,20 +115,23 @@ export function admitArticle(article = {}, { targetWordCount, reviewWords = [] }
   if (!content || !containsEnglish(content)) deviations.push({ code: 'content' });
   if (!translation || !containsChinese(translation)) deviations.push({ code: 'translation' });
   if (sentenceCount < 3) deviations.push({ code: 'sentence_count', actual: sentenceCount, expected: { min: 3, max: Number.POSITIVE_INFINITY } });
-  if (acceptanceRange && (wordCount < acceptanceRange.min || wordCount > acceptanceRange.max)) {
+  if (!reviewMode && acceptanceRange && (wordCount < acceptanceRange.min || wordCount > acceptanceRange.max)) {
     deviations.push({ code: 'word_count', actual: wordCount, expected: acceptanceRange });
   }
-  missingReviewWords.forEach(word => deviations.push({ code: 'review_word', word }));
+  if (reviewMode && matchedReviewWords.length === 0 && normalizedReviewWords.length) {
+    deviations.push({ code: 'review_word', word: normalizedReviewWords[0] });
+  }
 
   return {
     passed: deviations.length === 0,
-    metrics: { wordCount, sentenceCount, acceptanceRange },
+    metrics: { wordCount, sentenceCount, acceptanceRange, matchedReviewWords },
     deviations,
-    missingReviewWords
+    missingReviewWords,
+    matchedReviewWords
   };
 }
 
-export function formatAdmissionCorrection(admission = {}) {
+export function formatAdmissionCorrection(admission = {}, { reviewMode = false } = {}) {
   const codes = new Set((admission.deviations || []).map(item => item?.code));
   const parts = ['上次文章未达到可保存条件。请重新完整输出文章 JSON，不要解释。'];
   if (codes.has('title')) parts.push('- 英文标题不能为空。');
@@ -131,7 +142,11 @@ export function formatAdmissionCorrection(admission = {}) {
   const wordCount = admission.metrics?.wordCount;
   const range = admission.metrics?.acceptanceRange;
   if (codes.has('word_count') && range) parts.push(`- 正文实际 ${wordCount} 词，请控制在 ${range.min}-${range.max} 词。`);
-  if (admission.missingReviewWords?.length) parts.push(`- 必须自然包含复习词：${admission.missingReviewWords.join(', ')}。`);
+  if (reviewMode && codes.has('review_word')) {
+    parts.push('- 这是复习短篇：请至少自然使用 1 个候选复习词，并尽量多使用，不要堆砌。');
+  } else if (admission.missingReviewWords?.length) {
+    parts.push(`- 必须自然包含复习词：${admission.missingReviewWords.join(', ')}。`);
+  }
   return parts.join('\n');
 }
 
@@ -144,7 +159,8 @@ export function formatAdmissionSummary(admission = {}) {
     const range = admission.metrics?.acceptanceRange;
     details.push(range ? `篇幅为 ${admission.metrics?.wordCount || 0} 词（允许 ${range.min}-${range.max} 词）` : '篇幅明显异常');
   }
-  if (admission.missingReviewWords?.length) details.push(`缺少复习词：${admission.missingReviewWords.join(', ')}`);
+  if (codes.has('review_word')) details.push('完全没有命中候选复习词');
+  else if (admission.missingReviewWords?.length) details.push(`缺少复习词：${admission.missingReviewWords.join(', ')}`);
   return `文章内容未达到可保存条件：${details.join('；') || '内容不完整'}。已自动重试一次，请重新生成。`;
 }
 
@@ -159,7 +175,8 @@ export class ArticleAdmissionError extends Error {
       passed: Boolean(admission?.passed),
       metrics: admission?.metrics || {},
       deviations: Array.isArray(admission?.deviations) ? admission.deviations : [],
-      missingReviewWords: Array.isArray(admission?.missingReviewWords) ? admission.missingReviewWords : []
+      missingReviewWords: Array.isArray(admission?.missingReviewWords) ? admission.missingReviewWords : [],
+      matchedReviewWords: Array.isArray(admission?.matchedReviewWords) ? admission.matchedReviewWords : []
     };
     this.attemptCount = attempts.length;
   }
@@ -396,10 +413,12 @@ const controlledArticleFields = fields => {
   const selected = {};
   if (Object.hasOwn(fields, 'reviewMode')) selected.reviewMode = Boolean(fields.reviewMode);
   if (Array.isArray(fields.usedWords)) selected.usedWords = normalizeTargetWords(fields.usedWords);
+  const generationJobId = String(fields.generationJobId || '').trim();
+  if (generationJobId) selected.generationJobId = generationJobId.slice(0, 96);
   return selected;
 };
 
-export function prioritizeLearningWords(words = [], now = Date.now()) {
+export function prioritizeLearningWords(words = [], now = Date.now(), examScores = new Map()) {
   return [...words].sort((a, b) => {
     const priority = word => {
       if (word.state === 'relearning') return 5;
@@ -408,8 +427,47 @@ export function prioritizeLearningWords(words = [], now = Date.now()) {
       if (word.lastQuality === 3) return 2;
       return 1;
     };
-    return priority(b) - priority(a) || (b.lapseCount || 0) - (a.lapseCount || 0) || (a.nextReview || Infinity) - (b.nextReview || Infinity);
+    const examScore = word => Math.max(0, Number(examScores?.get?.(String(word?.word || '').toLocaleLowerCase('en-US'))) || 0);
+    return priority(b) - priority(a)
+      || (b.lapseCount || 0) - (a.lapseCount || 0)
+      || examScore(b) - examScore(a)
+      || (a.nextReview || Infinity) - (b.nextReview || Infinity);
   });
+}
+
+async function loadExamPriorityScores(words, targetTrack, examCorpus) {
+  const scores = new Map();
+  if (!examCorpus?.lookup) return scores;
+  await Promise.all((Array.isArray(words) ? words : []).map(async value => {
+    const word = String(typeof value === 'string' ? value : value?.word || '').trim().toLocaleLowerCase('en-US');
+    if (!word || scores.has(word)) return;
+    const record = await examCorpus.lookup(word, targetTrack).catch(() => null);
+    scores.set(word, Math.max(0, Number(record?.priorityScore) || 0));
+  }));
+  return scores;
+}
+
+export async function observeExamCorpusCoverage(content, targetTrack, examCorpus) {
+  if (!examCorpus?.lookup) return null;
+  const tokens = String(content || '').toLocaleLowerCase('en-US').match(/[a-z]+(?:[-'][a-z]+)*/g) || [];
+  const unique = [...new Set(tokens)].slice(0, 1200);
+  try {
+    const records = await Promise.all(unique.map(word => examCorpus.lookup(word, targetTrack)));
+    const observed = records.filter(record => record
+      && record.priorityTier !== 'uncovered'
+      && (Number(record?.counts?.sentenceTotal) > 0 || ['core', 'frequent', 'appeared'].includes(record.priorityTier)));
+    return {
+      status: 'available',
+      targetTrack,
+      analyzedUniqueWords: unique.length,
+      observedUniqueWords: observed.length,
+      coreUniqueWords: observed.filter(record => record.priorityTier === 'core').length,
+      frequentUniqueWords: observed.filter(record => record.priorityTier === 'frequent').length,
+      appearedUniqueWords: observed.filter(record => record.priorityTier === 'appeared').length
+    };
+  } catch {
+    return { status: 'unavailable', targetTrack, reason: 'EXAM_CORPUS_UNAVAILABLE' };
+  }
 }
 
 export const GENERATE_READING_TOOL = {
@@ -434,7 +492,8 @@ export class ArticleGenerationTool {
   constructor({
     api,
     db,
-    pickWords = words => prioritizeLearningWords(words).slice(0, 8),
+    pickWords = words => prioritizeLearningWords(words),
+    examCorpus = null,
     now = () => Date.now(),
     admit = null,
     inspectQuality = null,
@@ -446,6 +505,7 @@ export class ArticleGenerationTool {
     this.api = api;
     this.db = db;
     this.pickWords = pickWords;
+    this.examCorpus = examCorpus;
     this.now = now;
     this.admit = typeof admit === 'function' ? admit : (typeof validate === 'function' ? validate : admitArticle);
     this.usesLegacyValidator = typeof admit !== 'function' && typeof validate === 'function';
@@ -457,27 +517,40 @@ export class ArticleGenerationTool {
     const fallbackDifficulty = DIFFICULTIES.has(options.fallbackDifficulty) ? options.fallbackDifficulty : 'cet4';
     const difficulty = DIFFICULTIES.has(args.difficulty) ? args.difficulty : fallbackDifficulty;
     const challenge = args.challenge || options.fallbackChallenge || challengeFromLegacyLevel(options.legacyLevel);
+    const isReviewMode = Boolean(options.articleFields?.reviewMode);
+    const reviewMaxWords = Math.max(1, Number.parseInt(options.reviewMaxWords, 10) || 280);
     const generation = normalizeGenerationRequest({ track: difficulty, challenge, wordCount: args.wordCount });
     const topic = clip(args.topic, 80) || clip(options.fallbackTopic, 80) || '综合';
-    const wordCount = generation.wordCount;
+    const requestedReviewWordCount = Number.parseInt(args.wordCount, 10);
+    const wordCount = isReviewMode
+      ? Math.min(reviewMaxWords, Number.isFinite(requestedReviewWordCount) && requestedReviewWordCount > 0 ? requestedReviewWordCount : Math.min(220, reviewMaxWords))
+      : generation.wordCount;
     const request = clip(args.request || args.prompt, 1200) || `请生成一篇${difficulty}难度的英语阅读文章。`;
     const isActive = typeof options.isActive === 'function' ? options.isActive : () => true;
 
     assertActive({ signal: options.signal, isActive });
     const learnWords = await this.db.getAllLearnWords();
     assertActive({ signal: options.signal, isActive });
-    const rawTargetWords = Array.isArray(options.targetWords) && options.targetWords.length
-      ? options.targetWords
-      : (this.pickWords(learnWords) || []).map(word => typeof word === 'string' ? word : word.word);
+    const hasExplicitTargetWords = Array.isArray(options.targetWords) && options.targetWords.length;
+    let pickedWords = hasExplicitTargetWords ? options.targetWords : (this.pickWords(learnWords) || []);
+    if (!hasExplicitTargetWords && this.examCorpus?.lookup) {
+      const scores = await loadExamPriorityScores(pickedWords, difficulty, this.examCorpus);
+      pickedWords = pickedWords.every(word => typeof word !== 'string')
+        ? prioritizeLearningWords(pickedWords, this.now(), scores)
+        : [...pickedWords].sort((left, right) => {
+          const key = value => String(value || '').trim().toLocaleLowerCase('en-US');
+          return (scores.get(key(right)) || 0) - (scores.get(key(left)) || 0);
+        });
+    }
+    const rawTargetWords = pickedWords.map(word => typeof word === 'string' ? word : word.word);
     const allTargetWords = normalizeTargetWords(rawTargetWords, Number.POSITIVE_INFINITY);
-    const selectedWords = normalizeTargetWords(allTargetWords);
-    const deferredWords = allTargetWords.slice(selectedWords.length);
-    const keywords = selectedWords.join(', ');
+    const selectedWords = normalizeTargetWords(allTargetWords, isReviewMode ? Number.POSITIVE_INFINITY : undefined);
+    const deferredWords = isReviewMode ? [] : allTargetWords.slice(selectedWords.length);
+    const keywords = selectedWords.join(', ').slice(0, isReviewMode ? 2400 : 1200);
     let article;
     let admission;
     const attempts = [];
     let admissionCorrection = '';
-    const isReviewMode = Boolean(options.articleFields?.reviewMode);
     const reviewWords = isReviewMode ? selectedWords : [];
     for (let attempt = 1; attempt <= 2; attempt++) {
       const retrying = attempt > 1;
@@ -486,13 +559,21 @@ export class ArticleGenerationTool {
       const validationHint = retrying ? `${request}\n\n${admissionCorrection}` : request;
       const requestOptions = {
         signal: options.signal,
-        profile: generation.profile
+        profile: generation.profile,
+        reviewMode: isReviewMode,
+        reviewMaxWords
       };
       if (options.personalization && typeof options.personalization === 'object') {
         requestOptions.personalization = options.personalization;
       }
       if (retrying) requestOptions.validationCorrection = admissionCorrection;
-      article = await this.api.generateArticle(validationHint, difficulty, topic, keywords, wordCount, options.learningContext || '', requestOptions);
+      const streamOptions = {
+        ...requestOptions,
+        onDraft: draft => options.onDraft?.({ ...draft, attempt })
+      };
+      article = typeof this.api.generateArticleStream === 'function'
+        ? await this.api.generateArticleStream(validationHint, difficulty, topic, keywords, wordCount, options.learningContext || '', streamOptions)
+        : await this.api.generateArticle(validationHint, difficulty, topic, keywords, wordCount, options.learningContext || '', requestOptions);
       assertActive({ signal: options.signal, isActive });
       reportProgress(options.onProgress, ARTICLE_GENERATION_PROGRESS.CHECKING, attempt);
       admission = this.usesLegacyValidator
@@ -504,6 +585,8 @@ export class ArticleGenerationTool {
         : await this.admit(article, {
           targetWordCount: wordCount,
           reviewWords,
+          reviewMode: isReviewMode,
+          reviewMaxWords: options.reviewMaxWords || 280,
           advisoryWords: selectedWords,
           profile: generation.profile
         });
@@ -512,7 +595,7 @@ export class ArticleGenerationTool {
       if (admission.passed) break;
       admissionCorrection = this.usesLegacyValidator
         ? formatValidationCorrection(admission, generation.profile, selectedWords)
-        : formatAdmissionCorrection(admission);
+        : formatAdmissionCorrection(admission, { reviewMode: isReviewMode });
     }
     if (!admission?.passed) {
       if (this.usesLegacyValidator) {
@@ -526,9 +609,15 @@ export class ArticleGenerationTool {
       throw new ArticleAdmissionError({ admission, attempts });
     }
 
+    const matchedReviewWords = isReviewMode
+      ? (Array.isArray(admission.matchedReviewWords)
+        ? admission.matchedReviewWords
+        : reviewWords.filter(word => wordOccurs(article.content, word)))
+      : [];
     const articleToSave = {
       ...article,
       ...controlledArticleFields(options.articleFields),
+      ...(isReviewMode ? { usedWords: matchedReviewWords } : {}),
       difficulty,
       topic,
       challenge: generation.challenge,
@@ -548,6 +637,7 @@ export class ArticleGenerationTool {
       article: savedArticle,
       profile: generation.profile,
       selectedWords,
+      targetTrack: difficulty,
       validationOptions: options.validationOptions
     });
     return {
@@ -559,14 +649,20 @@ export class ArticleGenerationTool {
     };
   }
 
-  scheduleQualityInspection({ id, article, profile, selectedWords, validationOptions }) {
+  scheduleQualityInspection({ id, article, profile, selectedWords, targetTrack, validationOptions }) {
     if (!this.inspectQuality || !this.db.updateArticle) return;
     this.scheduleBackground(() => {
-      void this.inspectQuality(article.content || '', profile, selectedWords, {
-        ...(validationOptions && typeof validationOptions === 'object' ? validationOptions : {})
-      })
-        .then(observation => {
-          const report = observation?.report || observation || null;
+      void Promise.all([
+        this.inspectQuality(article.content || '', profile, selectedWords, {
+          ...(validationOptions && typeof validationOptions === 'object' ? validationOptions : {})
+        }),
+        observeExamCorpusCoverage(article.content || '', targetTrack, this.examCorpus)
+      ])
+        .then(([observation, examCorpusObservation]) => {
+          const baseReport = observation?.report || observation || null;
+          const report = examCorpusObservation
+            ? { ...(baseReport && typeof baseReport === 'object' ? baseReport : {}), examCorpusObservation }
+            : baseReport;
           const status = observation?.status === 'unavailable' ? 'unavailable' : 'observed';
           const reason = status === 'unavailable' ? clip(observation?.reason, 80) || 'BACKGROUND_INSPECTION_UNAVAILABLE' : '';
           return this.db.updateArticle(id, {

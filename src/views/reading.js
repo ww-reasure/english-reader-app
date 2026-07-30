@@ -24,6 +24,7 @@ import { getDefinitionSenses, getSavableTranslation } from '../components/defini
 import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
 import { SentenceGuide } from '../components/sentence-guide.js';
 import { ContextualSense } from '../components/contextual-sense.js';
+import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -86,13 +87,22 @@ export const ReadingView = {
 
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
+    const favorite = Boolean(article.favorite);
     return `
-      <div id="readingTitleLookup" class="reading-title-lookup">
-        <h1 class="reading-title" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
-        ${titleZh ? `<div class="reading-title-translation">
-          <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
-          <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
-        </div>` : ''}
+      <div class="reading-title-row">
+        <div id="readingTitleLookup" class="reading-title-lookup">
+          <h1 class="reading-title" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
+          ${titleZh ? `<div class="reading-title-translation">
+            <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
+            <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
+          </div>` : ''}
+        </div>
+        <div class="reading-header-utilities" aria-label="阅读工具">
+          <button class="reading-favorite-btn ${favorite ? 'is-active' : ''}" type="button" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn" aria-pressed="${favorite}" aria-label="${favorite ? '取消收藏文章' : '收藏文章'}">
+            <i class="fa-${favorite ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>
+          </button>
+          ${!this.reviewMode ? `<button class="reading-marking-switch ${this.wordMarkingEnabled ? 'is-active' : ''}" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()" role="switch" aria-checked="${this.wordMarkingEnabled}" aria-label="词汇标记：${this.wordMarkingEnabled ? '开' : '关'}"><span>词汇标记</span><i aria-hidden="true"></i></button>` : ''}
+        </div>
       </div>`;
   },
 
@@ -162,8 +172,8 @@ export const ReadingView = {
         <div class="reading-container">
           <div class="reading-header">
             ${this._renderArticleTitle(article)}
-            <div class="reading-actions">
-              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
+            <div class="reading-action-strip" aria-label="阅读工具">
+              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
             </div>
           </div>
           <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
@@ -187,7 +197,7 @@ export const ReadingView = {
     this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
     this.guideSentences = enParas.flatMap((paragraph, paragraphIndex) => this._splitGuideSentences(paragraph)
       .map(sentence => ({ sentence, paragraph, paragraphIndex })));
-    const difficultyLabel = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
+    const articleTrack = resolveArticleTrack(article);
 
     let parasHTML = '';
     enParas.forEach((p, i) => {
@@ -208,18 +218,17 @@ export const ReadingView = {
           <p class="page-eyebrow">02 / READING NOTE</p>
           ${this._renderArticleTitle(article)}
           <div class="reading-meta">
-            <span class="badge badge-${article.difficulty}">${difficultyLabel}</span>
+            <span class="badge badge-${articleTrack.badgeClass}">${esc(articleTrack.primaryLabel)}</span>
+            ${articleTrack.baselineLabel ? `<span class="meta-item reading-baseline-label">${esc(articleTrack.baselineLabel)}</span>` : ''}
             ${article.challenge ? `<span class="meta-item">${esc(article.challenge === 'support' ? '基础' : article.challenge === 'stretch' ? '进阶' : '标准')}练习</span>` : ''}
             ${article.difficultyReport?.passed ? `<span class="meta-item">✓ 难度校验通过</span>` : ''}
             <span class="meta-item">${article.wordCount} 词</span>
             <span class="meta-item">${esc(article.topic)}</span>
           </div>
-          <div class="reading-actions">
-            <button class="btn btn-outline" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn">${article.favorite ? '⭐' : '☆'} 收藏</button>
-            <button class="btn btn-outline" onclick="ReadingView.toggleTranslation()" id="translateBtn">${this.paragraphTranslations.some(Boolean) ? '显示翻译' : '翻译全文'}</button>
+          <div class="reading-action-strip" aria-label="阅读工具">
+            <button class="btn btn-outline reading-action-btn" type="button" onclick="ReadingView.toggleTranslation()" id="translateBtn" aria-pressed="false">全文翻译<span class="reading-action-state" aria-hidden="true"></span></button>
             <button class="btn btn-outline" type="button" onclick="ReadingView.openSentenceGuide()">逐句导读</button>
-            ${!this.reviewMode ? `<button class="btn btn-outline" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()">词汇标记：${this.wordMarkingEnabled ? '开' : '关'}</button>` : ''}
-            <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline">返回</a>
+            <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
             <span class="timer-toggle" title="点击展开/折叠计时">⏱</span>
@@ -307,7 +316,10 @@ export const ReadingView = {
         const stem = getStemForm(word.toLowerCase());
         const isReviewWord = this.reviewMode && this.reviewWordsMap.has(stem);
 
-        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, { contextSentence });
+        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, {
+          contextSentence,
+          targetTrack: articleTrack.targetTrack
+        });
         if (!shown) return;
 
         const senses = getDefinitionSenses(data);
@@ -321,6 +333,7 @@ export const ReadingView = {
             if (!contextualSense || !Tooltip.isCurrent(lookupId)) return;
             return Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, {
               contextSentence,
+              targetTrack: articleTrack.targetTrack,
               contextualSenseIndex: contextualSense.senseIndex,
               contextualSenseReason: contextualSense.reasonZh
             });
@@ -542,7 +555,11 @@ export const ReadingView = {
       }
     });
     const button = document.getElementById('wordMarkingBtn');
-    if (button) button.textContent = `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`;
+    if (button) {
+      button.classList.toggle('is-active', this.wordMarkingEnabled);
+      button.setAttribute('aria-checked', String(this.wordMarkingEnabled));
+      button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
+    }
   },
 
   _highlightLearningWords(text) {
@@ -733,6 +750,7 @@ export const ReadingView = {
     // Save reading stat
     const wpm = this.timer?.getWPM() || 0;
     const scrollDepth = contentProgressAtFinish;
+    const articleTrack = resolveArticleTrack(this.articleData || {});
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
       wordCount,
@@ -749,7 +767,8 @@ export const ReadingView = {
       articleSnapshot: {
         title: this.articleData?.title || '',
         difficulty: this.articleData?.difficulty || '',
-        targetTrack: this.articleData?.targetTrack || this.articleData?.difficulty || '',
+        targetTrack: articleTrack.targetTrack,
+        examType: this.articleData?.examType || '',
         wordCount
       }
     });
@@ -1009,6 +1028,14 @@ export const ReadingView = {
 
   async toggleTranslation() {
     const toggleBtn = document.getElementById('translateBtn');
+    const setToolbarState = ({ pressed = false, pending = false } = {}) => {
+      if (!toggleBtn) return;
+      toggleBtn.disabled = pending;
+      toggleBtn.classList.toggle('is-active', pressed);
+      toggleBtn.setAttribute('aria-pressed', String(pressed));
+      const state = toggleBtn.querySelector('.reading-action-state');
+      if (state) state.textContent = pending ? '制作中' : pressed ? '已显示' : '';
+    };
     const missing = this.paragraphTranslations
       .map((text, index) => text ? -1 : index)
       .filter(index => index >= 0);
@@ -1021,7 +1048,7 @@ export const ReadingView = {
       this.paragraphTranslations.forEach((text, index) => {
         if (text) this._renderParagraphTranslation(index, !anyVisible);
       });
-      if (toggleBtn) toggleBtn.textContent = anyVisible ? '显示翻译' : '隐藏全部翻译';
+      setToolbarState({ pressed: !anyVisible });
       return;
     }
 
@@ -1029,10 +1056,7 @@ export const ReadingView = {
       alert('需要 API Key 才能翻译');
       return;
     }
-    if (toggleBtn) {
-      toggleBtn.disabled = true;
-      toggleBtn.textContent = '翻译全文中…';
-    }
+    setToolbarState({ pending: true });
 
     const articleId = this.articleData.id;
     const enParas = this._splitParas(this.articleData.content);
@@ -1047,10 +1071,10 @@ export const ReadingView = {
       this.paragraphTranslations.forEach((text, index) => {
         if (text) this._renderParagraphTranslation(index, true);
       });
-      if (toggleBtn) toggleBtn.textContent = '隐藏全部翻译';
+      setToolbarState({ pressed: true });
     } catch (e) {
       console.warn('全文翻译失败:', e);
-      if (toggleBtn) toggleBtn.textContent = available ? '显示翻译' : '翻译全文';
+      setToolbarState();
     } finally {
       if (toggleBtn && this.articleData?.id === articleId) toggleBtn.disabled = false;
     }
@@ -1089,7 +1113,12 @@ export const ReadingView = {
       await this._persistParagraphTranslations();
       this._renderParagraphTranslation(index, true);
       const toggleBtn = document.getElementById('translateBtn');
-      if (toggleBtn) toggleBtn.textContent = '显示翻译';
+      if (toggleBtn) {
+        toggleBtn.classList.remove('is-active');
+        toggleBtn.setAttribute('aria-pressed', 'false');
+        const state = toggleBtn.querySelector('.reading-action-state');
+        if (state) state.textContent = '';
+      }
     } catch (e) {
       console.warn('段落翻译失败:', e);
     } finally {
@@ -1130,7 +1159,12 @@ export const ReadingView = {
     }
     await DB.updateArticle(articleId, { favorite: newFav });
     const btn = document.getElementById('favBtn');
-    if (btn) btn.textContent = newFav ? '⭐ 收藏' : '☆ 收藏';
+    if (btn) {
+      btn.classList.toggle('is-active', Boolean(newFav));
+      btn.setAttribute('aria-pressed', String(Boolean(newFav)));
+      btn.setAttribute('aria-label', newFav ? '取消收藏文章' : '收藏文章');
+      btn.innerHTML = `<i class="fa-${newFav ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>`;
+    }
   }
 };
 

@@ -1,18 +1,33 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026.07.27",
+  "catalogVersion": "2026.07.29",
   "publicDirectionSources": [
     {
-      "id": "kylebing-english-vocabulary-cet",
+      "id": "kylebing-english-vocabulary-exam",
       "role": "exam-focus",
-      "tracks": ["cet4", "cet6"],
+      "tracks": ["cet4", "cet6", "kaoyan-general"],
       "status": "active-public-direction-only",
       "repositoryUrl": "https://github.com/KyleBing/english-vocabulary",
       "commit": "8814e02b40f69a2a6e016dbde087010304fcedfc",
       "artifact": "exam-focus.json",
       "useBoundary": "exam-direction-only-not-official-truth",
       "license": "No explicit license stated by the source repository; use authorized by the product owner for this app.",
-      "reason": "A fixed public CET-4/CET-6 wordlist is used only for word-level direction tags and aggregate focus counts. It does not claim to be an official syllabus, a licensed examination corpus, or a source of syntax thresholds, frequency bands, Chinese-definition truth, mastery evidence, or coverage guarantees."
+      "reason": "Fixed public CET-4/CET-6/Graduate wordlists are used only for word-level direction tags and aggregate focus counts. They do not claim to be official syllabi, licensed examination corpora, or sources of syntax thresholds, frequency bands, Chinese-definition truth, mastery evidence, or coverage guarantees."
+    }
+  ],
+  "examCorpusSources": [
+    {
+      "id": "lazynote-exam-corpus",
+      "role": "exam-frequency-and-examples",
+      "tracks": ["cet4", "cet6", "kaoyan-general"],
+      "status": "active-noncommercial-personal-learning",
+      "datasetVersion": "2026-07-29-v3",
+      "sourceUrl": "https://english-exam.lazynote.cn/exam-words/",
+      "termsUrl": "https://english-exam.lazynote.cn/terms/",
+      "snapshotPath": "data/sources/lazynote-exam-corpus-v1",
+      "artifacts": ["exam-corpus-index.json", "exam-examples/manifest.json"],
+      "useBoundary": "exam-importance-only-not-dictionary-or-mastery-truth",
+      "reason": "Versioned domestic exam frequency and example data is used for transparent priority labels, review tie-breaking, and learning examples. It does not replace dictionary senses, general lexical difficulty, or personal mastery evidence."
     }
   ],
   "pendingSources": [

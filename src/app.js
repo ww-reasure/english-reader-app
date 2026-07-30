@@ -9,6 +9,18 @@ import { Modal } from './components/modal.js';
 import { Router } from './router.js';
 import { esc } from './helpers.js';
 import { installNativeNavigation } from './components/native-navigation.js';
+import { ArticleCatalog } from './components/article-catalog.js';
+
+function scheduleCatalogPrewarm() {
+  const prewarm = () => {
+    void ArticleCatalog.prewarm().catch(() => {});
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(prewarm, { timeout: 2500 });
+  } else {
+    setTimeout(prewarm, 800);
+  }
+}
 
 export const App = {
   // Cached DOM reference
@@ -28,6 +40,7 @@ export const App = {
 
       // Start router
       Router.init();
+      scheduleCatalogPrewarm();
       this._removeNativeNavigation = await installNativeNavigation(Router);
 
       // Initialize global event listeners

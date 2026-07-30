@@ -8,6 +8,7 @@
  */
 
 import { API } from './api.js';
+import { ExamCorpus } from './exam-corpus-runtime.mjs';
 import { createLexiconLoader } from './lexicon-runtime.mjs';
 import { createOewnDefinitionLoader } from './oewn-runtime.mjs';
 
@@ -133,6 +134,7 @@ async function translateSafely(translateWord, key) {
 export function createDictionary({
   lexiconLoader = createLexiconLoader(),
   oewnLoader = createOewnDefinitionLoader(),
+  examCorpus = ExamCorpus,
   fetchFn = globalThis.fetch,
   translateWord = word => API.translateWord(word),
   cacheMax = 500
@@ -177,6 +179,15 @@ export function createDictionary({
       return lexiconMetadata(entry || { lemma: word, layers: {}, sourceRefs: [] });
     },
 
+    async getExamCorpusData(word) {
+      if (!examCorpus || typeof examCorpus.lookupAll !== 'function') return {};
+      try {
+        return await examCorpus.lookupAll(word);
+      } catch {
+        return {};
+      }
+    },
+
     async lookup(word) {
       const key = normalizeWord(word);
       if (!key || (key.length < 2 && key !== 'a')) {
@@ -203,7 +214,10 @@ export function createDictionary({
         }
       }
 
-      const metadata = this.getExamData(key, localEntry);
+      const metadata = {
+        ...this.getExamData(key, localEntry),
+        examCorpus: await this.getExamCorpusData(localEntry?.lemma || key)
+      };
       const offlineSense = isDeclaredFormMatch ? offlineChineseSense(localEntry) : null;
       if (offlineSense) {
         const result = {

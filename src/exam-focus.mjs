@@ -1,5 +1,5 @@
 const FOCUS_SCHEMA_VERSION = 1;
-const TRACK_IDS = Object.freeze(['cet4', 'cet6']);
+const TRACK_IDS = Object.freeze(['cet4', 'cet6', 'kaoyan-general']);
 const WORD_PATTERN = /^[a-z]+(?:[-'][a-z]+)*$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/i;

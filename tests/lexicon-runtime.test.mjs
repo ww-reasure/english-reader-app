@@ -99,7 +99,7 @@ test('loads only the versioned lexicon assets and resolves an inflected form', a
   ]);
 });
 
-test('adds the separately shipped CET focus layer without changing core frequency or creating a false core entry', async () => {
+test('adds the separately shipped exam focus layer without changing core frequency or creating a false core entry', async () => {
   const manifest = {
     schemaVersion: 1,
     lexiconVersion: 'test',
@@ -144,10 +144,11 @@ test('adds the separately shipped CET focus layer without changing core frequenc
       useBoundary: 'exam-direction-only-not-official-truth',
       tracks: {
         cet4: { url: 'https://example.test/cet4', commit: 'a'.repeat(40), sha256: 'b'.repeat(64), byteSize: 1, rawRecordCount: 2, normalizedWordCount: 2 },
-        cet6: { url: 'https://example.test/cet6', commit: 'a'.repeat(40), sha256: 'c'.repeat(64), byteSize: 1, rawRecordCount: 2, normalizedWordCount: 2 }
+        cet6: { url: 'https://example.test/cet6', commit: 'a'.repeat(40), sha256: 'c'.repeat(64), byteSize: 1, rawRecordCount: 2, normalizedWordCount: 2 },
+        'kaoyan-general': { url: 'https://example.test/graduate', commit: 'a'.repeat(40), sha256: 'd'.repeat(64), byteSize: 1, rawRecordCount: 1, normalizedWordCount: 1 }
       }
     },
-    tracks: { cet4: ['access', 'rival'], cet6: ['access', 'rival'] }
+    tracks: { cet4: ['access', 'rival'], cet6: ['access', 'rival'], 'kaoyan-general': ['revolt'] }
   };
   const loader = createLexiconLoader({
     dataUrl: 'https://example.test/data',

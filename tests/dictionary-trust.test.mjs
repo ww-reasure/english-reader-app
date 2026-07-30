@@ -7,9 +7,65 @@ async function loadDictionary() {
   const adapted = source
     .replace("import { API } from './api.js';", "const API = { async translateWord() { return ''; } };")
     .replace("import { createLexiconLoader } from './lexicon-runtime.mjs';", "const createLexiconLoader = () => ({ async loadCore() { return { lexiconVersion: 'empty', entryCount: 0 }; }, async lookup() { return null; } });")
-    .replace("import { createOewnDefinitionLoader } from './oewn-runtime.mjs';", "const createOewnDefinitionLoader = () => ({ async lookup() { return null; } });");
+    .replace("import { createOewnDefinitionLoader } from './oewn-runtime.mjs';", "const createOewnDefinitionLoader = () => ({ async lookup() { return null; } });")
+    .replace("import { ExamCorpus } from './exam-corpus-runtime.mjs';", "const ExamCorpus = { async lookupAll() { return {}; } };");
   return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
+
+test('attaches optional exam-corpus statistics without replacing dictionary levels or senses', async () => {
+  const { createDictionary } = await loadDictionary();
+  const examCorpus = {
+    async lookupAll(word) {
+      assert.equal(word, 'found');
+      return {
+        cet4: {
+          priorityScore: 88,
+          priorityTier: 'core',
+          priorityLabel: '真题高频核心',
+          cefrReported: 'A1',
+          counts: { sentenceTotal: 20, passage: 18, questionStem: 2, other: 0, papers: 8, years: 5 }
+        }
+      };
+    }
+  };
+  const dictionary = createDictionary({
+    lexiconLoader: createLoader([entry({
+      lemma: 'found',
+      quality: 'screened',
+      senses: [{ pos: 'verb', glossZh: '创办；建立', quality: 'screened', sourceRefs: ['fixture-source'] }],
+      layers: { frequency: [{ band: 'ngsl-2', sourceRef: 'fixture-source' }] }
+    })]),
+    examCorpus,
+    fetchFn: async () => { throw new Error('network should not be used'); },
+    translateWord: async () => { throw new Error('translation should not be used'); }
+  });
+
+  const result = await dictionary.lookup('found');
+
+  assert.equal(result.pos, 'verb');
+  assert.equal(result.translation, '创办；建立');
+  assert.equal(result.examCorpus.cet4.cefrReported, 'A1');
+  assert.equal(result.dictionaryLevel, undefined);
+});
+
+test('keeps normal offline lookup available when the optional exam corpus fails', async () => {
+  const { createDictionary } = await loadDictionary();
+  const dictionary = createDictionary({
+    lexiconLoader: createLoader([entry({
+      lemma: 'stable',
+      quality: 'screened',
+      senses: [{ pos: 'adjective', glossZh: '稳定的', quality: 'screened', sourceRefs: ['fixture-source'] }]
+    })]),
+    examCorpus: { async lookupAll() { throw new Error('optional data unavailable'); } },
+    fetchFn: async () => { throw new Error('network should not be used'); },
+    translateWord: async () => { throw new Error('translation should not be used'); }
+  });
+
+  const result = await dictionary.lookup('stable');
+
+  assert.equal(result.translation, '稳定的');
+  assert.deepEqual(result.examCorpus, {});
+});
 
 function entry({ lemma, forms = [lemma], phonetic = '', quality = 'limited', senses = [], layers = {} }) {
   return { lemma, forms, phonetic, quality, senses, layers, sourceRefs: ['fixture-source'] };

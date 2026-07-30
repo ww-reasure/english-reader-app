@@ -58,3 +58,45 @@ test('forwards the home activity ledger to the context builder with the same ses
 
   assert.deepEqual(built.activities, activities);
 });
+
+test('tool rounds use the standard assistant tool_calls followed by matching tool messages', async () => {
+  const { ChatService } = await loadService();
+  const requests = [];
+  const telemetry = [];
+  const service = new ChatService({
+    api: {
+      chatCompletion: async messages => {
+        requests.push(messages);
+        if (requests.length === 1) {
+          return {
+            message: {
+              role: 'assistant',
+              content: '',
+              reasoning_content: 'private chain state',
+              tool_calls: [{ id: 'call-7', type: 'function', function: { name: 'get_learning_overview', arguments: '{}' } }]
+            },
+            usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40 }
+          };
+        }
+        return { message: { role: 'assistant', content: '今天先复习。' }, usage: { prompt_tokens: 130 } };
+      }
+    },
+    agent: { execute: async () => ({ source: 'learning_overview', totals: { due: 3 } }) },
+    builder: { build: () => [{ role: 'system', content: 'stable' }, { role: 'user', content: '今天学什么' }] },
+    telemetry: { record: row => telemetry.push(row) }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '今天学什么', kind: 'home'
+  });
+
+  assert.equal(reply.content, '今天先复习。');
+  assert.deepEqual(requests[1][2], {
+    role: 'assistant', content: '', reasoning_content: 'private chain state',
+    tool_calls: [{ id: 'call-7', type: 'function', function: { name: 'get_learning_overview', arguments: '{}' } }]
+  });
+  assert.equal(requests[1][3].role, 'tool');
+  assert.equal(requests[1][3].tool_call_id, 'call-7');
+  assert.equal(requests[1][3].name, 'get_learning_overview');
+  assert.equal(telemetry.length, 2);
+});

@@ -9,10 +9,13 @@ let databaseSequence = 0;
 
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
-  const adapted = source.replace(
-    "import { getStemForm } from './helpers.js';",
-    "const getStemForm = word => String(word || '').trim().toLowerCase();"
-  );
+  const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const adapted = source
+    .replace(
+      "import { getStemForm } from './helpers.js';",
+      "const getStemForm = word => String(word || '').trim().toLowerCase();"
+    )
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -178,7 +181,7 @@ test('v7 migration adds knowledge stores without converting or deleting legacy s
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 11);
+  assert.equal(upgraded.version, 13);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeWords'), true);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeEvidence'), true);
   upgraded.close();
@@ -207,7 +210,7 @@ test('v11 migration resets only reading history and reading-calibration progress
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 11);
+  assert.equal(upgraded.version, 13);
   upgraded.close();
 
   assert.deepEqual(await module.DB.getAllReadingStats(), []);
@@ -228,7 +231,7 @@ test('v8 knowledge evidence gains the calibration index during the v10 additive 
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 11);
+  assert.equal(upgraded.version, 13);
   assert.equal(upgraded.transaction('knowledgeEvidence').objectStore('knowledgeEvidence').indexNames.contains('calibrationKey'), true);
   upgraded.close();
 

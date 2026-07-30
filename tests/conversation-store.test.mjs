@@ -143,3 +143,36 @@ test('keeps the latest fifty structured home activities and clears them with hom
   store.clear('home');
   assert.deepEqual(store.getRecentActivities('home'), []);
 });
+
+test('stores home activities as immutable chronological context events', async () => {
+  const { ConversationStore } = await loadStore();
+  let now = 100;
+  const store = new ConversationStore(memory(), () => ++now);
+  store.append('home', { role: 'user', kind: 'text', content: '生成一篇' });
+  store.appendActivity('home', { type: 'generation', status: 'success', elapsedMs: 1200, article: { id: 7, title: 'One' } });
+  store.append('home', { role: 'user', kind: 'text', content: '刚才生成了什么' });
+
+  const events = store.getContextSession('home').messages;
+  assert.deepEqual(events.map(item => item.kind), ['text', 'activity', 'text']);
+  assert.equal(events[1].activity.article.title, 'One');
+});
+
+test('keeps fifty visible home rounds while building a bounded batched model context', async () => {
+  const { ConversationStore } = await loadStore();
+  let now = 0;
+  const store = new ConversationStore(memory(), () => ++now);
+
+  for (let turn = 0; turn < 52; turn += 1) {
+    store.append('home', { role: 'user', kind: 'text', content: `问题 ${turn}` });
+    store.append('home', { role: 'assistant', kind: 'text', content: `回答 ${turn}` });
+    store.maintainHomeConversation();
+  }
+
+  const visible = store.getSession('home');
+  const context = store.getContextSession('home');
+  assert.equal(visible.messages.filter(item => item.role === 'user').length, 50);
+  assert.equal(visible.messages[0].content, '问题 2');
+  assert.match(context.summary, /问题/);
+  assert.ok(context.messages.filter(item => item.role === 'user').length <= 24);
+  assert.equal(context.messages.at(-1).content, '回答 51');
+});

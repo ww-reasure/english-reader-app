@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "datasetVersion": "2026-07-29-v3",
+  "generatedAt": "2026-07-29T15:11:37Z",
+  "source": {
+    "name": "懒笔记真题单词",
+    "url": "https://english-exam.lazynote.cn/exam-words/",
+    "termsUrl": "https://english-exam.lazynote.cn/terms/"
+  },
+  "coverage": {
+    "description": "CET4 (2015-2025, 73 papers), CET6 (2015-2025, 73 papers), Kaoyan (1998-2026, 46 papers). Includes high-frequency (sentenceTotal>=8) AND uncovered (syllabus-only, sentenceTotal=0) words.",
+    "totalPapers": 192,
+    "tracks": {
+      "cet4": {
+        "papers": 73,
+        "years": "2015-2025",
+        "wordCount": 3161,
+        "freqWords": 1613,
+        "uncoveredWords": 1548
+      },
+      "cet6": {
+        "papers": 73,
+        "years": "2015-2025",
+        "wordCount": 3639,
+        "freqWords": 2141,
+        "uncoveredWords": 1498
+      },
+      "kaoyan-general": {
+        "papers": 46,
+        "years": "1998-2026",
+        "wordCount": 2384,
+        "freqWords": 1199,
+        "uncoveredWords": 1185
+      }
+    }
+  },
+  "files": {
+    "words.jsonl.gz": {
+      "records": 9184,
+      "uncompressedSize": 3157660,
+      "compressedSize": 173161,
+      "sha256": "5b93e9efa016c443dd65cb8adb4682ba6dcfc1fba75a914fd03fb363a7807508"
+    },
+    "examples.jsonl.gz": {
+      "records": 70383,
+      "uncompressedSize": 41365808,
+      "compressedSize": 11726947,
+      "sha256": "d890fcb0a9033cd27bc93eba125c6167560d356a523ebdc659b988ae9f9cf3a6"
+    }
+  },
+  "usage": "non-commercial-personal-learning"
+}

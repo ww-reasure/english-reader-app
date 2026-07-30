@@ -12,12 +12,12 @@ import {
 } from '../src/learning-track.mjs';
 import { getDifficultyProfile, normalizeCoveragePreference } from '../src/difficulty-profile.mjs';
 
-test('only the four current target tracks are selectable and legacy graduate material remains identifiable', () => {
+test('only the four current target tracks are selectable while historical graduate material uses the general label', () => {
   assert.deepEqual(CURRENT_TARGET_TRACKS, ['cet4', 'cet6', 'kaoyan1', 'kaoyan2']);
   assert.equal(isSelectableTrack(LEGACY_TRACK), false);
   assert.equal(normalizeSelectableTrack('graduate'), null);
   assert.equal(normalizeStoredTrack('graduate'), 'graduate');
-  assert.equal(getTrackLabel('graduate'), '考研（旧版）');
+  assert.equal(getTrackLabel('graduate'), '考研通用');
   assert.equal(getTrackLabel('kaoyan1'), '考研英语一');
   assert.equal(getTrackLabel('kaoyan2'), '考研英语二');
 });

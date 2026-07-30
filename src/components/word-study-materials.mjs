@@ -21,6 +21,49 @@ export function renderWordStudyTabs(activeTab = 'examples') {
       data-study-tab="${id}" aria-selected="${activeTab === id}">${label}</button>`).join('');
 }
 
+const normalizeExampleKey = value => String(value || '')
+  .toLocaleLowerCase('en-US')
+  .replace(/[\u2018\u2019]/gu, "'")
+  .replace(/\s+/gu, ' ')
+  .trim();
+
+export function normalizeWordStudyExample(value, { isExam = false } = {}) {
+  if (typeof value === 'string') {
+    const sentenceEn = value.trim();
+    return sentenceEn ? { sentenceEn, translationZh: '', isExam: false } : null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const sentenceEn = String(value.sentenceEn || value.sentence || '').trim();
+  if (!sentenceEn) return null;
+  return {
+    ...value,
+    sentenceEn,
+    translationZh: String(value.translationZh || '').trim(),
+    isExam: Boolean(isExam || value.isExam)
+  };
+}
+
+export function mergeWordStudyExamples(examExamples = [], genericExamples = [], limit = 10) {
+  const seen = new Set();
+  const merged = [];
+  const add = (value, isExam) => {
+    const item = normalizeWordStudyExample(value, { isExam });
+    const key = normalizeExampleKey(item?.sentenceEn);
+    if (!item || !key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  };
+  for (const example of Array.isArray(examExamples) ? examExamples : []) add(example, true);
+  for (const example of Array.isArray(genericExamples) ? genericExamples : []) add(example, false);
+  return merged.slice(0, Math.max(0, Number.parseInt(limit, 10) || 0));
+}
+
+function examExampleLabel(example) {
+  if (example.sourceKind === 'question') return '真题题干';
+  if (example.sourceKind === 'passage') return '真题正文';
+  return '真题材料';
+}
+
 function relatedWordDetails(rootAnalysis) {
   const translations = rootAnalysis?.relatedTranslations || {};
   const seen = new Set();
@@ -44,12 +87,17 @@ export function renderWordStudyPanel({
 } = {}) {
   if (activeTab === 'examples') {
     if (!examples.length) return '<div class="word-study-empty flashcard-study-empty">暂无例句。</div>';
-    return `<ol class="word-study-example-list">${examples.map((example, index) => `
+    return `<ol class="word-study-example-list">${examples.map((value, index) => {
+      const example = normalizeWordStudyExample(value) || { sentenceEn: '', translationZh: '', isExam: false };
+      const sourceDetails = [example.paperLabel, example.positionLabel].filter(Boolean).join(' · ');
+      return `
       <li class="word-study-example-item flashcard-example-item">
-        <p class="word-study-example-text flashcard-example-text" data-example-text>${esc(example)}</p>
-        <button class="example-translate-btn" type="button" data-example-translate="${index}" title="翻译例句">译</button>
+        ${example.isExam ? `<div class="word-study-example-source"><span>${esc(examExampleLabel(example))}</span>${sourceDetails ? `<small>${esc(sourceDetails)}</small>` : ''}</div>` : ''}
+        <p class="word-study-example-text flashcard-example-text" data-example-text>${esc(example.sentenceEn)}</p>
+        <button class="example-translate-btn" type="button" data-example-translate="${index}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''} title="翻译例句">译</button>
         <div class="example-translation" data-example-translation="${index}"></div>
-      </li>`).join('')}</ol>`;
+      </li>`;
+    }).join('')}</ol>`;
   }
 
   if (activeTab === 'roots') {

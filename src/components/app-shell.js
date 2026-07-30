@@ -12,8 +12,8 @@ export const AppShell = {
 
   getRouteMeta(hash) {
     if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读' };
-    if (hash === '#/learn-words' || hash === '#/flashcard') {
-      return { navKey: 'vocab', title: hash === '#/flashcard' ? '单词复习' : '词汇学习' };
+    if (hash === '#/learn-words' || hash.startsWith('#/flashcard')) {
+      return { navKey: 'vocab', title: hash.startsWith('#/flashcard') ? '单词复习' : '词汇学习' };
     }
     if (hash === '#/settings' || hash === '#/assessment' || hash === '#/report' || hash === '#/stats') {
       return {

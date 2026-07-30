@@ -28,7 +28,7 @@ export const DIFFICULTY_LABELS = {
   cet6: '六级',
   kaoyan1: '考研英语一',
   kaoyan2: '考研英语二',
-  graduate: '考研（旧版）'
+  graduate: '考研通用'
 };
 
 // Format timestamp to locale string

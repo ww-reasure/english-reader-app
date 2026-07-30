@@ -23,21 +23,24 @@ test('all review-reading routes use the bounded home generator instead of the le
 test('homepage review generation keeps already-saved cards visible when a later batch fails', async () => {
   const chatSource = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
 
-  assert.match(chatSource, /const articles = \[\];[\s\S]*?publishReviewArticles\(\[result\.article\], generationSession\)/);
+  assert.match(chatSource, /const articles = \[\];[\s\S]*?await this\.publishHomeGenerationArticle\(job, article, '', runtime, index\)/);
   assert.match(chatSource, /catch \(error\) \{[\s\S]*?this\.addGenerationFailure\(failure\)/);
 });
 
-test('review routes bind generation to the chat cancellation session', async () => {
+test('review routes use the page-independent coordinator instead of the chat cancellation session', async () => {
   const [chatSource, flashcardSource, readingSource] = await Promise.all([
     readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/reading.js', import.meta.url), 'utf8')
   ]);
 
-  assert.match(chatSource, /startArticleGenerationSession\(requestVersion = homeRequestGate\.version\)/);
-  assert.match(chatSource, /const generationSession = this\.startArticleGenerationSession\(requestVersion\)/);
-  assert.match(chatSource, /signal: generationSession\.signal/);
-  assert.match(chatSource, /isActive: isReviewSessionActive/);
-  assert.match(chatSource, /generationSession\.release\(\)/);
+  assert.match(chatSource, /HomeGenerationCoordinator/);
+  assert.match(chatSource, /startHomeGenerationJob\(\{[\s\S]*?kind: 'review'/);
+  assert.match(chatSource, /signal: runtime\.signal/);
+  assert.match(chatSource, /isActive: runtime\.isCurrent/);
+  const cleanupStart = chatSource.indexOf('  cleanup() {');
+  const cleanupEnd = chatSource.indexOf('\n};', cleanupStart);
+  assert.ok(cleanupStart >= 0 && cleanupEnd > cleanupStart, 'chat cleanup must remain inspectable');
+  assert.doesNotMatch(chatSource.slice(cleanupStart, cleanupEnd), /homeGenerationCoordinator\.cancel/);
   for (const source of [flashcardSource, readingSource]) assert.match(source, /ChatView\.generateReviewReadings/);
 });

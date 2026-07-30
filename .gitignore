@@ -19,6 +19,7 @@ android/app/src/main/res/xml/config.xml
 
 # Local visual QA captures
 design-audit/
+design-qa-*.png
 
 # IDE
 .idea/

@@ -18,10 +18,31 @@ const startOfLocalDay = timestamp => {
   return date.getTime();
 };
 
-const splitIntoBatches = (words, batchSize, maxBatches) => {
+const splitIntoBatches = (words, { batchSize, batchCharBudget = 220, maxBatches }) => {
+  if (Number.isFinite(Number(batchSize)) && Number(batchSize) > 0) {
+    const normalizedBatchSize = Math.max(1, Math.floor(Number(batchSize)));
+    const batches = [];
+    for (let index = 0; index < words.length && batches.length < maxBatches; index += normalizedBatchSize) {
+      batches.push(words.slice(index, index + normalizedBatchSize));
+    }
+    return batches;
+  }
   const batches = [];
-  for (let index = 0; index < words.length && batches.length < maxBatches; index += batchSize) {
-    batches.push(words.slice(index, index + batchSize));
+  const budget = Math.max(40, Math.floor(Number(batchCharBudget) || 220));
+  let current = [];
+  let currentLength = 0;
+  for (const word of words) {
+    const nextLength = currentLength + word.length + 2;
+    if (current.length && nextLength > budget && batches.length < maxBatches - 1) {
+      batches.push(current);
+      current = [];
+      currentLength = 0;
+    }
+    current.push(word);
+    currentLength += word.length + 2;
+  }
+  if (current.length && batches.length < maxBatches) {
+    batches.push(current);
   }
   return batches;
 };
@@ -31,8 +52,7 @@ const splitIntoBatches = (words, batchSize, maxBatches) => {
  * articles. Failed or cancelled requests leave no saved article and are thus
  * naturally retried next time without maintaining a fragile failure cache.
  */
-export function planReviewBatches({ words = [], articles = [], now = Date.now(), batchSize = 8, maxArticles = 4 } = {}) {
-  const normalizedBatchSize = Math.max(1, Math.floor(Number(batchSize) || 8));
+export function planReviewBatches({ words = [], articles = [], now = Date.now(), batchSize, batchCharBudget = 220, maxArticles = 4 } = {}) {
   const normalizedMaxArticles = Math.max(1, Math.floor(Number(maxArticles) || 4));
   const todayStart = startOfLocalDay(now);
   const coveredWords = new Set();
@@ -46,7 +66,7 @@ export function planReviewBatches({ words = [], articles = [], now = Date.now(),
 
   const eligibleWords = normalizeWords(words)
     .filter(word => !coveredWords.has(word.toLocaleLowerCase('en-US')));
-  const batches = splitIntoBatches(eligibleWords, normalizedBatchSize, normalizedMaxArticles);
+  const batches = splitIntoBatches(eligibleWords, { batchSize, batchCharBudget, maxBatches: normalizedMaxArticles });
   const selectedWords = batches.flat();
 
   return {

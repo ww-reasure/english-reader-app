@@ -5,6 +5,7 @@
 
 import { DB } from '../db.js';
 import { DIFFICULTY_LABELS, formatDate, esc } from '../helpers.js';
+import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 
 export const HistoryView = {
   filterMode: 'all', // all | favorites
@@ -21,19 +22,20 @@ export const HistoryView = {
     } else {
       articles.forEach(article => {
         const date = formatDate(article.createdAt);
-        const label = DIFFICULTY_LABELS[article.difficulty] || article.difficulty;
+        const articleTrack = resolveArticleTrack(article);
         const favIcon = article.favorite
           ? '<i class="fa-solid fa-star" aria-hidden="true"></i>'
           : '<i class="fa-regular fa-star" aria-hidden="true"></i>';
 
         cards += `
-          <div class="article-card-history" data-difficulty="${article.difficulty}" data-favorite="${article.favorite ? '1' : '0'}">
+          <div class="article-card-history" data-difficulty="${articleTrack.targetTrack}" data-favorite="${article.favorite ? '1' : '0'}">
             <div class="card-header">
               <a href="#/reading/${article.id}" class="card-title">${esc(article.title)}</a>
-              <span class="badge badge-${article.difficulty}">${label}</span>
+              <span class="badge badge-${articleTrack.badgeClass}">${esc(articleTrack.primaryLabel)}</span>
             </div>
             <div class="card-meta">
               <span>${article.wordCount} 词</span>
+              ${articleTrack.baselineLabel ? `<span>${esc(articleTrack.baselineLabel)}</span>` : ''}
               <span>${esc(article.topic)}</span>
               <span>${date}</span>
             </div>
@@ -60,7 +62,7 @@ export const HistoryView = {
             <option value="cet6" ${this.difficultyFilter === 'cet6' ? 'selected' : ''}>六级</option>
             <option value="kaoyan1" ${this.difficultyFilter === 'kaoyan1' ? 'selected' : ''}>考研英语一</option>
             <option value="kaoyan2" ${this.difficultyFilter === 'kaoyan2' ? 'selected' : ''}>考研英语二</option>
-            <option value="graduate" ${this.difficultyFilter === 'graduate' ? 'selected' : ''}>考研（旧版）</option>
+            <option value="kaoyan-general" ${this.difficultyFilter === 'kaoyan-general' ? 'selected' : ''}>考研通用</option>
           </select>
           <select onchange="HistoryView.filterFavorite(this.value)">
             <option value="all" ${this.filterMode === 'all' ? 'selected' : ''}>全部文章</option>

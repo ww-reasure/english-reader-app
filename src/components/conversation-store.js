@@ -1,8 +1,11 @@
 const KEY = 'learningConversationsV2';
-const VERSION = 3;
+const VERSION = 4;
 const MAX_HOME_ACTIVITIES = 50;
+const MAX_HOME_ROUNDS = 50;
+const MAX_CONTEXT_ROUNDS = 24;
+const CONTEXT_BATCH_ROUNDS = 8;
 
-const emptySession = now => ({ updatedAt: now(), summary: '', messages: [], activities: [] });
+const emptySession = now => ({ updatedAt: now(), summary: '', contextSummary: '', messages: [], activities: [] });
 const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
 
 const legacyActivityFromMessage = message => {
@@ -51,12 +54,19 @@ const normalizeSession = (session, now, key) => {
     ...emptySession(nowFn),
     ...safe,
     messages,
+    contextSummary: String(safe.contextSummary || ''),
     activities: activities.slice(-MAX_HOME_ACTIVITIES)
   };
 };
 
 const summaryLineFor = (item, key) => {
   if (item.kind === 'text') return (item.role === 'user' ? '用户：' : '助手：') + clip(item.content, 500);
+  if (key === 'home' && item.kind === 'activity') {
+    const activity = item.activity || {};
+    const articles = Array.isArray(activity.articles) ? activity.articles : activity.article ? [activity.article] : [];
+    const titles = articles.slice(0, 4).map(article => clip(article?.title, 120)).filter(Boolean).join('、');
+    return `真实活动：${clip(activity.type, 48) || 'learning'} / ${clip(activity.status, 48) || 'unknown'}${titles ? `；${titles}` : ''}${activity.elapsedMs == null ? '' : `；${Number(activity.elapsedMs) || 0}ms`}`;
+  }
   if (key !== 'home' || item.kind === 'notice' || item.kind === 'error') return '';
   if (item.kind === 'article') {
     const article = item.article || {};
@@ -90,7 +100,7 @@ export class ConversationStore {
     try {
       const value = JSON.parse(this.storage.getItem(KEY));
       if (value?.version === VERSION && value.sessions) return value;
-      if (value?.version === 2 && value.sessions) {
+      if ((value?.version === 2 || value?.version === 3) && value.sessions) {
         const migrated = {
           version: VERSION,
           sessions: Object.fromEntries(
@@ -138,6 +148,16 @@ export class ConversationStore {
     return this.readState().sessions[key] || emptySession(this.now);
   }
 
+  getContextSession(key) {
+    const session = this.getSession(key);
+    if (key !== 'home') return session;
+    return {
+      ...session,
+      summary: [session.summary, session.contextSummary].filter(Boolean).join('\n').slice(-6000),
+      messages: session.messages.filter(message => !message.contextArchived)
+    };
+  }
+
   replaceSession(key, session) {
     const state = this.readState();
     state.sessions[key] = normalizeSession({ ...emptySession(this.now), ...session }, this.now(), key);
@@ -154,6 +174,46 @@ export class ConversationStore {
     });
   }
 
+  maintainHomeConversation({
+    maxRounds = MAX_HOME_ROUNDS,
+    contextMaxRounds = MAX_CONTEXT_ROUNDS,
+    batchRounds = CONTEXT_BATCH_ROUNDS
+  } = {}) {
+    const session = this.getSession('home');
+    let messages = [...session.messages];
+    const userIndexes = messages.reduce((indexes, message, index) => {
+      if (message.kind === 'text' && message.role === 'user') indexes.push(index);
+      return indexes;
+    }, []);
+    if (userIndexes.length > maxRounds) {
+      messages = messages.slice(userIndexes[userIndexes.length - maxRounds]);
+    }
+
+    const activeUserIndexes = messages.reduce((indexes, message, index) => {
+      if (!message.contextArchived && message.kind === 'text' && message.role === 'user') indexes.push(index);
+      return indexes;
+    }, []);
+    let contextSummary = session.contextSummary || '';
+    if (activeUserIndexes.length > contextMaxRounds) {
+      const archiveRounds = Math.min(batchRounds, activeUserIndexes.length - contextMaxRounds + batchRounds - 1);
+      const boundary = activeUserIndexes[archiveRounds] ?? messages.length;
+      const lines = messages.slice(0, boundary)
+        .filter(message => !message.contextArchived)
+        .map(message => summaryLineFor(message, 'home'))
+        .filter(Boolean);
+      if (lines.length) contextSummary = [contextSummary, ...lines].filter(Boolean).join('\n').slice(-6000);
+      messages = messages.map((message, index) => index < boundary ? { ...message, contextArchived: true } : message);
+    }
+
+    this.replaceSession('home', {
+      ...session,
+      messages,
+      contextSummary,
+      updatedAt: this.now()
+    });
+    return this.getSession('home');
+  }
+
   appendActivity(key, activity) {
     const session = this.getSession(key);
     const createdAt = this.now();
@@ -165,6 +225,9 @@ export class ConversationStore {
     this.replaceSession(key, {
       ...session,
       updatedAt: createdAt,
+      messages: key === 'home'
+        ? [...session.messages, { role: 'system', kind: 'activity', activity: nextActivity, createdAt }]
+        : session.messages,
       activities: [...(session.activities || []), nextActivity].slice(-MAX_HOME_ACTIVITIES)
     });
     return nextActivity;

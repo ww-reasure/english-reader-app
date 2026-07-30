@@ -144,7 +144,7 @@ export const StatsView = {
             ${this.renderDiffBar('六级', diffDist.cet6, reading.effectiveReadingCount, 'cet6')}
             ${this.renderDiffBar('考研英语一', diffDist.kaoyan1, reading.effectiveReadingCount, 'kaoyan1')}
             ${this.renderDiffBar('考研英语二', diffDist.kaoyan2, reading.effectiveReadingCount, 'kaoyan2')}
-            ${this.renderDiffBar('考研（旧版）', diffDist.graduate, reading.effectiveReadingCount, 'graduate')}
+            ${this.renderDiffBar('考研通用', diffDist['kaoyan-general'], reading.effectiveReadingCount, 'graduate')}
           </div>
         </div>
 

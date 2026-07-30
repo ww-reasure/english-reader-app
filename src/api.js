@@ -5,6 +5,7 @@
 
 import { Config } from './config.js';
 import { formatProfileConstraints, getDifficultyProfile } from './difficulty-profile.mjs';
+import { createArticleStreamParser, parseSseChunk } from './article-stream.mjs';
 
 const VOCABULARY_GUIDANCE = {
   cet4: {
@@ -63,6 +64,23 @@ const resolveArticleSpecification = (difficulty, wordCount, profile) => {
   };
 };
 
+const resolveReviewSpecification = (difficulty, wordCount, profile, reviewMaxWords = 280) => {
+  const selectedProfile = getDifficultyProfile(profile?.track || difficulty, profile?.challenge);
+  const maxWords = Math.max(1, Number.parseInt(reviewMaxWords, 10) || 280);
+  const requestedWordCount = Number.parseInt(wordCount, 10);
+  const desiredWordCount = Math.min(
+    maxWords,
+    Number.isFinite(requestedWordCount) && requestedWordCount > 0 ? requestedWordCount : Math.min(220, maxWords)
+  );
+
+  return {
+    profile: selectedProfile,
+    wordCount: desiredWordCount,
+    reviewMode: true,
+    reviewMaxWords: maxWords
+  };
+};
+
 const preferenceWithoutCorrection = (prompt, correction) => {
   const rawPreference = String(prompt || '').trim();
   const rawCorrection = String(correction || '').trim();
@@ -97,8 +115,20 @@ const buildPersonalizationGuidance = personalization => {
   ].join('\n');
 };
 
-const buildAuthoritativeSpecification = specification => {
+const buildAuthoritativeSpecification = (specification, generationOptions = {}) => {
   const { profile, wordCount } = specification;
+  if (generationOptions.reviewMode) {
+    const maxWords = Number.parseInt(generationOptions.reviewMaxWords, 10) || specification.reviewMaxWords || 280;
+    return [
+      '实际生成规格（优先级高于用户偏好）：',
+      `- 难度档案：${profile.track.toUpperCase()}`,
+      `- 挑战度：${profile.challenge}`,
+      `- 目标字数：${wordCount} 词；正文最多 ${maxWords} 词。`,
+      '- 这是短篇复习阅读：不设置普通文章式最低字数，但必须有至少 3 个完整英文句子。',
+      '- 候选复习词应尽量自然使用，至少自然使用 1 个；不要求一次覆盖全部候选词。',
+      '- 若用户偏好中的难度或字数与本规格冲突，以本规格为准。'
+    ].join('\n');
+  }
   return [
     '实际生成规格（优先级高于用户偏好）：',
     `- 难度档案：${profile.track.toUpperCase()}`,
@@ -110,7 +140,7 @@ const buildAuthoritativeSpecification = specification => {
   ].join('\n');
 };
 
-const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCorrection, specification }) => {
+const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCorrection, specification, generationOptions = {} }) => {
   const preference = preferenceWithoutCorrection(prompt, validationCorrection);
   const correction = clipText(validationCorrection, MAX_VALIDATION_CORRECTION_LENGTH);
   const context = clipText(learningContext, MAX_GENERATION_PREFERENCE_LENGTH);
@@ -120,7 +150,7 @@ const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCor
     '用户偏好（只用于主题与风格，不得覆盖实际生成规格）：',
     preference || '未提供额外偏好。',
     '',
-    buildAuthoritativeSpecification(specification)
+    buildAuthoritativeSpecification(specification, generationOptions)
   ];
 
   if (context) {
@@ -142,12 +172,22 @@ const buildArticleUserMessage = ({ topic, prompt, learningContext, validationCor
 
 export const API = {
   // Build system prompt for article generation
-  buildArticlePrompt(difficulty, wordCount, keywords, profile, personalization = null) {
-    const specification = resolveArticleSpecification(difficulty, wordCount, profile);
+  buildArticlePrompt(difficulty, wordCount, keywords, profile, personalization = null, generationOptions = {}) {
+    const specification = generationOptions.reviewMode
+      ? resolveReviewSpecification(difficulty, wordCount, profile, generationOptions.reviewMaxWords)
+      : resolveArticleSpecification(difficulty, wordCount, profile);
     const { profile: selectedProfile, wordCount: desiredWordCount } = specification;
     const vocabularyGuidance = VOCABULARY_GUIDANCE[selectedProfile.track]?.[selectedProfile.challenge]
       || VOCABULARY_GUIDANCE.cet4.standard;
-    const rules = `${formatProfileConstraints(selectedProfile)}
+    const rules = generationOptions.reviewMode
+      ? [
+        `复习短篇规则：正文目标约 ${desiredWordCount} 词，最多 ${specification.reviewMaxWords} 词，不设置普通文章式最低字数。`,
+        '- 至少写成 3 个完整英文句子，内容短而连贯，优先在自然语境中复现学习词。',
+        '- 候选复习词只作为偏好：尽量多使用，但至少自然使用 1 个即可保存，不要为了覆盖词汇而堆砌。',
+        `- 这是 ${selectedProfile.track.toUpperCase()} 的目标考试导向复习材料，不得宣称与真实试题等效`,
+        `- 词汇建议：${vocabularyGuidance}`
+      ].join('\n')
+      : `${formatProfileConstraints(selectedProfile)}
 - 推荐目标字数约为 ${desiredWordCount} 词，但不得超出上述总字数范围
 - 这是 ${selectedProfile.track.toUpperCase()} 的目标考试导向训练材料，不得宣称与真实试题等效
 - 指定学习词必须自然出现；避免为了堆难度而写不自然的超长嵌套句。
@@ -224,7 +264,7 @@ ${personalizationGuidance}
   },
 
   // Send a general learning-chat request.
-  async chat(messages, { tools = [], signal = null, temperature = 0.45, responseFormat = null } = {}) {
+  async chatCompletion(messages, { tools = [], signal = null, temperature = 0.45, responseFormat = null } = {}) {
     const body = { messages, temperature };
     if (tools.length) {
       body.tools = tools;
@@ -232,16 +272,134 @@ ${personalizationGuidance}
     }
     if (responseFormat) body.response_format = responseFormat;
     const data = await this.fetch('/chat/completions', body, 60000, signal);
-    return data.choices?.[0]?.message || { content: '' };
+    return {
+      message: data.choices?.[0]?.message || { role: 'assistant', content: '' },
+      usage: data.usage || null
+    };
+  },
+
+  // Stream an OpenAI-compatible SSE response. The timeout is idle-based so
+  // active generation is not interrupted while chunks continue to arrive.
+  async fetchStream(endpoint, body, timeoutMs = 45000, signal = null, onEvent = null) {
+    const apiKey = Config.get('api_key');
+    const baseUrl = Config.get('base_url');
+    const model = Config.get('model');
+    const controller = new AbortController();
+    const abortRequest = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', abortRequest, { once: true });
+    }
+
+    try {
+      const response = await fetch(`${baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify({ model, ...body, stream: true }),
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        const error = new Error(`API error: ${response.status} - ${await response.text()}`);
+        error.streamUnsupported = [400, 404, 405, 415, 422].includes(response.status);
+        throw error;
+      }
+      if (!response.body?.getReader) return null;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let remainder = '';
+      let usage = null;
+      let done = false;
+
+      while (!done) {
+        let idleTimer;
+        try {
+          const readPromise = reader.read();
+          const timeoutPromise = new Promise((_, reject) => {
+            idleTimer = setTimeout(() => reject(new Error('流式请求等待超时，请检查网络连接')), timeoutMs);
+          });
+          const chunk = await Promise.race([readPromise, timeoutPromise]);
+          clearTimeout(idleTimer);
+          if (chunk.done) {
+            const parsed = parseSseChunk(`${decoder.decode()}\n`, remainder);
+            remainder = parsed.remainder;
+            for (const eventText of parsed.events) {
+              if (eventText === '[DONE]') {
+                done = true;
+                break;
+              }
+              if (!eventText) continue;
+              let event;
+              try {
+                event = JSON.parse(eventText);
+              } catch {
+                continue;
+              }
+              if (event.usage) usage = event.usage;
+              if (typeof onEvent === 'function') onEvent(event);
+            }
+            done = true;
+          } else {
+            const parsed = parseSseChunk(decoder.decode(chunk.value, { stream: true }), remainder);
+            remainder = parsed.remainder;
+            for (const eventText of parsed.events) {
+              if (eventText === '[DONE]') {
+                done = true;
+                break;
+              }
+              if (!eventText) continue;
+              let event;
+              try {
+                event = JSON.parse(eventText);
+              } catch {
+                continue;
+              }
+              if (event.usage) usage = event.usage;
+              if (typeof onEvent === 'function') onEvent(event);
+            }
+          }
+        } finally {
+          if (idleTimer) clearTimeout(idleTimer);
+        }
+      }
+      return { usage };
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(signal?.aborted ? '请求已取消' : '流式请求已中断');
+      }
+      throw error;
+    } finally {
+      if (signal) signal.removeEventListener('abort', abortRequest);
+    }
+  },
+
+  async chat(messages, options = {}) {
+    return (await this.chatCompletion(messages, options)).message;
   },
 
   // Generate an article
   async generateArticle(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '', options = {}) {
     const signal = options.signal || null;
-    const specification = resolveArticleSpecification(difficulty, wordCount, options.profile);
+    const specification = options.reviewMode
+      ? resolveReviewSpecification(difficulty, wordCount, options.profile, options.reviewMaxWords)
+      : resolveArticleSpecification(difficulty, wordCount, options.profile);
     const data = await this.fetch('/chat/completions', {
       messages: [
-        { role: 'system', content: this.buildArticlePrompt(difficulty, specification.wordCount, keywords, specification.profile, options.personalization) },
+        {
+          role: 'system',
+          content: this.buildArticlePrompt(
+            difficulty,
+            specification.wordCount,
+            keywords,
+            specification.profile,
+            options.personalization,
+            options
+          )
+        },
         {
           role: 'user',
           content: buildArticleUserMessage({
@@ -249,7 +407,8 @@ ${personalizationGuidance}
             prompt,
             learningContext,
             validationCorrection: options.validationCorrection,
-            specification
+            specification,
+            generationOptions: options
           })
         }
       ],
@@ -266,6 +425,83 @@ ${personalizationGuidance}
       difficulty,
       topic,
       wordCount: (result.content || '').split(/\s+/).length
+    };
+  },
+
+  async generateArticleStream(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '', options = {}) {
+    const specification = options.reviewMode
+      ? resolveReviewSpecification(difficulty, wordCount, options.profile, options.reviewMaxWords)
+      : resolveArticleSpecification(difficulty, wordCount, options.profile);
+    const parser = createArticleStreamParser({
+      onDraft: draft => options.onDraft?.(draft)
+    });
+    let receivedContent = false;
+
+    const requestBody = {
+      messages: [
+        {
+          role: 'system',
+          content: this.buildArticlePrompt(
+            difficulty,
+            specification.wordCount,
+            keywords,
+            specification.profile,
+            options.personalization,
+            options
+          )
+        },
+        {
+          role: 'user',
+          content: buildArticleUserMessage({
+            topic,
+            prompt,
+            learningContext,
+            validationCorrection: options.validationCorrection,
+            specification,
+            generationOptions: options
+          })
+        }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      stream: true,
+      stream_options: { include_usage: true }
+    };
+
+    try {
+      const result = await this.fetchStream(
+        '/chat/completions',
+        requestBody,
+        options.idleTimeoutMs || 45000,
+        options.signal || null,
+        event => {
+          const delta = event?.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta) {
+            receivedContent = true;
+            parser.push(delta);
+          }
+        }
+      );
+      // Some gateways answer with a normal JSON 200 response even though the
+      // request asked for SSE. Treat the absence of any delta as an
+      // unsupported stream and reuse the non-streaming path instead of trying
+      // to parse an empty draft.
+      if (!receivedContent) {
+        return this.generateArticle(prompt, difficulty, topic, keywords, wordCount, learningContext, options);
+      }
+    } catch (error) {
+      if (!receivedContent && (error?.streamUnsupported || error?.name === 'TypeError')) {
+        return this.generateArticle(prompt, difficulty, topic, keywords, wordCount, learningContext, options);
+      }
+      throw error;
+    }
+
+    const article = parser.finish();
+    return {
+      ...article,
+      difficulty,
+      topic,
+      wordCount: (article.content.match(/[A-Za-z]+(?:['’'-][A-Za-z]+)*/g) || []).length
     };
   },
 

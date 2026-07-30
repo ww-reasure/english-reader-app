@@ -115,6 +115,46 @@ test('study keeps its shell and next action fixed while only the material panel 
   assert.match(css, /\.flashcard-study-panel\s*\{[^}]*overflow-y:auto/s);
 });
 
+test('study details reserve substantially more viewport space for the scrollable material panel', async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/style.css', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(source, /flashcard-study-info-trigger/);
+  assert.match(source, /flashcard-study-exam-detail/);
+  assert.match(source, /this\.studyTab === 'examples'/);
+  assert.match(css, /\.flashcard-study-sheet\s*\{[^}]*grid-template-rows:auto auto minmax\(0,1fr\)/s);
+  assert.match(css, /\.flashcard-study-panel\s*\{[^}]*overflow-y:auto[^}]*padding:16px 20px 20px[^}]*scrollbar-width:thin/s);
+  assert.match(css, /\.flashcard-study-tabs \.flashcard-study-tab\s*\{[^}]*min-height:50px/s);
+  assert.match(css, /\.flashcard-study-info-trigger\s*\{[^}]*min-height:42px/s);
+  assert.match(css, /\.flashcard-next-btn\s*\{[^}]*min-height:48px/s);
+  assert.match(css, /\.flashcard-study-info-sheet\s*\{[^}]*max-height:min\(72dvh,620px\)/s);
+});
+
+test('study phase uses a focused example stage and a separate exam-information sheet', async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/style.css', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(source, /studyExampleIndex:\s*0/);
+  assert.match(source, /studyExamplesExpanded:\s*false/);
+  assert.match(source, /getFocusedStudyExamples\(examples/);
+  assert.match(source, /wordCount >= 6 && wordCount <= 28/);
+  assert.match(source, /renderFocusedStudyExample\(\)/);
+  assert.match(source, /data-study-info-open/);
+  assert.match(source, /role="dialog"[^>]*aria-labelledby="flashcardStudyInfoTitle"/);
+  assert.match(source, /data-example-select/);
+  assert.match(source, /data-example-show-all/);
+  assert.match(source, /touchstart/);
+  assert.match(source, /touchend/);
+  assert.match(css, /\.flashcard-study-masthead\s*\{/);
+  assert.match(css, /\.flashcard-focused-example\s*\{/);
+  assert.match(css, /\.flashcard-study-info-overlay\s*\{/);
+  assert.match(css, /\.flashcard-study-bottom-dock\s*\{/);
+});
+
 test('related words carry a Chinese gloss while legacy string caches remain supported', async () => {
   const [flashcard, affixes, materials] = await Promise.all([
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
@@ -180,7 +220,7 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /Tooltip\.attachAutoDismiss\(\)/);
   assert.match(source, /Tooltip\.beginLookup\(e\.clientX, e\.clientY\)/);
   assert.match(source, /Dictionary\.lookup\(word\)/);
-  assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data\)/);
+  assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:/s);
   assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
   assert.match(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
   assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);

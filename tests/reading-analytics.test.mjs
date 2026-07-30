@@ -58,3 +58,62 @@ test('period analytics counts qualified reading sessions and words, not article 
     averageWpm: 120
   });
 });
+
+test('reading analytics prefers the saved article exam track over an old raw difficulty snapshot', async () => {
+  const analytics = await loadAnalytics();
+  const result = analytics.buildReadingAnalytics({
+    articles: [{ id: 9, title: 'Track one', difficulty: 'cet6', examType: '英语一' }],
+    readingStats: [{
+      articleId: 9,
+      qualificationVersion: 2,
+      completed: true,
+      activeSeconds: 100,
+      wordCount: 300,
+      createdAt: 100,
+      articleSnapshot: { title: 'Track one', difficulty: 'cet6', targetTrack: 'cet6' }
+    }]
+  });
+
+  assert.equal(result.difficultyDistribution.kaoyan1, 1);
+  assert.equal(result.difficultyDistribution.cet6, 0);
+  assert.equal(result.recentReadings[0].difficulty, 'kaoyan1');
+});
+
+test('a new reading snapshot target track remains authoritative if its article is no longer local', async () => {
+  const analytics = await loadAnalytics();
+  const result = analytics.buildReadingAnalytics({
+    articles: [],
+    readingStats: [{
+      articleId: 10,
+      qualificationVersion: 2,
+      completed: true,
+      activeSeconds: 100,
+      wordCount: 300,
+      createdAt: 100,
+      articleSnapshot: { title: 'Track two', difficulty: 'graduate', targetTrack: 'kaoyan2', examType: '英语二' }
+    }]
+  });
+
+  assert.equal(result.difficultyDistribution.kaoyan2, 1);
+  assert.equal(result.difficultyDistribution.graduate, 0);
+});
+
+test('historical graduate readings are counted in the general graduate track', async () => {
+  const analytics = await loadAnalytics();
+  const result = analytics.buildReadingAnalytics({
+    articles: [{ id: 11, title: 'Historical graduate', difficulty: 'graduate' }],
+    readingStats: [{
+      articleId: 11,
+      qualificationVersion: 2,
+      completed: true,
+      activeSeconds: 100,
+      wordCount: 300,
+      createdAt: 100,
+      articleSnapshot: { title: 'Historical graduate', difficulty: 'graduate' }
+    }]
+  });
+
+  assert.equal(result.difficultyDistribution['kaoyan-general'], 1);
+  assert.equal(result.difficultyDistribution.graduate ?? 0, 0);
+  assert.equal(result.recentReadings[0].difficulty, 'kaoyan-general');
+});

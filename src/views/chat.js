@@ -26,21 +26,31 @@ import {
   normalizeGenerationFailure as hydrateGenerationFailure
 } from '../components/generation-failure.mjs';
 import { HomeRequestGate } from '../components/home-request-gate.mjs';
+import { HomeGenerationCoordinator } from '../components/home-generation-coordinator.mjs';
 import { getSharedArticleQualityService } from '../components/article-quality-service.mjs';
 import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
 import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
+import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
+import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
+import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 
 const conversationStore = new ConversationStore();
-const learningAgent = new LearningAgent({ db: DB, srs: SpacedRepetition });
-const contextBuilder = new ContextBuilder();
-const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder });
+const learningAgent = new LearningAgent({
+  db: DB,
+  srs: SpacedRepetition,
+  examCorpus: ExamCorpus,
+  targetTrack: () => Config.get('exam_level') || ''
+});
+const contextBuilder = new ContextBuilder({ capabilityIndex: AppCapabilityRegistry.compactIndex() });
+const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder, telemetry: HomeAgentUsageTelemetry });
 const articleQualityService = getSharedArticleQualityService({ api: API, db: DB });
 const articleGenerationTool = new ArticleGenerationTool({
   api: API,
   db: DB,
+  examCorpus: ExamCorpus,
   admit: admitArticle,
   inspectQuality: articleQualityService.inspectQuality
 });
@@ -60,7 +70,7 @@ const RECENT_HOME_ACTIVITY_TOOL = {
     }
   }
 };
-const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, RECENT_HOME_ACTIVITY_TOOL, GENERATE_READING_TOOL];
+const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_HOME_ACTIVITY_TOOL, GENERATE_READING_TOOL];
 const homeRequestGate = new HomeRequestGate();
 let generationFailureSequence = 0;
 const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
@@ -143,8 +153,9 @@ export const PendingArticles = {
 export const ChatView = {
   isReviewGenerating: false,
   homeEpoch: 0,
-  _generationController: null,
   _clearContextHandler: null,
+  _generationPreviewQueue: new Map(),
+  _generationPreviewTimer: null,
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -226,6 +237,8 @@ export const ChatView = {
     // Show any pending articles from previous generation
     this.showPendingArticles();
 
+    await this.restoreHomeGenerationJob();
+
     // Listen for article-imported events from modal.js
     this._bindImportEvent();
   },
@@ -257,6 +270,10 @@ export const ChatView = {
           this.addArticleCardToDOM(message.article);
         } else if (message.kind === 'generation_failure') {
           this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
+        } else if (message.kind === 'app_actions') {
+          this.addAppActionsToDOM(message.actions || []);
+        } else if (message.kind === 'activity') {
+          // Activity events are model context, not duplicate visible chat bubbles.
         } else {
           this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
         }
@@ -333,7 +350,7 @@ export const ChatView = {
   clearHistory() {
     if (!confirm('清除本次对话的上下文和显示记录？已保存的阅读文章不受影响。')) return;
     this.homeEpoch += 1;
-    this.beginHomeRequest();
+    this.beginHomeRequest({ cancelGeneration: true, cancelReason: 'clear_context' });
     conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
@@ -341,12 +358,13 @@ export const ChatView = {
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
   },
 
-  beginHomeRequest() {
+  beginHomeRequest({ cancelGeneration = false, cancelReason = 'superseded' } = {}) {
     const requestVersion = homeRequestGate.begin();
     chatService.cancel('home');
-    this._generationController?.abort();
-    this._generationController = null;
-    this.isReviewGenerating = false;
+    if (cancelGeneration) {
+      homeGenerationCoordinator?.cancel(cancelReason);
+      this.isReviewGenerating = false;
+    }
     this.resetGenerateButton();
     this.removeThinking();
     this.removeArticleGenerationStatus();
@@ -357,19 +375,273 @@ export const ChatView = {
     return this.homeEpoch === epoch && homeRequestGate.isCurrent(requestVersion);
   },
 
-  startArticleGenerationSession(requestVersion = homeRequestGate.version) {
-    this._generationController?.abort();
-    const controller = new AbortController();
-    const epoch = this.homeEpoch;
-    this._generationController = controller;
+  hasPublishedGenerationArticle(jobId, articleId) {
+    return conversationStore.getSession('home').messages.some(message => (
+      message.kind === 'article'
+      && (message.article?.generationJobId === jobId || message.article?.id === articleId)
+    ));
+  },
 
-    return {
-      signal: controller.signal,
-      isActive: () => this._generationController === controller && !controller.signal.aborted && this.isHomeRequestActive(epoch, requestVersion),
-      release: () => {
-        if (this._generationController === controller) this._generationController = null;
+  hasPublishedGenerationFailure(jobId) {
+    return conversationStore.getSession('home').messages.some(message => (
+      message.kind === 'generation_failure' && message.failure?.generationJobId === jobId
+    ));
+  },
+
+  async findArticleForGenerationJob(jobId) {
+    const articles = await DB.getAllArticles();
+    return articles.find(article => article.generationJobId === jobId) || null;
+  },
+
+  syncHomeGenerationUI(job) {
+    if (!document.getElementById('chatMessages') || !job) return;
+    if (job.status === 'running') {
+      this.isReviewGenerating = job.kind === 'review';
+      const label = job.kind === 'review' && /^review-/.test(job.phase || '')
+        ? job.phase.replace(/^review-/, '')
+        : generationProgressLabel({ phase: job.phase });
+      this.showArticleGenerationStatus(label);
+      const previewCount = job.kind === 'review' ? (job.payload?.batches?.length || 1) : 1;
+      for (let batchIndex = 0; batchIndex < previewCount; batchIndex += 1) {
+        const preview = homeGenerationCoordinator.getPreview(job.id, batchIndex);
+        if (preview) this.syncHomeGenerationPreview(preview);
       }
-    };
+      return;
+    }
+    if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      this.isReviewGenerating = false;
+      this.resetGenerateButton();
+      this.removeArticleGenerationStatus();
+      this.removeHomeGenerationPreviews(job.id);
+    }
+  },
+
+  async restoreHomeGenerationJob() {
+    const job = homeGenerationCoordinator.getJob();
+    if (!job) return null;
+    this.syncHomeGenerationUI(job);
+    if (job.status === 'running' || job.status === 'interrupted') {
+      const resumed = await homeGenerationCoordinator.resumePending();
+      this.syncHomeGenerationUI(resumed);
+      return resumed;
+    }
+    return job;
+  },
+
+  startHomeGenerationJob({ kind, payload, cancelExisting = true }) {
+    if (cancelExisting) homeGenerationCoordinator.cancel('superseded');
+    this.isReviewGenerating = kind === 'review';
+    return homeGenerationCoordinator.start({ kind, payload });
+  },
+
+  async publishHomeGenerationArticle(job, article, keywords, runtime, batchIndex = 0) {
+    if (!this.hasPublishedGenerationArticle(job.id, article.id)) {
+      this.addArticleCard(article);
+      if (keywords) this.addMessage('system', `已自动融入学习词库中的单词：${keywords}`);
+      runtime.updateJob({ publishedArticleIds: [...new Set([...(job.publishedArticleIds || []), article.id])] });
+    }
+    runtime.clearPreview?.(batchIndex);
+  },
+
+  async publishHomeGenerationFailure(job, error, runtime) {
+    if (job.failureId || this.hasPublishedGenerationFailure(job.id)) return;
+    const generation = job.payload?.generation || {};
+    const failure = this.createGenerationFailure(error, generation, job.payload?.topic);
+    failure.generationJobId = job.id;
+    const failureId = job.payload?.retryFailureId
+      ? (this.replaceGenerationFailure(job.payload.retryFailureId, failure), job.payload.retryFailureId)
+      : this.addGenerationFailure(failure);
+    if (!job.activityRecorded) {
+      this.recordHomeActivity({
+        type: job.kind === 'agent' ? 'agent_generation' : 'generation',
+        status: 'failed',
+        startedAt: job.payload?.startedAt,
+        generation: {
+          difficulty: generation.difficulty,
+          challenge: generation.challenge,
+          wordCount: generation.wordCount,
+          topic: job.payload?.topic
+        },
+        failureReason: failure.message
+      });
+    }
+    runtime.updateJob({ failureId, activityRecorded: true });
+  },
+
+  async executeSingleGenerationJob(job, runtime) {
+    const payload = job.payload || {};
+    const generation = payload.generation || {};
+    const generationPolicy = payload.generationPolicy || generationPolicyFor(generation.challenge);
+    try {
+      let article = await this.findArticleForGenerationJob(job.id);
+      let keywords = payload.keywords || '';
+      if (!article) {
+        const result = await articleGenerationTool.execute({
+          request: generation.request,
+          difficulty: generation.difficulty,
+          challenge: generation.challenge,
+          topic: payload.topic,
+          wordCount: generation.wordCount
+        }, {
+          fallbackDifficulty: generation.difficulty,
+          fallbackChallenge: generation.challenge,
+          fallbackTopic: payload.topic,
+          legacyLevel: Config.get('level'),
+          learningContext: payload.learningContext || '',
+          personalization: generationPolicy.personalization,
+          validationOptions: generationPolicy.validationOptions,
+          articleFields: { generationJobId: job.id },
+          signal: runtime.signal,
+          isActive: runtime.isCurrent,
+          onProgress: progress => runtime.updateProgress(progress.phase),
+          onDraft: draft => runtime.updatePreview({ batchIndex: 0, ...draft })
+        });
+        article = result.article;
+        keywords = result.keywords;
+      }
+      runtime.updateJob({ articleIds: [...new Set([...(job.articleIds || []), article.id])] });
+      if (!runtime.isCurrent()) throw cancelledRequest();
+      await this.publishHomeGenerationArticle(job, article, keywords, runtime, 0);
+      if (!job.activityRecorded) {
+        this.recordHomeActivity({
+          type: job.kind === 'agent' ? 'agent_generation' : 'generation',
+          status: 'success',
+          startedAt: payload.startedAt,
+          generation: {
+            difficulty: generation.difficulty,
+            challenge: generation.challenge,
+            wordCount: generation.wordCount,
+            topic: payload.topic
+          },
+          article: this.activityArticle(article)
+        });
+        runtime.updateJob({ activityRecorded: true });
+      }
+      if (payload.retryFailureId) this.removeGenerationFailure(payload.retryFailureId);
+      return { articleIds: [article.id] };
+    } catch (error) {
+      if (!runtime.signal.aborted && runtime.isCurrent() && !document.hidden) {
+        await this.publishHomeGenerationFailure(job, error, runtime);
+      }
+      throw error;
+    }
+  },
+
+  async executeReviewGenerationJob(job, runtime) {
+    const payload = job.payload || {};
+    const batches = Array.isArray(payload.batches) ? payload.batches : [];
+    const generationPolicy = payload.generationPolicy || generationPolicyFor('support');
+    const completedBatches = new Set(job.completedBatches || []);
+    const failedBatches = new Set(job.failedBatches || []);
+    const articleIds = new Set(job.articleIds || []);
+    const articles = [];
+    const failureReasons = [];
+
+    for (const [index, batch] of batches.entries()) {
+      const batchGenerationJobId = `${job.id}:${index}`;
+      let article = await this.findArticleForGenerationJob(batchGenerationJobId);
+      if (completedBatches.has(index) && article) {
+        articles.push(article);
+        articleIds.add(article.id);
+        continue;
+      }
+      const coveredCount = articles.reduce((total, item) => total + (item.usedWords?.length || 0), 0);
+      runtime.updateProgress(`review-正在制作第 ${index + 1}/${batches.length} 篇，已覆盖 ${coveredCount} 个词…`);
+      const wordCount = 220;
+      const request = `请生成一篇短篇复习阅读，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`;
+      try {
+        if (!article) {
+          const result = await articleGenerationTool.execute({
+            request,
+            difficulty: payload.difficulty,
+            topic: payload.topic,
+            wordCount
+          }, {
+            fallbackDifficulty: payload.difficulty,
+            fallbackTopic: payload.topic,
+            fallbackChallenge: 'support',
+            learningContext: payload.learningContext || '',
+            personalization: generationPolicy.personalization,
+            validationOptions: generationPolicy.validationOptions,
+            signal: runtime.signal,
+            isActive: runtime.isCurrent,
+            targetWords: batch,
+            reviewMaxWords: 280,
+            articleFields: { reviewMode: true, usedWords: batch, generationJobId: batchGenerationJobId },
+            onDraft: draft => runtime.updatePreview({
+              batchIndex: index,
+              ...draft
+            }),
+            onProgress: progress => runtime.updateProgress(`review-${generationProgressLabel(progress)}`)
+          });
+          article = result.article;
+        }
+        if (!runtime.isCurrent()) throw cancelledRequest();
+        completedBatches.add(index);
+        failedBatches.delete(index);
+        articleIds.add(article.id);
+        runtime.updateJob({
+          completedBatches: [...completedBatches],
+          failedBatches: [...failedBatches],
+          articleIds: [...articleIds]
+        });
+        articles.push(article);
+        await this.publishHomeGenerationArticle(job, article, '', runtime, index);
+      } catch (error) {
+        if (!runtime.isCurrent() || runtime.signal.aborted || isCancelledGenerationRequest(error)) throw error;
+        if (document.hidden) throw error;
+        failedBatches.add(index);
+        runtime.updateJob({ failedBatches: [...failedBatches], articleIds: [...articleIds] });
+        const failure = this.createGenerationFailure(error, {
+          request,
+          difficulty: payload.difficulty,
+          challenge: 'support',
+          wordCount
+        }, payload.topic);
+        failure.generationJobId = batchGenerationJobId;
+        failure.message = `第 ${index + 1} 篇未完成：${failure.message}`;
+        failureReasons.push(failure.message);
+        if (!this.hasPublishedGenerationFailure(batchGenerationJobId)) this.addGenerationFailure(failure);
+      }
+    }
+
+    const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
+    const coveredKeys = new Set(
+      articles.flatMap(article => normalizeTargetWords(article.usedWords, Number.POSITIVE_INFINITY)
+        .map(word => word.toLocaleLowerCase('en-US')))
+    );
+    const remainingWordCount = normalizeTargetWords(payload.normalizedWords, Number.POSITIVE_INFINITY)
+      .filter(word => !coveredKeys.has(word.toLocaleLowerCase('en-US'))).length;
+    const failedWordCount = [...failedBatches].reduce((total, index) => total + (batches[index]?.length || 0), 0);
+    if (!job.activityRecorded) {
+      this.recordHomeActivity({
+        type: 'review_generation',
+        status: articles.length && !failedWordCount ? 'success' : articles.length ? 'partial_success' : 'failed',
+        startedAt: payload.startedAt,
+        generation: { difficulty: payload.difficulty, challenge: 'support', topic: payload.topic, articleCount: batches.length },
+        articles: articles.map(article => this.activityArticle(article)),
+        coveredWordCount: coveredCount,
+        failedWordCount,
+        failureReason: failureReasons.join('；')
+      });
+      runtime.updateJob({ activityRecorded: true });
+      if (articles.length) this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${coveredCount} 个词${remainingWordCount ? `，仍有 ${remainingWordCount} 个词待继续生成` : ''}。点击卡片即可开始阅读。`);
+      else if (failedWordCount) this.addMessage('error', '本次复习阅读未能完成，请通过下方入口重试。');
+      if (remainingWordCount > 0) {
+        this.addReviewContinueAction(remainingWordCount, () => this.generateReviewReadings({
+          reviewWords: payload.normalizedWords,
+          difficulty: payload.difficulty,
+          topic: payload.topic,
+          sourceLabel: payload.sourceLabel
+        }));
+      }
+    }
+    return { articleIds: [...articleIds] };
+  },
+
+  async executeHomeGenerationJob(job, runtime) {
+    if (job.kind === 'review') return this.executeReviewGenerationJob(job, runtime);
+    return this.executeSingleGenerationJob(job, runtime);
   },
 
   resetGenerateButton() {
@@ -533,7 +805,7 @@ export const ChatView = {
     input.value = '';
     this.showThinking();
     try {
-      const session = conversationStore.getSession('home');
+      const session = conversationStore.getContextSession('home');
       const reply = await chatService.ask({
         sessionKey: 'home',
         session,
@@ -552,8 +824,15 @@ export const ChatView = {
         this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
       }
       reply.artifacts.forEach(artifact => {
-        if (artifact.type === 'article') this.addArticleCard(artifact.article);
-        if (artifact.type === 'generation_failure') this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, value));
+        if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
+          this.addArticleCard(artifact.article);
+        }
+        if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
+          this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, value));
+        }
+        if (artifact.type === 'app_actions' && artifact.actions?.length) {
+          this.addAppActions(artifact.actions);
+        }
       });
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -564,6 +843,22 @@ export const ChatView = {
   },
 
   async executeHomeTool(name, args = {}, { signal } = {}, epoch, userRequest = '', requestVersion) {
+    if (name === 'get_app_capabilities') {
+      return {
+        result: {
+          source: 'app_capabilities',
+          version: 1,
+          capabilities: AppCapabilityRegistry.search({ query: args.query, ids: args.ids }).slice(0, 8)
+        }
+      };
+    }
+    if (name === 'offer_app_actions') {
+      const artifact = createCapabilityActionArtifact(args.actions || []);
+      return {
+        result: { status: artifact.actions.length ? 'offered' : 'no_valid_actions', capabilityIds: artifact.actions.map(item => item.capabilityId) },
+        ...(artifact.actions.length ? { artifact } : {})
+      };
+    }
     if (name === 'get_recent_learning_activity') {
       return {
         result: {
@@ -601,55 +896,31 @@ export const ChatView = {
     const generationPolicy = generationPolicyFor(generation.challenge);
 
     if (generation.adjustment) this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
-    this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
-    const startedAt = Date.now();
-    try {
-      const { article, metadata } = await articleGenerationTool.execute({
-        request: generation.request,
-        difficulty: generation.difficulty,
-        challenge: generation.challenge,
+    const job = await this.startHomeGenerationJob({
+      kind: 'agent',
+      payload: {
+        generation,
         topic,
-        wordCount: generation.wordCount
-      }, {
-        fallbackDifficulty: generation.difficulty,
-        fallbackChallenge: generation.challenge,
-        fallbackTopic: topic,
-        legacyLevel: Config.get('level'),
+        startedAt: Date.now(),
         learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
-        personalization: generationPolicy.personalization,
-        validationOptions: generationPolicy.validationOptions,
-        signal,
-        isActive: () => this.isHomeRequestActive(epoch, requestVersion) && !signal?.aborted,
-        onProgress: progress => {
-          if (this.isHomeRequestActive(epoch, requestVersion) && !signal?.aborted) {
-            this.showArticleGenerationStatus(generationProgressLabel(progress));
-          }
-        }
-      });
-      if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
-      this.recordHomeActivity({
-        type: 'agent_generation',
-        status: 'success',
-        startedAt,
-        generation: { difficulty: generation.difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
-        article: this.activityArticle(article)
-      });
-      return { result: metadata, artifact: { type: 'article', article } };
-    } catch (error) {
-      if (isCancelledGenerationRequest(error) || signal?.aborted) throw error;
-      const failure = this.createGenerationFailure(error, generation, topic);
-      this.recordHomeActivity({
-        type: 'agent_generation',
-        status: 'failed',
-        startedAt,
-        generation: { difficulty: generation.difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
-        failureReason: failure.message
-      });
-      return {
-        result: { status: failure.reason, summary: failure.message },
-        artifact: { type: 'generation_failure', failure }
-      };
+        generationPolicy
+      }
+    });
+    if (job.status === 'completed') {
+      const article = await DB.getArticle(job.articleIds?.at(-1));
+      if (article) {
+        return {
+          result: { id: article.id, title: article.title, difficulty: article.difficulty, wordCount: article.wordCount },
+          artifact: { type: 'article', article }
+        };
+      }
     }
+    if (job.status === 'failed') {
+      const failure = conversationStore.getSession('home').messages
+        .find(message => message.kind === 'generation_failure' && message.failure?.generationJobId === job.id)?.failure;
+      if (failure) return { result: { status: failure.reason, summary: failure.message }, artifact: { type: 'generation_failure', failure } };
+    }
+    return { result: { status: job.status || 'generation_interrupted', summary: '文章任务将在回到前台后继续。' } };
   },
 
   buildGenerationContext({ excludeUserMessage = '' } = {}) {
@@ -723,7 +994,7 @@ export const ChatView = {
       allowExplicitUserTarget: Boolean(directUserRequest)
     });
     if (this.ensureTargetTrackBeforeGeneration()) return;
-    const activeRequestVersion = requestVersion ?? this.beginHomeRequest();
+    if (requestVersion == null) this.beginHomeRequest({ cancelGeneration: true });
     this.commitGenerationTargetSelection(generation);
     const difficulty = generation.difficulty;
     const topic = topicOverride || this.getTopic();
@@ -747,74 +1018,23 @@ export const ChatView = {
     // Clear input immediately
     const promptInput = document.getElementById('promptInput');
     if (promptInput) promptInput.value = '';
-    const generationSession = this.startArticleGenerationSession(activeRequestVersion);
     const startedAt = Date.now();
-    this.showArticleGenerationStatus(generationProgressLabel({ phase: 'drafting' }));
-
     try {
-      const { article: articleWithId, keywords } = await articleGenerationTool.execute({
-        request: generation.request,
-        difficulty,
-        challenge: generation.challenge,
-        topic,
-        wordCount: generation.wordCount
-      }, {
-        fallbackDifficulty: difficulty,
-        fallbackChallenge: generation.challenge,
-        fallbackTopic: topic,
-        legacyLevel: Config.get('level'),
-        learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
-        personalization: generationPolicy.personalization,
-        validationOptions: generationPolicy.validationOptions,
-        signal: generationSession.signal,
-        isActive: generationSession.isActive,
-        onProgress: progress => {
-          if (generationSession.isActive()) {
-            this.showArticleGenerationStatus(generationProgressLabel(progress));
-          }
+      return await this.startHomeGenerationJob({
+        kind: 'direct',
+        payload: {
+          generation,
+          topic,
+          startedAt,
+          retryFailureId,
+          learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
+          generationPolicy
         }
       });
-      if (!generationSession.isActive()) return;
-      if (retryFailureId) this.removeGenerationFailure(retryFailureId);
-      this.recordHomeActivity({
-        type: 'generation',
-        status: 'success',
-        startedAt,
-        generation: { difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
-        article: this.activityArticle(articleWithId)
-      });
-
-      // Check if we're still on the chat page
-      const chatMessages = document.getElementById('chatMessages');
-      if (chatMessages) {
-        this.addArticleCard(articleWithId);
-        if (keywords) {
-          this.addMessage('system', `已自动融入学习词库中的单词：${keywords}`);
-        }
-      } else {
-        // User navigated away, save to pending queue
-        PendingArticles.add(articleWithId, keywords);
-      }
-    } catch (err) {
-      if (!generationSession.isActive()) return;
-      if (isCancelledGenerationRequest(err)) return;
-      const failure = this.createGenerationFailure(err, generation, topic);
-      this.recordHomeActivity({
-        type: 'generation',
-        status: 'failed',
-        startedAt,
-        generation: { difficulty, challenge: generation.challenge, wordCount: generation.wordCount, topic },
-        failureReason: failure.message
-      });
-      if (retryFailureId) this.replaceGenerationFailure(retryFailureId, failure);
-      else this.addGenerationFailure(failure);
     } finally {
-      if (generationSession.isActive()) {
-        this.resetGenerateButton();
-        this.removeArticleGenerationStatus();
-      }
+      this.resetGenerateButton();
+      this.removeArticleGenerationStatus();
       if (retryFailureId) this.setGenerationFailureRetryState(retryFailureId, false);
-      generationSession.release();
     }
   },
 
@@ -864,7 +1084,7 @@ export const ChatView = {
     }
 
     const epoch = this.homeEpoch;
-    const requestVersion = this.beginHomeRequest();
+    const requestVersion = this.beginHomeRequest({ cancelGeneration: true });
     const allArticles = await DB.getAllArticles();
     if (!this.isHomeRequestActive(epoch, requestVersion)) return;
 
@@ -881,95 +1101,24 @@ export const ChatView = {
       return;
     }
 
-    const generationPolicy = generationPolicyFor('support');
-    const generationSession = this.startArticleGenerationSession(requestVersion);
     const startedAt = Date.now();
-    this.isReviewGenerating = true;
-    const isReviewSessionActive = generationSession.isActive;
     const deferredCount = plan.remainingWords.length;
     this.addMessage('user', `🔄 复习阅读 | 难度：${DIFFICULTY_LABELS[effectiveDifficulty]}\n${sourceLabel} ${normalizedWords.length} 个词\n本次优先覆盖 ${selectedWords.length} 个词${deferredCount > 0 ? `，剩余 ${deferredCount} 个词可继续生成。` : '。'}`);
-
-    const articles = [];
-    let failedWordCount = 0;
-    const failureReasons = [];
-    try {
-      for (const [index, batch] of selectedBatches.entries()) {
-        if (!isReviewSessionActive()) return;
-        const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
-        this.showArticleGenerationStatus(`正在制作第 ${index + 1}/${selectedBatches.length} 篇，已覆盖 ${coveredCount} 个词…`);
-        const wordCount = selectedBatches.length > 1 ? 300 : 350;
-        const request = `请生成一篇${selectedBatches.length > 1 ? '短文' : '文章'}，自然融入以下词汇：${batch.join(', ')}。${index > 0 ? '请选择与上一篇不同的主题。' : ''}`;
-        try {
-          const result = await articleGenerationTool.execute({
-            request,
-            difficulty: effectiveDifficulty,
-            topic,
-            wordCount
-          }, {
-            fallbackDifficulty: effectiveDifficulty,
-            fallbackTopic: topic,
-            fallbackChallenge: 'support',
-            learningContext: this.buildGenerationContext(),
-            personalization: generationPolicy.personalization,
-            validationOptions: generationPolicy.validationOptions,
-            signal: generationSession.signal,
-            isActive: isReviewSessionActive,
-            targetWords: batch,
-            articleFields: { reviewMode: true, usedWords: batch }
-          });
-          if (!isReviewSessionActive()) {
-            await this.discardReviewArticles([result.article]);
-            return;
-          }
-          articles.push(result.article);
-          this.publishReviewArticles([result.article], generationSession);
-        } catch (error) {
-          if (!isReviewSessionActive() || isCancelledGenerationRequest(error)) return;
-          failedWordCount += batch.length;
-          const failure = this.createGenerationFailure(error, {
-            request,
-            difficulty: effectiveDifficulty,
-            challenge: 'support',
-            wordCount
-          }, topic);
-          failure.message = `第 ${index + 1} 篇未完成：${failure.message}`;
-          failureReasons.push(failure.message);
-          this.addGenerationFailure(failure);
-        }
-      }
-      if (!isReviewSessionActive()) return;
-      const coveredCount = articles.reduce((total, article) => total + (article.usedWords?.length || 0), 0);
-      this.recordHomeActivity({
-        type: 'review_generation',
-        status: articles.length && !failedWordCount ? 'success' : articles.length ? 'partial_success' : 'failed',
+    return this.startHomeGenerationJob({
+      kind: 'review',
+      payload: {
+        batches: selectedBatches,
+        normalizedWords,
+        difficulty: effectiveDifficulty,
+        topic,
+        sourceLabel,
+        deferredCount,
         startedAt,
-        generation: { difficulty: effectiveDifficulty, challenge: 'support', topic, articleCount: selectedBatches.length },
-        articles: articles.map(article => this.activityArticle(article)),
-        coveredWordCount: coveredCount,
-        failedWordCount,
-        failureReason: failureReasons.join('；')
-      });
-      if (articles.length) {
-        this.addMessage('system', `📝 已生成 ${articles.length} 篇巩固阅读，覆盖 ${coveredCount} 个待复习词。点击卡片即可开始阅读。`);
-      } else if (failedWordCount) {
-        this.addMessage('error', '本次复习阅读未能完成，请通过下方入口重试。');
-      }
-      if (deferredCount > 0 || failedWordCount > 0) {
-        const remainingCount = deferredCount + failedWordCount;
-        this.addReviewContinueAction(remainingCount, () => this.generateReviewReadings({
-          reviewWords: normalizedWords,
-          difficulty: effectiveDifficulty,
-          topic,
-          sourceLabel
-        }));
-      }
-    } finally {
-      if (isReviewSessionActive()) {
-        this.removeArticleGenerationStatus();
-        this.isReviewGenerating = false;
-      }
-      generationSession.release();
-    }
+        learningContext: this.buildGenerationContext(),
+        generationPolicy: generationPolicyFor('support')
+      },
+      cancelExisting: false
+    });
   },
 
   // Handle review reading generation from the home shortcut.
@@ -982,8 +1131,9 @@ export const ChatView = {
     const allLearnWords = await DB.getAllLearnWords();
     const dueWords = SpacedRepetition.getDueWords(allLearnWords);
     const nonStableWords = allLearnWords.filter(w => !SpacedRepetition.isStable(w));
+    const stableWords = allLearnWords.filter(w => SpacedRepetition.isStable(w));
     const reviewWords = normalizeTargetWords(
-      [...dueWords, ...nonStableWords].map(word => word.word),
+      [...dueWords, ...nonStableWords, ...stableWords].map(word => word.word),
       Number.POSITIVE_INFINITY
     );
     return this.generateReviewReadings({
@@ -996,11 +1146,13 @@ export const ChatView = {
 
   appendConversation(message) {
     conversationStore.append('home', message);
-    conversationStore.compact('home', 16);
+    conversationStore.maintainHomeConversation();
     if (message.kind === 'article') {
       this.addArticleCardToDOM(message.article);
     } else if (message.kind === 'generation_failure') {
       this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
+    } else if (message.kind === 'app_actions') {
+      this.addAppActionsToDOM(message.actions || []);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       this.addMessageToDOM(type, message.content);
@@ -1064,6 +1216,55 @@ export const ChatView = {
     document.getElementById('articleGenerationStatus')?.remove();
   },
 
+  syncHomeGenerationPreview(preview) {
+    const container = document.getElementById('chatMessages');
+    if (!container || !preview?.jobId) return;
+    const key = `${preview.jobId}-${Number(preview.batchIndex) || 0}`;
+    let node = [...container.querySelectorAll('[data-generation-preview]')]
+      .find(candidate => candidate.dataset.generationPreview === key);
+    if (!node) {
+      node = document.createElement('div');
+      node.className = 'message ai-message generation-preview-message';
+      node.dataset.generationPreview = key;
+      container.appendChild(node);
+    }
+    const title = preview.title || '文章制作中…';
+    const body = preview.content || '正在等待英文正文…';
+    const wordCount = Number(preview.wordCount) || 0;
+    node.innerHTML = `
+      <section class="article-card generation-draft-card" aria-label="文章制作中">
+        <div class="article-card-header">
+          <span class="article-title">${esc(title)}</span>
+          <span class="badge badge-generating">制作中</span>
+          ${wordCount ? `<span class="word-count">${wordCount} 词</span>` : ''}
+        </div>
+        ${preview.titleZh ? `<div class="article-title-zh">${esc(preview.titleZh)}</div>` : ''}
+        <div class="article-preview">${esc(body)}</div>
+        <button class="btn btn-outline btn-sm" type="button" disabled>文章完成后可阅读全文</button>
+      </section>`;
+    container.scrollTop = container.scrollHeight;
+  },
+
+  queueHomeGenerationPreview(preview) {
+    if (!preview?.jobId) return;
+    const key = `${preview.jobId}-${Number(preview.batchIndex) || 0}`;
+    this._generationPreviewQueue.set(key, preview);
+    if (this._generationPreviewTimer) return;
+    this._generationPreviewTimer = setTimeout(() => {
+      this._generationPreviewTimer = null;
+      const pending = [...this._generationPreviewQueue.values()];
+      this._generationPreviewQueue.clear();
+      pending.forEach(item => this.syncHomeGenerationPreview(item));
+    }, 70);
+  },
+
+  removeHomeGenerationPreviews(jobId) {
+    const prefix = `${String(jobId)}-`;
+    document.querySelectorAll('[data-generation-preview]').forEach(node => {
+      if (node.dataset.generationPreview?.startsWith(prefix)) node.remove();
+    });
+  },
+
   // Compatibility entry point used by reading and review flows.
   addMessage(type, text) {
     if (type === 'article') return this.addArticleCard(text);
@@ -1080,6 +1281,23 @@ export const ChatView = {
     if (article.content) {
       AudioCache.preloadWords(article.content).catch(() => {});
     }
+  },
+
+  addAppActions(actions = []) {
+    this.appendConversation({ role: 'assistant', kind: 'app_actions', actions });
+  },
+
+  addAppActionsToDOM(actions = []) {
+    if (!actions.length) return;
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'message ai-message app-action-message';
+    div.innerHTML = `<nav class="app-action-card" aria-label="建议的学习操作">
+      ${actions.slice(0, 3).map(action => `<a class="app-action-link" href="${esc(action.route)}"><span>${esc(action.label)}</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>`).join('')}
+    </nav>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
   },
 
   createGenerationFailure(error, generation, topic) {
@@ -1166,7 +1384,7 @@ export const ChatView = {
     const element = this.findGenerationFailureElement(stableId);
     if (!replaced) {
       conversationStore.append('home', { id: stableId, role: 'assistant', kind: 'generation_failure', failure });
-      conversationStore.compact('home', 16);
+      conversationStore.maintainHomeConversation();
     }
     if (element) this.renderGenerationFailureToDOM(element, failure, stableId);
     else this.addGenerationFailureToDOM(failure, stableId);
@@ -1225,12 +1443,12 @@ export const ChatView = {
     this.homeEpoch += 1;
     homeRequestGate.invalidate();
     chatService.cancel('home');
-    this._generationController?.abort();
-    this._generationController = null;
-    this.isReviewGenerating = false;
     this.resetGenerateButton();
     this.removeThinking();
     this.removeArticleGenerationStatus();
+    if (this._generationPreviewTimer) clearTimeout(this._generationPreviewTimer);
+    this._generationPreviewTimer = null;
+    this._generationPreviewQueue.clear();
     const clearContextButton = document.getElementById('appClearContextBtn');
     if (clearContextButton && this._clearContextHandler) {
       clearContextButton.removeEventListener('click', this._clearContextHandler);
@@ -1404,6 +1622,26 @@ export const WordImport = {
     ChatView.addMessage('system', `成功导入 ${imported} 个单词到学习词库`);
   }
 };
+
+const homeGenerationCoordinator = new HomeGenerationCoordinator({
+  execute: (job, runtime) => ChatView.executeHomeGenerationJob(job, runtime),
+  onStateChange: job => ChatView.syncHomeGenerationUI(job),
+  onPreview: event => {
+    const preview = Object.hasOwn(event || {}, 'preview') ? event.preview : event;
+    const jobId = event?.jobId || preview?.jobId;
+    if (!preview) {
+      ChatView.removeHomeGenerationPreviews(jobId);
+      return;
+    }
+    ChatView.queueHomeGenerationPreview(preview);
+  }
+});
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    void homeGenerationCoordinator.setVisibility(document.hidden ? 'hidden' : 'visible');
+  });
+}
 
 window.ChatView = ChatView;
 window.WordImport = WordImport;

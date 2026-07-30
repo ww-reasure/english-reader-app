@@ -59,12 +59,12 @@ test('returns to normal conversation when the home safety gate rejects a generat
       chat: async (_messages, options) => {
         requests.push(options);
         return requests.length === 1
-          ? { tool_calls: [{ function: { name: 'generate_reading', arguments: '{}' } }] }
+          ? { tool_calls: [{ id: 'blocked-1', type: 'function', function: { name: 'generate_reading', arguments: '{}' } }] }
           : { content: '这是一篇关于注意力与数字生活的说明文。' };
       }
     },
     agent: { getLearningOverview: async () => ({}) },
-    builder: { build: input => input }
+    builder: { build: () => [{ role: 'user', content: '这是一篇什么类型的文章' }] }
   });
 
   const reply = await service.ask({
@@ -116,7 +116,7 @@ test('returns a generated article before an unrelated read-only tool can fail th
       chat: async () => ({
         tool_calls: [
           { function: { name: 'generate_reading', arguments: '{}' } },
-          { function: { name: 'get_learning_overview', arguments: '{}' } }
+          { id: 'read-1', type: 'function', function: { name: 'get_learning_overview', arguments: '{}' } }
         ]
       })
     },
@@ -210,7 +210,7 @@ test('continues ordinary read-only tool calls through the model loop', async () 
       chat: async (messages, options) => {
         requests.push({ messages, options });
         return requests.length === 1
-          ? { tool_calls: [{ function: { name: 'get_learning_overview', arguments: '{}' } }] }
+          ? { tool_calls: [{ id: 'read-1', type: 'function', function: { name: 'get_learning_overview', arguments: '{}' } }] }
           : { content: '你有 3 个待复习单词。' };
       }
     },
@@ -218,7 +218,7 @@ test('continues ordinary read-only tool calls through the model loop', async () 
       getLearningOverview: async () => ({ due: 3 }),
       execute: async name => ({ source: name, due: 3 })
     },
-    builder: { build: input => input }
+    builder: { build: () => [{ role: 'user', content: '我的学习情况' }] }
   });
 
   const reply = await service.ask({
@@ -228,7 +228,10 @@ test('continues ordinary read-only tool calls through the model loop', async () 
   assert.equal(reply.content, '你有 3 个待复习单词。');
   assert.deepEqual(reply.artifacts, []);
   assert.deepEqual(requests[1].options.tools, []);
-  assert.deepEqual(requests[1].messages.toolResults, [{
-    tool: 'get_learning_overview', result: { source: 'get_learning_overview', due: 3 }
-  }]);
+  assert.equal(requests[1].messages[1].role, 'assistant');
+  assert.equal(requests[1].messages[1].tool_calls[0].id, 'read-1');
+  assert.deepEqual(requests[1].messages[2], {
+    role: 'tool', tool_call_id: 'read-1', name: 'get_learning_overview',
+    content: JSON.stringify({ source: 'get_learning_overview', due: 3 })
+  });
 });

@@ -5,15 +5,18 @@ import test from 'node:test';
 import { getDifficultyProfile } from '../src/difficulty-profile.mjs';
 
 async function loadApi() {
-  const [source, profile] = await Promise.all([
+  const [source, profile, stream] = await Promise.all([
     readFile(new URL('../src/api.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/difficulty-profile.mjs', import.meta.url), 'utf8')
+    readFile(new URL('../src/difficulty-profile.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/article-stream.mjs', import.meta.url), 'utf8')
   ]);
   const configUrl = `data:text/javascript;base64,${Buffer.from("export const Config = { get: () => '95' }; ").toString('base64')}`;
   const profileUrl = `data:text/javascript;base64,${Buffer.from(profile).toString('base64')}`;
+  const streamUrl = `data:text/javascript;base64,${Buffer.from(stream).toString('base64')}`;
   const adapted = source
     .replace("from './config.js'", `from '${configUrl}'`)
-    .replace("from './difficulty-profile.mjs'", `from '${profileUrl}'`);
+    .replace("from './difficulty-profile.mjs'", `from '${profileUrl}'`)
+    .replace("from './article-stream.mjs'", `from '${streamUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -117,4 +120,100 @@ test('does not retain the legacy unaudited difficulty-rule prompt table', async 
   assert.doesNotMatch(source, /difficultyRules/);
   assert.doesNotMatch(source, /四级大纲词汇/);
   assert.doesNotMatch(source, /六级大纲词汇/);
+});
+
+test('streams article JSON deltas into draft snapshots without changing the final article shape', async () => {
+  const { API } = await loadApi();
+  const events = [
+    { choices: [{ delta: { content: '{"title":"Streaming","content":"First sentence. ' } }] },
+    { choices: [{ delta: { content: "Second sentence. Third sentence.\",\"titleZh\":\"流式文章\",\"translation\":\"第一句。第二句。第三句。\"}" } }] }
+  ];
+  const requests = [];
+  const drafts = [];
+  const originalFetchStream = API.fetchStream;
+  API.fetchStream = async (_endpoint, body, _timeout, _signal, onEvent) => {
+    requests.push(body);
+    for (const event of events) onEvent(event);
+    return { usage: { total_tokens: 12 } };
+  };
+
+  try {
+    const article = await API.generateArticleStream(
+      '写一篇文章',
+      'cet4',
+      '旅行',
+      'journey',
+      280,
+      '',
+      { onDraft: draft => drafts.push(draft) }
+    );
+    assert.equal(article.title, 'Streaming');
+    assert.equal(article.titleZh, '流式文章');
+    assert.match(article.content, /First sentence/);
+    assert.equal(drafts.at(-1).wordCount, 6);
+    assert.equal(requests[0].stream, true);
+    assert.deepEqual(requests[0].stream_options, { include_usage: true });
+  } finally {
+    API.fetchStream = originalFetchStream;
+  }
+});
+
+test('falls back when a gateway returns a normal 200 response without SSE deltas', async () => {
+  const { API } = await loadApi();
+  const originalFetchStream = API.fetchStream;
+  const originalGenerateArticle = API.generateArticle;
+  let fallbackArgs = null;
+  API.fetchStream = async () => ({ usage: null });
+  API.generateArticle = async (...args) => {
+    fallbackArgs = args;
+    return {
+      title: 'Fallback',
+      titleZh: '回退文章',
+      content: 'One sentence. Another sentence. A final sentence.',
+      translation: '第一句。第二句。最后一句。'
+    };
+  };
+
+  try {
+    const article = await API.generateArticleStream('写一篇文章', 'cet4', '旅行', 'journey', 280);
+    assert.equal(article.title, 'Fallback');
+    assert.equal(fallbackArgs?.[0], '写一篇文章');
+    assert.equal(fallbackArgs?.[4], 280);
+  } finally {
+    API.fetchStream = originalFetchStream;
+    API.generateArticle = originalGenerateArticle;
+  }
+});
+
+test('uses the short relaxed specification for review reading generation', async () => {
+  const { API } = await loadApi();
+  const originalFetch = API.fetch;
+  let request;
+  API.fetch = async (_endpoint, body) => {
+    request = body;
+    return {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            title: 'A Short Review',
+            titleZh: '短篇复习',
+            content: 'One sentence. Another sentence. A final sentence.',
+            translation: '第一句。第二句。最后一句。'
+          })
+        }
+      }]
+    };
+  };
+  try {
+    await API.generateArticle('复习阅读', 'cet4', '复习', 'memory, practice', 173, '', {
+      reviewMode: true,
+      reviewMaxWords: 280
+    });
+  } finally {
+    API.fetch = originalFetch;
+  }
+  assert.match(request.messages[0].content, /复习短篇规则/);
+  assert.match(request.messages[0].content, /最多 280 词/);
+  assert.doesNotMatch(request.messages[0].content, /硬性校验：总字数必须控制在 210-420/);
+  assert.match(request.messages[1].content, /不设置普通文章式最低字数/);
 });

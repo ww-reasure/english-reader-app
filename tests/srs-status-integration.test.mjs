@@ -35,5 +35,5 @@ test('homepage review preserves due stable words while supplementing only non-st
 
   assert.match(chatSource, /const dueWords = SpacedRepetition\.getDueWords\(allLearnWords\);/);
   assert.match(chatSource, /const nonStable(?:Words)? = allLearnWords\.filter\(w => !SpacedRepetition\.isStable\(w\)\);/);
-  assert.match(chatSource, /normalizeTargetWords\(\s*\[\.\.\.dueWords, \.\.\.nonStableWords\]\.map\(word => word\.word\)/);
+  assert.match(chatSource, /normalizeTargetWords\(\s*\[\.\.\.dueWords, \.\.\.nonStableWords, \.\.\.stableWords\]\.map\(word => word\.word\)/);
 });

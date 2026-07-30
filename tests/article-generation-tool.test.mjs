@@ -97,7 +97,7 @@ test('accepts an internal explicit-word set for review-generated readings', asyn
   assert.equal(calls[0][3], 'target, practice');
 });
 
-test('bounds explicit review targets case-insensitively and saves only controlled review fields', async () => {
+test('keeps all review candidates available and saves only the candidates actually used', async () => {
   const { ArticleGenerationTool, normalizeTargetWords } = await loadTool();
   const calls = [];
   const saved = [];
@@ -105,7 +105,7 @@ test('bounds explicit review targets case-insensitively and saves only controlle
     api: {
       generateArticle: async (...args) => {
         calls.push(args);
-        return { title: 'Review', content: 'Review target.', translation: '', wordCount: 2, unsafeField: 'discard me' };
+        return { title: 'Review', content: 'Review One w0 w9.', translation: '', wordCount: 4, unsafeField: 'discard me' };
       }
     },
     db: {
@@ -124,13 +124,31 @@ test('bounds explicit review targets case-insensitively and saves only controlle
   });
 
   assert.deepEqual(normalizeTargetWords(targets), ['One', 'w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']);
-  assert.equal(calls[0][3], 'One, w0, w1, w2, w3, w4, w5, w6');
-  assert.deepEqual(calls[0][6].profile.wordRange, { min: 240, max: 320 });
-  assert.deepEqual(result.selectedWords, ['One', 'w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']);
-  assert.deepEqual(result.deferredWords, ['w7', 'w8', 'w9', 'w10', 'w11']);
+  assert.equal(calls[0][3], 'One, w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11');
+  assert.equal(calls[0][6].reviewMode, true);
+  assert.equal(calls[0][6].reviewMaxWords, 280);
+  assert.deepEqual(result.selectedWords, ['One', 'w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9', 'w10', 'w11']);
+  assert.deepEqual(result.deferredWords, []);
   assert.equal(saved[0].reviewMode, true);
-  assert.deepEqual(saved[0].usedWords, ['One', 'w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']);
+  assert.deepEqual(saved[0].usedWords, ['One', 'w0', 'w9']);
   assert.equal(saved[0].unsafeField, 'discard me');
+});
+
+test('persists a trusted generation job id without accepting arbitrary article fields', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  const saved = [];
+  const tool = new ArticleGenerationTool({
+    api: { generateArticle: async () => ({ title: 'Resume safe', content: 'A saved article.', translation: '', wordCount: 3 }) },
+    db: { getAllLearnWords: async () => [], saveArticle: async article => { saved.push(article); return 18; }, deleteArticle: async () => {} },
+    validate: () => ({ passed: true, metrics: { wordCount: 3 }, deviations: [] })
+  });
+
+  await tool.execute({ request: '生成文章' }, {
+    articleFields: { generationJobId: 'job-18', unsafeField: 'discard' }
+  });
+
+  assert.equal(saved[0].generationJobId, 'job-18');
+  assert.equal(saved[0].unsafeField, undefined);
 });
 
 test('chunks a normalized target list into batches of at most eight words', async () => {
@@ -457,7 +475,7 @@ test('admits structurally complete articles inside the light 70 to 140 percent r
   assert.deepEqual(result.deviations, []);
 });
 
-test('requires every review target word but does not require advisory words for ordinary generation', async () => {
+test('allows partial review coverage but does not require advisory words for ordinary generation', async () => {
   const { admitArticle } = await loadTool();
   const article = {
     title: 'Practice and Progress',
@@ -470,9 +488,82 @@ test('requires every review target word but does not require advisory words for 
   const review = admitArticle(article, { targetWordCount: 300, reviewWords: ['memory', 'missing'] });
 
   assert.equal(ordinary.passed, true);
-  assert.equal(review.passed, false);
-  assert.deepEqual(review.deviations.map(item => item.code), ['review_word']);
+  assert.equal(review.passed, true);
+  assert.deepEqual(review.deviations, []);
+  assert.deepEqual(review.matchedReviewWords, ['memory']);
   assert.deepEqual(review.missingReviewWords, ['missing']);
+});
+
+test('review admission allows short contextual articles when at least one candidate word is used', async () => {
+  const { admitArticle } = await loadTool();
+  const article = {
+    title: 'A Short Context',
+    titleZh: '短篇语境',
+    content: buildArticleContent(173, 'memory'),
+    translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+  };
+  const result = admitArticle(article, {
+    reviewMode: true,
+    reviewWords: ['memory', 'missing'],
+    reviewMaxWords: 280
+  });
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.matchedReviewWords, ['memory']);
+  assert.deepEqual(result.missingReviewWords, ['missing']);
+  assert.equal(result.metrics.wordCount, 174);
+});
+
+test('review admission retries or rejects only when no candidate word appears', async () => {
+  const { admitArticle } = await loadTool();
+  const result = admitArticle({
+    title: 'A Short Context',
+    titleZh: '短篇语境',
+    content: buildArticleContent(173),
+    translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+  }, {
+    reviewMode: true,
+    reviewWords: ['memory', 'missing'],
+    reviewMaxWords: 280
+  });
+
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.matchedReviewWords, []);
+  assert.match(result.deviations.map(item => item.code).join(','), /review_word/);
+});
+
+test('prefers the streaming article API and forwards draft snapshots without saving a draft', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  const saved = [];
+  const drafts = [];
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticleStream: async (_request, _difficulty, _topic, _keywords, _wordCount, _context, options) => {
+        options.onDraft({ title: '流式标题', content: 'First sentence.' });
+        return {
+          title: 'Streamed article',
+          titleZh: '流式文章',
+          content: buildArticleContent(300),
+          translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+        };
+      },
+      generateArticle: async () => { throw new Error('must use stream'); }
+    },
+    db: {
+      getAllLearnWords: async () => [],
+      saveArticle: async article => { saved.push(article); return 88; },
+      deleteArticle: async () => {}
+    }
+  });
+
+  const result = await tool.execute({ request: '生成文章', difficulty: 'cet4', wordCount: 300 }, {
+    onDraft: draft => drafts.push(draft)
+  });
+
+  assert.equal(result.article.id, 88);
+  assert.equal(saved.length, 1);
+  assert.equal(drafts.length, 1);
+  assert.equal(saved[0].content, result.article.content);
 });
 
 test('saves an admitted article after one model request while quality inspection stays non-blocking', async () => {
@@ -544,4 +635,69 @@ test('records an unavailable background observation without withdrawing an admit
   assert.equal(result.article.id, 18);
   assert.equal(qualityUpdate.qualityReport.status, 'unavailable');
   assert.equal(qualityUpdate.qualityReport.reason, 'GRAMMAR_MODEL_UNAVAILABLE');
+});
+
+test('uses true-exam priority as a learning-word preference without making it an admission gate', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  let generatedKeywords = '';
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticle: async (_request, _difficulty, _topic, keywords) => {
+        generatedKeywords = keywords;
+        return {
+          title: 'Preference only',
+          titleZh: '仅作偏好',
+          content: buildArticleContent(300),
+          translation: '第一段中文翻译。\n\n第二段中文翻译。\n\n第三段中文翻译。'
+        };
+      }
+    },
+    db: {
+      getAllLearnWords: async () => [
+        { word: 'ordinary', state: 'new', interval: 0 },
+        { word: 'frequent', state: 'new', interval: 0 }
+      ],
+      saveArticle: async () => 19
+    },
+    examCorpus: {
+      lookup: async word => word === 'frequent' ? { priorityScore: 95, priorityTier: 'core' } : null
+    },
+    admit: () => ({ passed: true, metrics: { wordCount: 300 }, deviations: [] })
+  });
+
+  await tool.execute({ request: '生成阅读', difficulty: 'kaoyan1', wordCount: 300 });
+  assert.equal(generatedKeywords.split(', ')[0], 'frequent');
+});
+
+test('adds exam coverage to the non-blocking background quality report', async () => {
+  const { ArticleGenerationTool } = await loadTool();
+  let qualityUpdate = null;
+  const tool = new ArticleGenerationTool({
+    api: {
+      generateArticle: async () => ({
+        title: 'Coverage',
+        titleZh: '覆盖情况',
+        content: 'Frequent words appear in useful reading practice. Another ordinary sentence follows.',
+        translation: '高频词出现在有用的阅读练习中。另一个普通句子紧随其后。'
+      })
+    },
+    db: {
+      getAllLearnWords: async () => [],
+      saveArticle: async () => 20,
+      updateArticle: async (_id, fields) => { qualityUpdate = fields; }
+    },
+    examCorpus: {
+      lookup: async word => word === 'frequent'
+        ? { priorityScore: 90, priorityTier: 'core', counts: { sentenceTotal: 12 } }
+        : null
+    },
+    admit: () => ({ passed: true, metrics: { wordCount: 11 }, deviations: [] }),
+    inspectQuality: async () => ({ status: 'observed', report: { lexiconProfile: { status: 'available' } } }),
+    scheduleBackground: callback => callback()
+  });
+
+  await tool.execute({ request: '生成阅读', difficulty: 'kaoyan1', wordCount: 300 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(qualityUpdate.qualityReport.report.examCorpusObservation.status, 'available');
+  assert.equal(qualityUpdate.qualityReport.report.examCorpusObservation.observedUniqueWords, 1);
 });
