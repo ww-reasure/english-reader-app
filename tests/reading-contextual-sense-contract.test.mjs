@@ -27,5 +27,5 @@ test('tooltip and full study detail display a selected in-sentence meaning witho
   assert.match(tooltip, /contextualSenseIndex/);
   assert.match(detail, /本句义/);
   assert.match(detail, /contextualSenseIndex/);
-  assert.match(detail, /word-study-definition-list/);
+  assert.match(detail, /flashcard-study-definition-list/);
 });

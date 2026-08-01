@@ -14,7 +14,7 @@
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { Dictionary } from '../dictionary.js';
-import { esc, getStemForm } from '../helpers.js';
+import { esc } from '../helpers.js';
 import { Config } from '../config.js';
 import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
@@ -43,6 +43,11 @@ import {
   renderWordStudyTabs
 } from '../components/word-study-materials.mjs';
 import {
+  getFocusedWordStudyExamples,
+  renderFocusedWordStudyExample,
+  renderWordStudyDefinitionLine
+} from '../components/word-study-stage.mjs';
+import {
   REVIEW_PHASES,
   createReviewState,
   revealMeaning,
@@ -59,48 +64,6 @@ const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
   storage: DB
 });
-
-function renderDefinitionLine(line, className) {
-  return `<div class="${className} definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`;
-}
-
-function renderHighlightedStudySentence(sentence, targetWord) {
-  const targetStem = getStemForm(targetWord);
-  return String(sentence || '').split(/([A-Za-z]+(?:['’-][A-Za-z]+)*)/gu).map(part => {
-    if (!/^[A-Za-z]/u.test(part)) return esc(part);
-    const isTarget = getStemForm(part) === targetStem
-      || part.toLocaleLowerCase('en-US') === String(targetWord || '').toLocaleLowerCase('en-US');
-    return isTarget ? `<mark class="flashcard-focused-target">${esc(part)}</mark>` : esc(part);
-  }).join('');
-}
-
-function focusedExampleSourceLabel(example) {
-  if (!example?.isExam) return '学习例句';
-  if (example.sourceKind === 'question') return '真题题干';
-  if (example.sourceKind === 'passage') return '真题例句';
-  return '真题材料';
-}
-
-function getFocusedStudyExamples(examples, limit = 5) {
-  return (Array.isArray(examples) ? examples : [])
-    .map((rawExample, sourceIndex) => ({
-      example: normalizeWordStudyExample(rawExample),
-      sourceIndex
-    }))
-    .filter(item => item.example?.sentenceEn)
-    .map(item => {
-      const wordCount = item.example.sentenceEn.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/gu)?.length || 0;
-      const isComfortableLength = wordCount >= 6 && wordCount <= 28;
-      const bucket = item.example.isExam
-        ? (isComfortableLength ? 0 : 2)
-        : (isComfortableLength ? 1 : 3);
-      return { ...item, bucket, distanceFromIdeal: Math.abs(wordCount - 18) };
-    })
-    .sort((a, b) => a.bucket - b.bucket
-      || a.distanceFromIdeal - b.distanceFromIdeal
-      || a.sourceIndex - b.sourceIndex)
-    .slice(0, limit);
-}
 
 export const FlashcardView = {
   words: [],
@@ -129,6 +92,7 @@ export const FlashcardView = {
   _cardPronunciationController: null,
   _phraseController: null,
   _similarController: null,
+  _rootController: null,
 
   // Today's reviewed words (persisted across sessions)
   TODAY_KEY: 'todayReviewedWords',
@@ -235,6 +199,7 @@ export const FlashcardView = {
     this.studyExamplesExpanded = false;
     this.cancelPhraseRequest();
     this.cancelSimilarRequest();
+    this.cancelRootRequest();
     this.studyDetails = { examples: [], rootAnalysis: null, examPresentation: null, loading: false, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.reviewNotice = '';
     this.studyNotice = '';
@@ -311,7 +276,7 @@ export const FlashcardView = {
               ${this.currentPhonetic ? `<div class="flashcard-phonetic">${esc(this.currentPhonetic)}</div>` : ''}
               ${meaningRevealed
                 ? (this.currentDefinitionLines[0]
-                    ? `${renderDefinitionLine(this.currentDefinitionLines[0], 'flashcard-recall-meaning')}<p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`
+                    ? `${renderWordStudyDefinitionLine(this.currentDefinitionLines[0], 'flashcard-recall-meaning')}<p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`
                     : `<div class="flashcard-recall-meaning">${esc(this.currentTranslation)}</div><p class="flashcard-hint">已查看释义，请按真实回忆选择“模糊”或“忘了”</p>`)
                 : `<button class="flashcard-reveal-btn" type="button" onclick="FlashcardView.showMeaning()">点击查看释义</button>`}
             </div>
@@ -386,7 +351,7 @@ export const FlashcardView = {
               <button class="flashcard-study-word" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(word.word)}</button>
               ${this.currentPhonetic ? `<button class="flashcard-phonetic flashcard-study-phonetic" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(this.currentPhonetic)}</button>` : ''}
               <div class="flashcard-study-definition-list">${this.currentDefinitionLines.length
-                ? this.currentDefinitionLines.map((line) => renderDefinitionLine(line, 'flashcard-study-translation')).join('')
+                ? this.currentDefinitionLines.map((line) => renderWordStudyDefinitionLine(line, 'flashcard-study-translation')).join('')
                 : `<div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>`}</div>
               <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog">
                 <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
@@ -455,36 +420,15 @@ export const FlashcardView = {
   },
 
   renderFocusedStudyExample() {
-    const examples = getFocusedStudyExamples(this.studyDetails.examples);
+    const examples = getFocusedWordStudyExamples(this.studyDetails.examples);
     if (!examples.length) return '<div class="word-study-empty flashcard-study-empty">暂无例句。</div>';
 
     this.studyExampleIndex = Math.min(Math.max(0, this.studyExampleIndex), examples.length - 1);
-    const index = this.studyExampleIndex;
-    const { example, sourceIndex } = examples[index];
-    const sourceDetails = [example.paperLabel, example.positionLabel].filter(Boolean).join(' · ');
-    const targetWord = this.words[this.currentIndex]?.word || '';
-    const dots = examples.map((_, dotIndex) => `
-      <button type="button" data-example-select="${dotIndex}" class="${dotIndex === index ? 'active' : ''}"
-        aria-label="查看第 ${dotIndex + 1} 条例句" aria-current="${dotIndex === index ? 'true' : 'false'}"></button>`).join('');
-
-    return `<article class="word-study-example-item flashcard-example-item flashcard-focused-example" data-example-carousel>
-      <div class="flashcard-focused-example-topline">
-        <span class="flashcard-focused-source"><i class="fa-solid fa-book-open" aria-hidden="true"></i>${esc(focusedExampleSourceLabel(example))}</span>
-        <button class="example-translate-btn flashcard-focused-translate" type="button" data-example-translate="${sourceIndex}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''}>译</button>
-      </div>
-      <p class="word-study-example-text flashcard-example-text flashcard-focused-sentence" data-example-text>${renderHighlightedStudySentence(example.sentenceEn, targetWord)}</p>
-      <div class="example-translation flashcard-focused-translation" data-example-translation="${sourceIndex}"></div>
-      ${sourceDetails ? `<p class="flashcard-focused-example-source">${esc(sourceDetails)}</p>` : ''}
-      <div class="flashcard-focused-pagination" aria-label="例句分页">
-        <div class="flashcard-focused-dots">${dots}</div>
-        <span>${index + 1} / ${examples.length}</span>
-      </div>
-      <button class="flashcard-show-all-examples" type="button" data-example-show-all>
-        <i class="fa-regular fa-rectangle-list" aria-hidden="true"></i>
-        <span>查看全部例句</span>
-        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
-      </button>
-    </article>`;
+    return renderFocusedWordStudyExample({
+      examples: this.studyDetails.examples,
+      index: this.studyExampleIndex,
+      targetWord: this.words[this.currentIndex]?.word || ''
+    });
   },
 
   setStudyTab(tab) {
@@ -497,6 +441,9 @@ export const FlashcardView = {
     }
     if (tab === 'similar' && this.studyDetails.similar.status === 'idle') {
       void this.loadSimilar(this.cardSession);
+    }
+    if (tab === 'related') {
+      void this.loadStructuredRoot(this.cardSession);
     }
   },
 
@@ -549,7 +496,7 @@ export const FlashcardView = {
   },
 
   selectStudyExample(index) {
-    const total = Math.min(5, this.studyDetails.examples?.length || 0);
+    const total = getFocusedWordStudyExamples(this.studyDetails.examples).length;
     if (!total) return;
     const nextIndex = Math.min(Math.max(0, index), total - 1);
     if (nextIndex === this.studyExampleIndex) return;
@@ -670,6 +617,7 @@ export const FlashcardView = {
     };
     this.renderStudy(this.container);
     this.loadRelatedTranslations(session, word.word, rootAnalysis);
+    if (this.studyTab === 'related') void this.loadStructuredRoot(session);
   },
 
   async loadRelatedTranslations(session, word, rootAnalysis) {
@@ -678,6 +626,30 @@ export const FlashcardView = {
     if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY || !enriched) return;
     this.studyDetails = { ...this.studyDetails, rootAnalysis: enriched };
     if (this.studyTab === 'related') this.renderStudy(this.container);
+  },
+
+  async loadStructuredRoot(session) {
+    const word = this.words[this.currentIndex]?.word;
+    const analysis = this.studyDetails.rootAnalysis;
+    if (!word || !analysis || Affixes.hasStructuredRoot(analysis)) return;
+    this.cancelRootRequest();
+    const controller = new AbortController();
+    this._rootController = controller;
+    try {
+      const enriched = await Affixes.ensureStructuredRoot(word, analysis, { signal: controller.signal });
+      if (session !== this.cardSession || this.reviewState.phase !== REVIEW_PHASES.STUDY || controller.signal.aborted || !enriched) return;
+      this.studyDetails = { ...this.studyDetails, rootAnalysis: enriched };
+      if (this.studyTab === 'related') this.renderStudy(this.container);
+    } catch {
+      // Legacy cache content remains readable when structured enrichment is unavailable.
+    } finally {
+      if (this._rootController === controller) this._rootController = null;
+    }
+  },
+
+  cancelRootRequest() {
+    this._rootController?.abort();
+    this._rootController = null;
   },
 
   async loadPhrases(session) {
@@ -999,6 +971,7 @@ export const FlashcardView = {
     this.cancelCardPronunciation();
     this.cancelPhraseRequest();
     this.cancelSimilarRequest();
+    this.cancelRootRequest();
     this.cleanupExampleWordLookup();
     this.closeStudyInfo();
   }

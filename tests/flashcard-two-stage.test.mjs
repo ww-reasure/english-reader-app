@@ -133,16 +133,18 @@ test('study details reserve substantially more viewport space for the scrollable
 });
 
 test('study phase uses a focused example stage and a separate exam-information sheet', async () => {
-  const [source, css] = await Promise.all([
+  const [source, stage, css] = await Promise.all([
     readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/word-study-stage.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../css/style.css', import.meta.url), 'utf8')
   ]);
 
   assert.match(source, /studyExampleIndex:\s*0/);
   assert.match(source, /studyExamplesExpanded:\s*false/);
-  assert.match(source, /getFocusedStudyExamples\(examples/);
-  assert.match(source, /wordCount >= 6 && wordCount <= 28/);
+  assert.match(source, /getFocusedWordStudyExamples/);
+  assert.match(stage, /wordCount >= 6 && wordCount <= 28/);
   assert.match(source, /renderFocusedStudyExample\(\)/);
+  assert.match(source, /renderFocusedWordStudyExample/);
   assert.match(source, /data-study-info-open/);
   assert.match(source, /role="dialog"[^>]*aria-labelledby="flashcardStudyInfoTitle"/);
   assert.match(source, /data-example-select/);
@@ -223,7 +225,7 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:/s);
   assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
   assert.match(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
-  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
 });
 
 test('a recall card starts one cancellable automatic pronunciation', async () => {

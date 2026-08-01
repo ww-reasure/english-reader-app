@@ -635,9 +635,17 @@ body.flashcard-study-info-open { overflow:hidden; }
 .result-detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:0; border-top:1px solid var(--rule); }
 .result-detail-item { padding:12px 0; border-bottom:1px solid var(--rule); }
 
-body.word-study-detail-open { overflow:hidden; }
-.word-study-detail-overlay { padding:10px 10px calc(10px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); }
-.word-study-detail-sheet { width:min(100%,620px); height:min(95dvh,820px); min-height:430px; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--rule-strong); border-radius:20px 20px 9px 9px; background:var(--surface); box-shadow:var(--shadow); }
+body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; }
+.word-study-detail-overlay { z-index:1300; align-items:stretch; padding:0; }
+.word-study-detail-sheet { width:min(100%,620px); height:100dvh; min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr); overflow:hidden; border:0; border-top:1px solid var(--rule-strong); border-radius:0; background:var(--paper); box-shadow:none; }
+.word-study-detail-masthead { position:relative; padding:60px 20px 12px; }
+.word-study-detail-masthead .word-study-close { position:absolute; top:8px; right:12px; z-index:1; min-width:48px; min-height:48px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:transparent; color:var(--ink); font-size:20px; }
+.word-study-detail-masthead .word-study-close:hover,.word-study-detail-masthead .word-study-close:focus-visible { color:var(--signal); background:var(--surface-soft); }
+.word-study-detail-panel { padding-top:16px; }
+.word-study-detail-info-overlay { position:fixed; inset:0; z-index:1400; display:grid; align-items:end; padding:18px 12px calc(12px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); }
+.word-study-detail-info-overlay[hidden] { display:none; }
+.word-study-detail-info-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:13px; border-top:1px solid var(--rule); color:var(--muted); font-size:12px; }
+.word-study-detail-info-row strong { color:var(--moss); font-size:14px; text-align:right; }
 .word-study-detail-head { max-height:48dvh; overflow-y:auto; padding:0; overscroll-behavior:contain; }
 .word-study-dossier-cover { padding:34px 22px 32px; background:var(--pine) url("../assets/learning-paper-texture.png") repeat; background-size:512px 512px; background-blend-mode:multiply; color:var(--on-pine); }
 .word-study-detail-topline { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -682,6 +690,11 @@ body.word-study-detail-open { overflow:hidden; }
 .word-study-root-breakdown { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:21px; line-height:1.65; }
 .word-study-root-origin { margin-top:18px; padding:12px 0 12px 13px; border-left:2px solid var(--moss); background:var(--surface-soft); color:var(--ink-soft); }
 .word-study-related-list,.word-study-phrase-list { display:grid; gap:0; align-content:start; border-top:1px solid var(--rule); }
+.word-study-root-family { display:flex; flex-wrap:wrap; align-items:baseline; gap:7px 9px; margin:0 0 15px; padding:11px 12px; border-left:3px solid var(--signal); background:color-mix(in srgb,var(--signal) 7%,var(--surface)); }
+.word-study-root-family > span { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.1em; }
+.word-study-root-family > strong { color:var(--signal); font-family:Georgia,"Noto Serif SC",serif; font-size:18px; }
+.word-study-root-family > small { color:var(--ink-soft); font-size:12px; }
+.word-study-root-highlight { padding:0 1px; border-radius:2px; background:color-mix(in srgb,var(--signal) 16%,transparent); color:var(--signal); font:inherit; font-weight:800; }
 .word-study-related-word,.word-study-phrase-row { display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:13px 0; border:0; border-bottom:1px solid var(--rule); border-radius:0; background:transparent; }
 .word-study-related-term,.word-study-phrase-term { min-width:0; color:var(--ink); font-family:Georgia,serif; font-size:17px; overflow-wrap:anywhere; }
 .word-study-related-translation,.word-study-phrase-gloss { flex:0 1 48%; color:var(--ink-soft); font-size:13px; line-height:1.45; text-align:right; }
@@ -723,7 +736,7 @@ body.word-study-detail-open { overflow:hidden; }
 .skeleton { background:linear-gradient(90deg,var(--surface-soft),var(--paper-deep),var(--surface-soft)); background-size:200% 100%; animation:shimmer 1.3s linear infinite; }
 .skeleton-title { width:74%; height:22px; } .skeleton-meta { width:42%; height:12px; margin-top:10px; } .skeleton-line { height:12px; margin-top:9px; } .skeleton-line.short { width:60%; }
 @keyframes shimmer { to { background-position:-200% 0; } }
-@media (min-width:680px) { .modal-overlay { align-items:center; } .modal { border-radius:7px; } .word-study-detail-overlay { align-items:center; } .stats-grid,.report-stats-grid { grid-template-columns:repeat(4,1fr); } .stats-detail-grid { grid-template-columns:repeat(3,1fr); } }
+@media (min-width:680px) { .modal-overlay { align-items:center; } .modal { border-radius:7px; } .word-study-detail-overlay { align-items:center; padding:14px; } .word-study-detail-sheet { height:min(94dvh,820px); border:1px solid var(--rule-strong); border-radius:16px 16px 8px 8px; box-shadow:var(--shadow); } .stats-grid,.report-stats-grid { grid-template-columns:repeat(4,1fr); } .stats-detail-grid { grid-template-columns:repeat(3,1fr); } }
 @media (max-width:380px) { .app-header { padding-inline:12px; } .chat-messages { padding-inline:12px; } .quick-action { padding-inline:11px; } .reading-container { padding-inline:12px; } .reading-title-row { gap:7px; } .reading-header-utilities { gap:4px; } .reading-marking-switch { min-width:90px; padding-inline:7px; font-size:10px; } .reading-action-strip { gap:6px; } .reading-action-strip .btn { padding-inline:5px; font-size:11px; } .article-body { font-size:17px; padding:22px 14px; } .flashcard-actions { gap:4px; } .flashcard-rating-btn { font-size:12px; } .word-study-detail-head { padding-inline:17px; } .word-study-panel { padding-inline:17px; } .word-study-related-word,.word-study-phrase-row { align-items:flex-start; flex-direction:column; gap:4px; } .word-study-related-translation,.word-study-phrase-gloss,.word-study-similar-copy { flex-basis:auto; text-align:left; } }
 @media (max-width:380px) {
   .flashcard-review-shell--study .flashcard-container { padding-top:9px; padding-inline:12px; padding-bottom:calc(7px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); }

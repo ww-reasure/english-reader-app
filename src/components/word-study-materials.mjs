@@ -1,3 +1,5 @@
+import { normalizeRootFamily, renderRootHighlightedWord } from './affix-root-family.mjs';
+
 const esc = value => String(value ?? '')
   .replace(/&/gu, '&amp;')
   .replace(/</gu, '&lt;')
@@ -66,6 +68,8 @@ function examExampleLabel(example) {
 
 function relatedWordDetails(rootAnalysis) {
   const translations = rootAnalysis?.relatedTranslations || {};
+  const rootForms = rootAnalysis?.relatedRootForms || {};
+  const rootFamily = normalizeRootFamily(rootAnalysis?.rootFamily);
   const seen = new Set();
   const result = [];
   for (const item of Array.isArray(rootAnalysis?.relatedWords) ? rootAnalysis.relatedWords : []) {
@@ -73,9 +77,9 @@ function relatedWordDetails(rootAnalysis) {
     const translation = String(typeof item === 'object' ? item?.translation : translations[word] || '').trim();
     if (!word || seen.has(word)) continue;
     seen.add(word);
-    result.push({ word, translation: translation || translations[word] || '' });
+    result.push({ word, translation: translation || translations[word] || '', rootForm: rootForms[word] || '' });
   }
-  return result;
+  return { rootFamily, items: result };
 }
 
 export function renderWordStudyPanel({
@@ -115,11 +119,12 @@ export function renderWordStudyPanel({
   }
 
   if (activeTab === 'related') {
-    const relatedWords = relatedWordDetails(rootAnalysis);
-    if (!relatedWords.length) return '<div class="word-study-empty flashcard-study-empty">暂无同根词。</div>';
-    return `<div class="word-study-related-list flashcard-related-list">${relatedWords.map(({ word, translation }) => `
+    const related = relatedWordDetails(rootAnalysis);
+    if (!related.items.length) return '<div class="word-study-empty flashcard-study-empty">暂无同根词。</div>';
+    const family = related.rootFamily ? `<div class="word-study-root-family"><span>共同词根</span><strong>${esc(related.rootFamily.label)}</strong><small>${esc(related.rootFamily.meaningZh)}</small></div>` : '';
+    return `${family}<div class="word-study-related-list flashcard-related-list">${related.items.map(({ word, translation, rootForm }) => `
       <div class="word-study-related-word flashcard-related-word">
-        <span class="word-study-related-term flashcard-related-term">${esc(word)}</span>
+        <span class="word-study-related-term flashcard-related-term">${renderRootHighlightedWord(word, rootForm, esc)}</span>
         <span class="word-study-related-translation flashcard-related-translation">${translation ? esc(translation) : '暂无释义'}</span>
       </div>`).join('')}</div>`;
   }

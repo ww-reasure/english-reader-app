@@ -83,7 +83,7 @@ test('true exam examples lead the example panel with an honest source and cached
   assert.match(html, /The author wrote a short note\./);
 });
 
-test('all full word details share the study sheet while tooltip stays compact with a detail entry', async () => {
+test('all full word details share the focused study sheet while tooltip stays compact with a detail entry', async () => {
   const [detail, vocabulary, learnWords, flashcard, tooltip, css] = await Promise.all([
     read('../src/components/word-study-detail.js'),
     read('../src/views/vocabulary.js'),
@@ -107,28 +107,54 @@ test('all full word details share the study sheet while tooltip stays compact wi
   assert.match(detail, /ExamCorpus\.getExamples/);
   assert.match(detail, /mergeWordStudyExamples/);
   assert.match(detail, /renderExamCorpusDetail/);
-  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto minmax\(0,1fr\) auto/s);
-  assert.match(css, /\.word-study-tabs\s*\{[^}]*overflow-x:auto/s);
+  assert.match(detail, /flashcard-study-masthead/);
+  assert.match(detail, /flashcard-study-tabs/);
+  assert.match(detail, /flashcard-study-info-overlay/);
+  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto auto minmax\(0,1fr\)/s);
+  assert.match(css, /\.flashcard-study-tabs\s*\{[^}]*overflow-x:auto/s);
 });
 
-test('full details keep the dossier hierarchy while review uses the focused study stage', async () => {
+test('full details and review reuse the same focused study-stage hierarchy', async () => {
   const [detail, flashcard, css] = await Promise.all([
     read('../src/components/word-study-detail.js'),
     read('../src/views/flashcard.js'),
     read('../css/style.css')
   ]);
 
-  assert.match(detail, /word-study-dossier-cover/);
-  assert.match(detail, /word-study-definition-band/);
+  assert.match(detail, /word-study-detail-masthead/);
+  assert.match(detail, /flashcard-study-info-overlay/);
+  assert.match(detail, /renderFocusedWordStudyExample/);
   assert.match(flashcard, /flashcard-study-masthead/);
   assert.match(flashcard, /flashcard-study-info-trigger/);
-  assert.match(flashcard, /flashcard-focused-example/);
-  assert.match(css, /\.word-study-dossier-cover\s*\{[^}]*background:var\(--pine\)/s);
-  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*height:min\(95dvh,820px\)/s);
-  assert.match(css, /\.word-study-definition-band\s*\{/);
-  assert.match(css, /\.word-study-title-row\s*\{[^}]*margin-top:40px/s);
-  assert.match(css, /\.word-study-example-list\s*\{[^}]*border-left:1px solid/s);
-  assert.match(css, /\.word-study-tab\.active\s*\{[^}]*background:var\(--pine\)/s);
+  assert.match(flashcard, /renderFocusedWordStudyExample/);
+  assert.match(css, /\.word-study-detail-masthead\s*\{/);
+  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*height:100dvh/s);
+  assert.match(css, /\.word-study-detail-panel\s*\{[^}]*padding-top:16px/s);
   assert.match(css, /\.flashcard-study-masthead\s*\{[^}]*background:transparent/s);
   assert.match(css, /\.flashcard-study-panel \.flashcard-focused-example\s*\{[^}]*min-height:100%/s);
+});
+
+test('a full detail opened from an AI analysis is promoted above its pre-existing modal layer', async () => {
+  const [detail, css] = await Promise.all([
+    read('../src/components/word-study-detail.js'),
+    read('../css/style.css')
+  ]);
+
+  // The study overlay may have been created on an earlier page. Opening it
+  // from a later AI modal must move it to the top of the document stack.
+  assert.match(detail, /const overlay = this\.ensureOverlay\(\);\s*document\.body\.appendChild\(overlay\);/s);
+  assert.match(css, /\.word-study-detail-overlay\s*\{[^}]*z-index:1300/s);
+});
+
+test('all full detail surfaces use the same focused study-stage renderer', async () => {
+  const [detail, flashcard] = await Promise.all([
+    read('../src/components/word-study-detail.js'),
+    read('../src/views/flashcard.js')
+  ]);
+
+  assert.match(detail, /from '\.\/word-study-stage\.mjs'/);
+  assert.match(flashcard, /from '\.\.\/components\/word-study-stage\.mjs'/);
+  assert.match(detail, /renderFocusedWordStudyExample/);
+  assert.match(flashcard, /renderFocusedWordStudyExample/);
+  assert.match(detail, /flashcard-study-tabs/);
 });
