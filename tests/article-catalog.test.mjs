@@ -32,12 +32,13 @@ function repository(initial = null) {
   };
 }
 
-test('fresh indexed catalog is shown without another request inside the six hour TTL', async () => {
+test('recently checked indexed catalog is shown without another background request', async () => {
   const now = Date.parse('2026-07-29T00:00:00Z');
   const repo = repository({
     key: 'cloud-main',
     schemaVersion: 1,
     fetchedAt: now - 1_000,
+    lastCheckedAt: now - 1_000,
     signature: 'stored',
     articles: [article('cached')]
   });
@@ -56,6 +57,111 @@ test('fresh indexed catalog is shown without another request inside the six hour
   assert.equal(result.refreshed, false);
   assert.equal(requests, 0);
   assert.equal(ARTICLE_CATALOG_TTL_MS, 6 * 60 * 60 * 1000);
+});
+
+test('background refresh uses the last checked time instead of the six hour cache age', async () => {
+  const now = Date.parse('2026-07-29T00:00:00Z');
+  const repo = repository({
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: now - 1_000,
+    lastCheckedAt: now - 11 * 60 * 1000,
+    signature: 'stored',
+    articles: [article('cached')]
+  });
+  let requests = 0;
+  const catalog = createArticleCatalog({
+    repository: repo,
+    now: () => now,
+    fetchCatalog: async () => {
+      requests += 1;
+      return [article('network')];
+    }
+  });
+
+  const result = await catalog.refresh();
+
+  assert.equal(result.source, 'network');
+  assert.equal(result.snapshot.articles[0].id, 'network');
+  assert.equal(requests, 1);
+  assert.equal(repo.inspect().value.lastCheckedAt, now);
+});
+
+test('manual refresh bypasses the background refresh interval', async () => {
+  const now = Date.parse('2026-07-29T00:00:00Z');
+  const repo = repository({
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: now - 1_000,
+    lastCheckedAt: now - 1_000,
+    signature: 'stored',
+    articles: [article('cached')]
+  });
+  let requests = 0;
+  const catalog = createArticleCatalog({
+    repository: repo,
+    now: () => now,
+    fetchCatalog: async () => {
+      requests += 1;
+      return [article('network')];
+    }
+  });
+
+  const result = await catalog.refresh({ force: true, reason: 'pull' });
+
+  assert.equal(result.source, 'network');
+  assert.equal(result.snapshot.articles[0].id, 'network');
+  assert.equal(requests, 1);
+});
+
+test('findCurrentArticle resolves a stale article id through its stable source url', async () => {
+  const repo = repository({
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: 1,
+    lastCheckedAt: 1,
+    signature: 'current',
+    articles: [article('new-id', { sourceUrl: 'https://example.test/stable' })]
+  });
+  const catalog = createArticleCatalog({
+    repository: repo,
+    fetchCatalog: async () => []
+  });
+
+  const current = await catalog.findCurrentArticle({
+    id: 'old-id',
+    sourceUrl: 'https://example.test/stable'
+  });
+
+  assert.equal(current.id, 'new-id');
+});
+
+test('removing a confirmed stale article also persists the cleaned catalog', async () => {
+  const repo = repository({
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: 1,
+    lastCheckedAt: 1,
+    signature: 'current',
+    articles: [
+      article('removed', { sourceUrl: 'https://example.test/removed' }),
+      article('kept')
+    ]
+  });
+  const catalog = createArticleCatalog({
+    repository: repo,
+    fetchCatalog: async () => []
+  });
+
+  const removed = await catalog.removeArticle({
+    id: 'removed',
+    sourceUrl: 'https://example.test/removed'
+  });
+  const snapshot = await catalog.getSnapshot();
+
+  assert.equal(removed, true);
+  assert.deepEqual(snapshot.articles.map(item => item.id), ['kept']);
+  assert.deepEqual(repo.inspect().value.articles.map(item => item.id), ['kept']);
 });
 
 test('stale refreshes are deduplicated and store metadata without article bodies', async () => {
@@ -86,6 +192,41 @@ test('stale refreshes are deduplicated and store metadata without article bodies
   assert.equal(repo.inspect().value.articles[0].content, undefined);
   assert.equal(repo.inspect().value.articles[0].translation, undefined);
   assert.equal(repo.inspect().value.articles[0].examType, '英语一');
+});
+
+test('a forced refresh queued during a background request runs immediately after it', async () => {
+  let resolveFirst;
+  let markStarted;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  let requests = 0;
+  const repo = repository({
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: 1,
+    lastCheckedAt: 1,
+    signature: 'old',
+    articles: [article('old')]
+  });
+  const catalog = createArticleCatalog({
+    repository: repo,
+    now: () => 20 * 60 * 1000,
+    fetchCatalog: () => {
+      requests += 1;
+      markStarted();
+      if (requests === 1) return new Promise(resolve => { resolveFirst = resolve; });
+      return Promise.resolve([article('manual')]);
+    }
+  });
+
+  const background = catalog.refresh();
+  await started;
+  const manual = catalog.refresh({ force: true, reason: 'manual' });
+  resolveFirst([article('background')]);
+  const [backgroundResult, manualResult] = await Promise.all([background, manual]);
+
+  assert.equal(requests, 2);
+  assert.equal(backgroundResult.snapshot.articles[0].id, 'manual');
+  assert.equal(manualResult.snapshot.articles[0].id, 'manual');
 });
 
 test('a broken persisted value is ignored and replaced from the network', async () => {
@@ -155,7 +296,12 @@ test('subscribers are notified only when a background refresh changes an existin
 test('prewarm skips fresh data and refreshes an expired snapshot once', async () => {
   let current = 1_000;
   const repo = repository({
-    key: 'cloud-main', schemaVersion: 1, fetchedAt: current, signature: 'cached', articles: [article('cached')]
+    key: 'cloud-main',
+    schemaVersion: 1,
+    fetchedAt: current,
+    lastCheckedAt: current,
+    signature: 'cached',
+    articles: [article('cached')]
   });
   let requests = 0;
   const catalog = createArticleCatalog({
@@ -167,7 +313,7 @@ test('prewarm skips fresh data and refreshes an expired snapshot once', async ()
   await catalog.prewarm();
   assert.equal(requests, 0);
 
-  current += ARTICLE_CATALOG_TTL_MS + 1;
+  current += 10 * 60 * 1000 + 1;
   await Promise.all([catalog.prewarm(), catalog.prewarm()]);
   assert.equal(requests, 1);
 });

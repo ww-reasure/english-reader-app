@@ -41,7 +41,13 @@ test('bookshelf paints an available catalog before starting a background refresh
     subscribe: () => () => {}
   };
   const { ReadingListView } = await loadReadingListView({ catalog });
-  const container = { innerHTML: '', scrollTop: 0, querySelector: () => null };
+  const container = {
+    innerHTML: '',
+    scrollTop: 0,
+    querySelector: () => null,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
 
   await ReadingListView.render(container);
 
@@ -58,7 +64,13 @@ test('first load shows a skeleton only while no catalog exists', async () => {
     subscribe: () => () => {}
   };
   const { ReadingListView } = await loadReadingListView({ catalog });
-  const container = { innerHTML: '', scrollTop: 0, querySelector: () => null };
+  const container = {
+    innerHTML: '',
+    scrollTop: 0,
+    querySelector: () => null,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
 
   const rendering = ReadingListView.render(container);
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -81,6 +93,8 @@ test('background catalog changes wait for user confirmation and preserve scroll 
   const container = {
     innerHTML: '',
     scrollTop: 0,
+    addEventListener: () => {},
+    removeEventListener: () => {},
     querySelector(selector) {
       if (selector !== '.shelf-catalog-notice') return null;
       notice ||= { hidden: true };
@@ -111,4 +125,86 @@ test('app startup schedules catalog prewarming without blocking router initializ
   assert.match(source, /requestIdleCallback|setTimeout/);
   assert.match(source, /Router\.init\(\)[\s\S]*prewarm|prewarm[\s\S]*Router\.init\(\)/);
   assert.doesNotMatch(source, /await\s+ArticleCatalog\.prewarm\(\)/);
+  assert.match(source, /visibilitychange/);
+  assert.match(source, /visibilityState\s*===\s*['"]visible['"]/);
+});
+
+test('manual shelf refresh is forced, deduplicated, and applies the latest snapshot', async () => {
+  const calls = [];
+  let resolveManual;
+  const catalog = {
+    getSnapshot: async () => ({ articles: [cachedArticle] }),
+    refresh: options => {
+      calls.push(options);
+      if (options?.force) {
+        return new Promise(resolve => { resolveManual = resolve; });
+      }
+      return Promise.resolve({
+        source: 'network',
+        snapshot: { articles: [{ ...cachedArticle, id: 'fresh', title: 'Fresh shelf' }] }
+      });
+    },
+    subscribe: () => () => {}
+  };
+  const { ReadingListView } = await loadReadingListView({ catalog });
+  const container = {
+    innerHTML: '',
+    scrollTop: 120,
+    querySelector: () => null,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+
+  await ReadingListView.render(container);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const first = ReadingListView.refreshCatalog({ applyImmediately: true, source: 'manual' });
+  const second = ReadingListView.refreshCatalog({ applyImmediately: true, source: 'manual' });
+  resolveManual({
+    source: 'network',
+    snapshot: { articles: [{ ...cachedArticle, id: 'fresh', title: 'Fresh shelf' }] }
+  });
+  await first;
+  await second;
+
+  const manualCalls = calls.filter(call => call?.force);
+  assert.equal(manualCalls.length, 1);
+  assert.equal(manualCalls[0].force, true);
+  assert.equal(manualCalls[0].reason, 'manual');
+  assert.match(container.innerHTML, /Fresh shelf/);
+  assert.equal(container.scrollTop, 0);
+});
+
+test('pull refresh only starts after the threshold at the top of the shelf', async () => {
+  const listeners = {};
+  let requests = 0;
+  const catalog = {
+    getSnapshot: async () => ({ articles: [cachedArticle] }),
+    refresh: options => {
+      if (options?.force) {
+        requests += 1;
+        assert.equal(options.force, true);
+      }
+      return Promise.resolve({ source: 'network', snapshot: { articles: [cachedArticle] } });
+    },
+    subscribe: () => () => {}
+  };
+  const { ReadingListView } = await loadReadingListView({ catalog });
+  const container = {
+    innerHTML: '',
+    scrollTop: 0,
+    querySelector: () => null,
+    addEventListener: (name, handler) => { listeners[name] = handler; },
+    removeEventListener: () => {}
+  };
+
+  await ReadingListView.render(container);
+  listeners.touchstart({ touches: [{ clientY: 10 }] });
+  listeners.touchend({ changedTouches: [{ clientY: 60 }] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requests, 0);
+
+  listeners.touchstart({ touches: [{ clientY: 10 }] });
+  listeners.touchend({ changedTouches: [{ clientY: 90 }] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requests, 1);
 });

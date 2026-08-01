@@ -1,6 +1,7 @@
 export const ARTICLE_CATALOG_KEY = 'cloud-main';
 export const ARTICLE_CATALOG_SCHEMA_VERSION = 1;
 export const ARTICLE_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+export const ARTICLE_CATALOG_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 const CATALOG_FIELDS = [
   'id',
@@ -65,6 +66,9 @@ function validateSnapshot(value) {
     key: ARTICLE_CATALOG_KEY,
     schemaVersion: ARTICLE_CATALOG_SCHEMA_VERSION,
     fetchedAt: Number(value.fetchedAt),
+    lastCheckedAt: Number.isFinite(Number(value.lastCheckedAt))
+      ? Number(value.lastCheckedAt)
+      : null,
     signature: String(value.signature || signatureFor(articles)),
     articles
   };
@@ -74,7 +78,8 @@ export function createArticleCatalog({
   repository,
   fetchCatalog,
   now = () => Date.now(),
-  ttlMs = ARTICLE_CATALOG_TTL_MS
+  ttlMs = ARTICLE_CATALOG_TTL_MS,
+  checkIntervalMs = ARTICLE_CATALOG_CHECK_INTERVAL_MS
 } = {}) {
   if (!repository?.getArticleCatalog || !repository?.saveArticleCatalog) {
     throw new TypeError('ArticleCatalog requires a catalog repository');
@@ -87,10 +92,14 @@ export function createArticleCatalog({
   let memoryLoaded = false;
   let loadPromise = null;
   let refreshPromise = null;
+  let queuedForce = false;
   const subscribers = new Set();
 
   const isFresh = value => Boolean(value)
     && Math.max(0, Number(now()) - Number(value.fetchedAt)) < ttlMs;
+  const wasRecentlyChecked = value => Boolean(value)
+    && Number.isFinite(Number(value.lastCheckedAt))
+    && Math.max(0, Number(now()) - Number(value.lastCheckedAt)) < checkIntervalMs;
 
   async function getSnapshot() {
     if (memoryLoaded) return snapshot;
@@ -111,7 +120,7 @@ export function createArticleCatalog({
 
   async function performRefresh(force) {
     const previous = await getSnapshot();
-    if (!force && isFresh(previous)) {
+    if (!force && wasRecentlyChecked(previous)) {
       return { snapshot: previous, source: 'cache', refreshed: false, changed: false };
     }
 
@@ -123,6 +132,7 @@ export function createArticleCatalog({
         key: ARTICLE_CATALOG_KEY,
         schemaVersion: ARTICLE_CATALOG_SCHEMA_VERSION,
         fetchedAt: Number(now()),
+        lastCheckedAt: Number(now()),
         signature,
         articles: fetched
       };
@@ -146,8 +156,18 @@ export function createArticleCatalog({
   }
 
   function refresh({ force = false } = {}) {
-    if (refreshPromise) return refreshPromise;
-    refreshPromise = performRefresh(force).finally(() => {
+    if (refreshPromise) {
+      if (force) queuedForce = true;
+      return refreshPromise;
+    }
+    refreshPromise = (async () => {
+      let result = await performRefresh(force);
+      while (queuedForce) {
+        queuedForce = false;
+        result = await performRefresh(true);
+      }
+      return result;
+    })().finally(() => {
       refreshPromise = null;
     });
     return refreshPromise;
@@ -156,6 +176,44 @@ export function createArticleCatalog({
   async function prewarm() {
     await getSnapshot();
     return refresh();
+  }
+
+  async function findCurrentArticle({ id = '', sourceUrl = '', url = '' } = {}) {
+    const current = await getSnapshot();
+    if (!current) return null;
+    const stableUrl = String(sourceUrl || url || '').trim();
+    if (stableUrl) {
+      const byUrl = current.articles.find(article =>
+        String(article.sourceUrl || article.url || '').trim() === stableUrl
+      );
+      if (byUrl) return byUrl;
+    }
+    const stableId = String(id || '').trim();
+    return stableId
+      ? current.articles.find(article => String(article.id || '').trim() === stableId) || null
+      : null;
+  }
+
+  async function removeArticle({ id = '', sourceUrl = '', url = '' } = {}) {
+    const current = await getSnapshot();
+    if (!current) return false;
+    const stableId = String(id || '').trim();
+    const stableUrl = String(sourceUrl || url || '').trim();
+    const articles = current.articles.filter(article => {
+      if (stableId && String(article.id || '').trim() === stableId) return false;
+      if (stableUrl && String(article.sourceUrl || article.url || '').trim() === stableUrl) return false;
+      return true;
+    });
+    if (articles.length === current.articles.length) return false;
+    const next = {
+      ...current,
+      signature: signatureFor(articles),
+      articles
+    };
+    await repository.saveArticleCatalog(next);
+    snapshot = next;
+    memoryLoaded = true;
+    return true;
   }
 
   function subscribe(listener) {
@@ -168,6 +226,8 @@ export function createArticleCatalog({
     getSnapshot,
     refresh,
     prewarm,
+    findCurrentArticle,
+    removeArticle,
     subscribe,
     isFresh
   };
@@ -177,5 +237,6 @@ export const ArticleCatalogCore = Object.freeze({
   createArticleCatalog,
   ARTICLE_CATALOG_KEY,
   ARTICLE_CATALOG_SCHEMA_VERSION,
-  ARTICLE_CATALOG_TTL_MS
+  ARTICLE_CATALOG_TTL_MS,
+  ARTICLE_CATALOG_CHECK_INTERVAL_MS
 });

@@ -29,6 +29,9 @@ test('reading title uses the shared Tooltip and Dictionary lookup with close-fir
   assert.match(lookup[1], /if \(Tooltip\.isVisible\(\)\) \{[\s\S]*?Tooltip\.hide\(\);[\s\S]*?return;/);
   assert.match(lookup[1], /const lookupId = Tooltip\.beginLookup\(e\.clientX, e\.clientY\);/);
   assert.match(lookup[1], /const data = await Dictionary\.lookup\(word\);/);
+  const interactions = source.match(/initInteractions\(\) \{([\s\S]*?)\n  \},\n\n  getLookupSentence/s);
+  assert.ok(interactions, 'reading interactions block should be present');
+  assert.match(interactions[1], /const articleTrack = resolveArticleTrack\(this\.articleData \|\| \{\}\);/);
   assert.match(lookup[1], /await Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, isReviewWord,\s*\{\s*contextSentence,\s*targetTrack: articleTrack\.targetTrack\s*\}\)/);
   assert.match(lookup[1], /if \(recordLookup && !this\.clickedWords\.some/);
   assert.match(source, /articleBody\.addEventListener\('click', e => lookupWord\(e, \{ allowSentenceAnalysis: true, recordLookup: true \}\)\);/);

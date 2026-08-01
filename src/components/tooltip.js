@@ -59,6 +59,20 @@ export const Tooltip = {
     this.bindCloseButton(tooltip);
   },
 
+  showError(lookupId, x, y, message = '暂时无法查询，请稍后重试') {
+    if (!this.isCurrent(lookupId)) return false;
+    const tooltip = document.getElementById('wordTooltip');
+    tooltip.innerHTML = `
+      <div class="tooltip-error">
+        <span>${esc(message)}</span>
+        <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
+      </div>`;
+    this.position(tooltip, x, y);
+    tooltip.style.display = 'block';
+    this.bindCloseButton(tooltip);
+    return true;
+  },
+
   // Check if word is already in vocabulary
   async isWordSaved(word) {
     try {

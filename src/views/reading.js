@@ -261,6 +261,7 @@ export const ReadingView = {
     const articleBody = document.getElementById('articleBody');
     const titleLookupHost = document.getElementById('readingTitleLookup');
     if (!articleBody && !titleLookupHost) return;
+    const articleTrack = resolveArticleTrack(this.articleData || {});
 
     this._globalClickHandler = (e) => {
       const tooltip = document.getElementById('wordTooltip');
@@ -368,7 +369,9 @@ export const ReadingView = {
           });
         }
       } catch {
-        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
+        if (Tooltip.isCurrent(lookupId)) {
+          Tooltip.showError(lookupId, e.clientX, e.clientY, '暂时无法查询，请稍后重试');
+        }
       }
     };
 

@@ -85,12 +85,17 @@ export const ReadingListView = {
   _renderSession: 0,
   _unsubscribeCatalog: null,
   _pendingArticles: null,
+  _catalogRefreshPromise: null,
+  _pullRefreshCleanup: null,
 
   cleanup() {
     this._renderSession += 1;
     this._genreMenuOpen = false;
     this._unsubscribeCatalog?.();
     this._unsubscribeCatalog = null;
+    this._pullRefreshCleanup?.();
+    this._pullRefreshCleanup = null;
+    this._catalogRefreshPromise = null;
     this._pendingArticles = null;
     this._container = null;
   },
@@ -112,7 +117,7 @@ export const ReadingListView = {
     if (cached) {
       this._articles = cached.articles;
       this._renderArticles(container, cached.articles);
-      void this._refreshCatalog();
+      void this.refreshCatalog({ applyImmediately: false, source: 'background' });
       return;
     }
 
@@ -167,6 +172,61 @@ export const ReadingListView = {
     } catch {
       return null;
     }
+  },
+
+  async refreshCatalog({ applyImmediately = false, source = 'background' } = {}) {
+    if (!this._container) return null;
+    if (this._catalogRefreshPromise) return this._catalogRefreshPromise;
+    const renderSession = this._renderSession;
+    const showRefreshState = source !== 'background';
+    if (showRefreshState) this._setRefreshState('loading');
+    this._catalogRefreshPromise = this._refreshCatalog({
+      force: source !== 'background',
+      reason: source
+    }).then(result => {
+      if (renderSession !== this._renderSession || !this._container) return result;
+      if (result?.snapshot && applyImmediately) {
+        this._applyCatalogSnapshot(result.snapshot, { scrollTop: 0 });
+        if (showRefreshState) this._setRefreshState('success');
+      } else if (showRefreshState) {
+        this._setRefreshState(result?.snapshot ? 'success' : 'error');
+      }
+      return result;
+    }).catch(error => {
+      if (showRefreshState && renderSession === this._renderSession && this._container) {
+        this._setRefreshState('error');
+      }
+      return { snapshot: null, source, error };
+    }).finally(() => {
+      this._catalogRefreshPromise = null;
+    });
+    return this._catalogRefreshPromise;
+  },
+
+  _setRefreshState(state) {
+    const status = this._container?.querySelector?.('.shelf-pull-status');
+    const button = this._container?.querySelector?.('.shelf-refresh-button');
+    if (!status) return;
+    const labels = {
+      idle: '下拉刷新',
+      loading: '正在刷新书架…',
+      success: '书架已更新',
+      error: '刷新失败，仍在使用本地书架'
+    };
+    status.textContent = labels[state] || labels.idle;
+    status.hidden = state === 'idle';
+    if (button) {
+      button.disabled = state === 'loading';
+      button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
+    }
+  },
+
+  _applyCatalogSnapshot(snapshot, { scrollTop = 0 } = {}) {
+    if (!this._container || !snapshot?.articles) return;
+    this._pendingArticles = null;
+    this._articles = snapshot.articles;
+    this._renderArticles(this._container, snapshot.articles);
+    this._container.scrollTop = scrollTop;
   },
 
   _handleCatalogUpdate(event) {
@@ -312,6 +372,13 @@ export const ReadingListView = {
           <h1 class="page-title">阅读书架</h1>
           <p class="page-desc">按考试轨道、常考主题和文章类型，挑选下一篇阅读。</p>
         </header>
+        <div class="shelf-sync-row">
+          <div class="shelf-pull-status" role="status" aria-live="polite" hidden>下拉刷新</div>
+          <button type="button" class="shelf-refresh-button" onclick="ReadingListView.refreshCatalog({ applyImmediately: true, source: 'manual' })" aria-label="刷新书架" aria-busy="false">
+            <span aria-hidden="true">↻</span>
+            <span>刷新书架</span>
+          </button>
+        </div>
         <aside class="shelf-catalog-notice" role="status" ${this._pendingArticles ? '' : 'hidden'}>
           <span>书架已有新内容</span>
           <button type="button" onclick="ReadingListView.applyCatalogUpdate()">点击查看</button>
@@ -349,6 +416,38 @@ export const ReadingListView = {
       ${genreSheetHTML}`;
 
     this._articles = articles;
+    this._bindPullRefresh(container);
+  },
+
+  _bindPullRefresh(container) {
+    this._pullRefreshCleanup?.();
+    if (!container || typeof container.addEventListener !== 'function') {
+      this._pullRefreshCleanup = null;
+      return;
+    }
+    let startY = null;
+    const onStart = event => {
+      if (container.scrollTop > 0 || event.touches?.length !== 1) {
+        startY = null;
+        return;
+      }
+      startY = event.touches[0].clientY;
+    };
+    const onEnd = event => {
+      if (startY === null) return;
+      const endY = event.changedTouches?.[0]?.clientY ?? startY;
+      const distance = endY - startY;
+      startY = null;
+      if (distance >= 72 && container.scrollTop <= 0) {
+        void this.refreshCatalog({ applyImmediately: true, source: 'pull' });
+      }
+    };
+    container.addEventListener('touchstart', onStart, { passive: true });
+    container.addEventListener('touchend', onEnd, { passive: true });
+    this._pullRefreshCleanup = () => {
+      container.removeEventListener?.('touchstart', onStart);
+      container.removeEventListener?.('touchend', onEnd);
+    };
   },
 
   // Filter displayed articles by difficulty
@@ -413,32 +512,101 @@ export const ReadingListView = {
     const filtered = this._visibleArticles();
     const article = filtered[index];
     if (!article) return;
+    let currentArticle = article;
 
     // Check if already synced locally
-    if (article.id) {
-      const existing = await DB.findArticleByUrl(article.sourceUrl || article.url || '');
-      if (existing && existing.content) {
-        const fields = buildCachedCloudPatch(article, existing);
-        if (Object.keys(fields).length) await DB.updateArticle(existing.id, fields);
-        location.hash = `#/reading/${existing.id}`;
+    if (currentArticle.id) {
+      const stableUrl = currentArticle.sourceUrl || currentArticle.url || '';
+      if (stableUrl) {
+        try {
+          const existing = await DB.findArticleByUrl(stableUrl);
+          if (existing && existing.content) {
+            const fields = buildCachedCloudPatch(currentArticle, existing);
+            if (Object.keys(fields).length) await DB.updateArticle(existing.id, fields);
+            location.hash = `#/reading/${existing.id}`;
+            return;
+          }
+        } catch {
+          // A local lookup failure should not prevent trying the cloud detail.
+        }
+      }
+    }
+
+    let fullArticle = null;
+    let retriedStaleId = false;
+    while (!fullArticle) {
+      try {
+        const serverUrl = ARTICLE_SERVER_URL;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
+        let resp;
+        try {
+          resp = await fetch(`${serverUrl}/api/articles/${currentArticle.id}`, {
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+        if ((resp.status === 404 || resp.status === 410) && !retriedStaleId) {
+          retriedStaleId = true;
+          const refreshed = await this.refreshCatalog({
+            applyImmediately: false,
+            source: 'detail-retry'
+          });
+          if (refreshed?.source !== 'network' || !refreshed.snapshot) {
+            alert('书架暂时无法同步，请稍后重试');
+            return;
+          }
+          const replacement = await ArticleCatalog.findCurrentArticle({
+            id: currentArticle.id,
+            sourceUrl: currentArticle.sourceUrl || currentArticle.url || ''
+          });
+          if (!replacement || replacement.id === currentArticle.id) {
+            const persisted = await this._removeStaleArticle(currentArticle);
+            alert(persisted
+              ? '这篇文章已更新或下架'
+              : '文章已下架，但本地书架更新失败，下次进入可能仍会显示');
+            return;
+          }
+          currentArticle = replacement;
+          continue;
+        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        fullArticle = mergeCloudArticleDetail(currentArticle, await resp.json());
+      } catch (error) {
+        if (retriedStaleId && !fullArticle) {
+          alert(error?.name === 'AbortError' ? '文章加载超时，请重试' : '文章详情暂时不可用，请重试');
+        } else {
+          alert(error?.name === 'AbortError' ? '文章加载超时，请重试' : '无法连接文章服务器，请重试');
+        }
         return;
       }
     }
 
-    // Fetch full article from server
     try {
-      const serverUrl = ARTICLE_SERVER_URL;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
-      const resp = await fetch(`${serverUrl}/api/articles/${article.id}`, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const fullArticle = mergeCloudArticleDetail(article, await resp.json());
       const id = await DB.syncArticle(fullArticle);
       location.hash = `#/reading/${id}`;
-    } catch (e) {
-      alert('无法打开文章，请检查服务器连接');
+    } catch {
+      alert('文章已加载，但保存到本地失败，请重试');
     }
+  },
+
+  async _removeStaleArticle(article) {
+    if (!article?.id) return true;
+    let persisted = true;
+    try {
+      await ArticleCatalog.removeArticle({
+        id: article.id,
+        sourceUrl: article.sourceUrl || article.url || ''
+      });
+    } catch {
+      persisted = false;
+    }
+    if (this._container) {
+      this._articles = this._articles.filter(item => item.id !== article.id);
+      this._renderArticles(this._container, this._articles);
+    }
+    return persisted;
   }
 };
 

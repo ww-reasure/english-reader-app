@@ -31,3 +31,26 @@ test('bookshelf requests the complete cloud catalog and renders auditable exam m
   assert.match(source, /kaoyan-general/);
   assert.match(source, /const showSourceLabel = sourceLabel && !pastExamLabel/);
 });
+
+test('bookshelf exposes manual and pull refresh without replacing the application shell', async () => {
+  const source = await readFile(new URL('../src/views/reading-list.js', import.meta.url), 'utf8');
+
+  assert.match(source, /class="shelf-refresh-button"/);
+  assert.match(source, /source:\s*['"]manual['"]/);
+  assert.match(source, /touchstart/);
+  assert.match(source, /distance\s*>=\s*72/);
+  assert.match(source, /source:\s*['"]pull['"]/);
+  assert.doesNotMatch(source, /document\.getElementById\(['"]app['"]\)/);
+});
+
+test('a stale shelf article refreshes the catalog and resolves its current id by source url once', async () => {
+  const source = await readFile(new URL('../src/views/reading-list.js', import.meta.url), 'utf8');
+
+  assert.match(source, /resp\.status\s*===\s*404\s*\|\|\s*resp\.status\s*===\s*410/);
+  assert.match(source, /source:\s*['"]detail-retry['"]/);
+  assert.match(source, /ArticleCatalog\.findCurrentArticle\(\{/);
+  assert.match(source, /sourceUrl:\s*currentArticle\.sourceUrl\s*\|\|\s*currentArticle\.url/);
+  assert.match(source, /let retriedStaleId = false/);
+  assert.match(source, /retriedStaleId = true/);
+  assert.match(source, /这篇文章已更新或下架/);
+});

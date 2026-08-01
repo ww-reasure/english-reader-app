@@ -20,6 +20,11 @@ function scheduleCatalogPrewarm() {
   } else {
     setTimeout(prewarm, 800);
   }
+  // Returning to the foreground is a natural refresh boundary on mobile:
+  // ArticleCatalog itself rate-limits this check to avoid duplicate requests.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') prewarm();
+  }, { passive: true });
 }
 
 export const App = {

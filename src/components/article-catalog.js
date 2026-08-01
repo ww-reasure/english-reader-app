@@ -24,4 +24,7 @@ export const ArticleCatalog = createArticleCatalog({
   fetchCatalog: fetchCloudCatalog
 });
 
-export { ARTICLE_CATALOG_TTL_MS } from './article-catalog.mjs';
+export {
+  ARTICLE_CATALOG_TTL_MS,
+  ARTICLE_CATALOG_CHECK_INTERVAL_MS
+} from './article-catalog.mjs';
