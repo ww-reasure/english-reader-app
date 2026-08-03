@@ -37,7 +37,7 @@ export const VocabularyView = {
           <span>共 ${words.length} 个单词</span>
           <div>${headerActions}</div>
         </div>
-        <div class="vocab-list">`;
+        <div class="vocab-list" data-vocab-grid="vocab">`;
 
       words.forEach(word => {
         const deleteBtn = this.manageMode
@@ -67,7 +67,7 @@ export const VocabularyView = {
           <h1 class="page-title">我的生词本</h1>
           <p class="page-desc">把阅读时停下来的词，整理成以后会再遇见的笔记。</p>
         </header>
-        <div class="vocab-list">${cards}</div>
+        ${cards}
       </section>`;
   },
 

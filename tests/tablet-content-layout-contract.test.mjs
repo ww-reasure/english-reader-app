@@ -4,12 +4,14 @@ import test from 'node:test';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('reading exposes stable content and study panes for tablet layouts', async () => {
+test('reading exposes a stable top header, content pane, and AI panel host for tablet layouts', async () => {
   const source = await read('../src/views/reading.js');
 
   assert.match(source, /class="reading-layout" data-reading-layout="article"/);
-  assert.match(source, /class="reading-study-pane" data-reading-pane="study"/);
+  assert.match(source, /data-reading-header="article"/);
+  assert.match(source, /data-reading-ai-panel="side"/);
   assert.match(source, /class="reading-content-pane" data-reading-pane="content"/);
+  assert.doesNotMatch(source, /class="reading-study-pane" data-reading-pane="study"/);
   assert.match(source, /_bindViewportLifecycle\(\)/);
   assert.match(source, /addEventListener\('resize'/);
   assert.match(source, /addEventListener\('orientationchange'/);
@@ -43,14 +45,14 @@ test('full word study details expose their material pane without changing tab ho
   assert.match(source, /data-study-tab/);
 });
 
-test('wide tablet CSS keeps reading, review, and word materials in bounded panes', async () => {
+test('wide tablet CSS keeps reading content single-column and opens AI separately', async () => {
   const css = await read('../css/style.css');
   const start = css.indexOf('@media (min-width: 840px)');
   assert.notEqual(start, -1);
   const wide = css.slice(start);
-  assert.match(wide, /\.reading-layout\s*\{[^}]*display:grid/s);
-  assert.match(wide, /\.reading-content-pane\s*\{[^}]*grid-column:1/s);
-  assert.match(wide, /\.reading-study-pane\s*\{[^}]*position:sticky/s);
+  assert.match(wide, /\.reading-layout\s*\{[^}]*display:block/s);
+  assert.match(css, /\.ai-result-overlay--side/);
+  assert.match(css, /\.ai-result-overlay--side \.modal/);
   assert.match(wide, /\.flashcard-review-shell--study \.flashcard-study-sheet\s*\{[^}]*grid-template-columns:/s);
   assert.match(wide, /\.word-study-detail-sheet\s*\{[^}]*grid-template-columns:/s);
 });

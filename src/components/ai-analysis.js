@@ -94,6 +94,9 @@ export const AIAnalysis = {
     Tooltip.hide();
     const existing = document.getElementById('aiResultModal');
     if (existing) existing.remove();
+    const host = document.querySelector?.('[data-reading-ai-panel="side"]');
+    host?.setAttribute('aria-hidden', 'true');
+    host?.classList.remove('is-active');
     this._followUpController = null;
   },
 
@@ -102,6 +105,13 @@ export const AIAnalysis = {
     if (this.activeFollowupKey) chatService.cancel(this.activeFollowupKey);
     this.activeFollowupKey = null;
     this._removeResultModal();
+  },
+
+  isReadingSideSurface() {
+    const host = document.querySelector?.('[data-reading-ai-panel="side"]');
+    if (!host) return false;
+    if (typeof window === 'undefined') return false;
+    return Number(window.innerWidth || 0) >= 600;
   },
 
   _removeOutsideClickHandler() {
@@ -163,41 +173,59 @@ export const AIAnalysis = {
   showResult(sentence, content, isLoading, analysisContext = this.createAnalysisContextSnapshot()) {
     this._removeResultModal();
 
+    const isSideSurface = this.isReadingSideSurface();
     const overlay = document.createElement('div');
     overlay.id = 'aiResultModal';
-    overlay.className = 'modal-overlay';
+    overlay.className = 'modal-overlay ai-result-overlay' + (isSideSurface ? ' ai-result-overlay--side' : '');
+    overlay.setAttribute('data-ai-surface', isSideSurface ? 'side-overlay' : 'bottom-sheet');
+    if (isSideSurface) {
+      const appHeader = document.querySelector?.('.app-header');
+      if (appHeader) overlay.style.setProperty('--ai-panel-top', `${Math.max(0, appHeader.getBoundingClientRect().bottom)}px`);
+    }
     overlay.onclick = (e) => { if (e.target === overlay) this.closeResultModal(); };
 
     const modal = document.createElement('div');
-    modal.className = 'modal modal-wide';
+    modal.className = 'modal modal-wide ai-result-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', String(!isSideSurface));
+    modal.setAttribute('aria-label', 'AI 句子分析');
     modal.innerHTML = `
-      <h2>AI 句子分析</h2>
-      <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
-      <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
-      <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
-        ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+      <div class="ai-result-head">
+        <h2>AI 句子分析</h2>
+        <button id="aiResultClose" class="btn-icon" type="button" aria-label="关闭 AI 分析">×</button>
+      </div>
+      <div class="ai-result-body">
+        <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
+        <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
+        <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
+          ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+        </div>
+        ${!isLoading && analysisContext?.id != null ? `
+        <section class="ai-followup" aria-label="继续追问">
+          <button id="aiFollowupToggle" class="btn btn-outline btn-sm" type="button">继续追问</button>
+          <div id="aiFollowupPanel" class="ai-followup-panel" hidden>
+            <div id="aiFollowupExcerpt" class="ai-followup-excerpt" hidden>
+              <span class="ai-followup-excerpt-label">追问引用</span>
+              <p id="aiFollowupExcerptText"></p>
+            </div>
+            <div id="aiFollowupMessages" class="ai-followup-messages" aria-live="polite"></div>
+          </div>
+        </section>` : ''}
       </div>
       ${!isLoading && analysisContext?.id != null ? `
-      <section class="ai-followup" aria-label="继续追问">
-        <button id="aiFollowupToggle" class="btn btn-outline btn-sm" type="button">继续追问</button>
-        <div id="aiFollowupPanel" class="ai-followup-panel" hidden>
-          <div id="aiFollowupExcerpt" class="ai-followup-excerpt" hidden>
-            <span class="ai-followup-excerpt-label">追问引用</span>
-            <p id="aiFollowupExcerptText"></p>
-          </div>
-          <div id="aiFollowupMessages" class="ai-followup-messages" aria-live="polite"></div>
-          <div class="ai-followup-composer">
-            <textarea id="aiFollowupInput" rows="2" placeholder="继续问这句话的语法、词义或表达…" aria-label="继续追问"></textarea>
-            <button id="aiFollowupSend" class="btn btn-primary btn-sm" type="button">发送</button>
-          </div>
-        </div>
-      </section>` : ''}
-      <div class="modal-actions">
-        <button id="aiResultClose" class="btn" type="button">关闭</button>
-      </div>`;
+      <div id="aiFollowupComposer" class="ai-followup-composer" hidden>
+        <textarea id="aiFollowupInput" rows="2" placeholder="继续问这句话的语法、词义或表达…" aria-label="继续追问"></textarea>
+        <button id="aiFollowupSend" class="btn btn-primary btn-sm" type="button">发送</button>
+      </div>` : ''}
+      <div class="modal-actions ai-result-footer" aria-hidden="true"></div>`;
 
     overlay.appendChild(modal);
-    document.body.appendChild(overlay);
+    const host = isSideSurface ? document.querySelector?.('[data-reading-ai-panel="side"]') : null;
+    if (host) {
+      host.setAttribute('aria-hidden', 'false');
+      host.classList.add('is-active');
+    }
+    (host || document.body).appendChild(overlay);
     modal.querySelector('#aiResultClose')?.addEventListener('click', () => this.closeResultModal());
     this.bindWordLookup(modal);
     this.bindFollowUp(modal, sentence, content, analysisContext);
@@ -325,6 +353,7 @@ export const AIAnalysis = {
       controller.excerptText.textContent = selectedExcerpt;
     }
     controller.panel.hidden = false;
+    controller.composer.hidden = false;
     controller.renderHistory();
     controller.input.focus();
   },
@@ -336,7 +365,8 @@ export const AIAnalysis = {
     const send = modal.querySelector('#aiFollowupSend');
     const excerpt = modal.querySelector('#aiFollowupExcerpt');
     const excerptText = modal.querySelector('#aiFollowupExcerptText');
-    if (!toggle || !panel || !input || !send || !excerpt || !excerptText || analysisContext?.id == null) return;
+    const composer = modal.querySelector('#aiFollowupComposer');
+    if (!toggle || !panel || !input || !send || !excerpt || !excerptText || !composer || analysisContext?.id == null) return;
 
     const normalizedSentence = String(sentence || '').trim().replace(/\s+/g, ' ').slice(0, 260);
     const key = 'reading:' + analysisContext.id + ':' + encodeURIComponent(normalizedSentence);
@@ -351,10 +381,13 @@ export const AIAnalysis = {
       });
     };
 
-    this._followUpController = { modal, panel, input, excerpt, excerptText, renderHistory };
+    this._followUpController = { modal, panel, composer, input, excerpt, excerptText, renderHistory };
     toggle.addEventListener('click', () => {
       if (panel.hidden) this.openFollowUpPanel(modal);
-      else panel.hidden = true;
+      else {
+        panel.hidden = true;
+        composer.hidden = true;
+      }
     });
 
     const submit = async () => {

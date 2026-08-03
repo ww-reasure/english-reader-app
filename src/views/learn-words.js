@@ -75,10 +75,12 @@ export const LearnWordsView = {
             onclick="LearnWordsView.setFilter('stable')">✅ 长期巩固 ${stats.stable}</button>
         </div>
 
-        <div class="learn-words-grid">`;
+        <div class="learn-words-grid" data-vocab-grid="learn-words">`;
 
       filtered.forEach(word => {
         const statusInfo = SpacedRepetition.getStatusDisplay(word);
+        const phonetic = String(word.phonetic || '').trim();
+        const definition = String(word.translation || '').trim();
         const deleteBtn = this.manageMode
           ? `<button class="learn-word-remove" onclick="LearnWordsView.deleteWord(${word.id})" title="移除">×</button>`
           : '';
@@ -88,6 +90,8 @@ export const LearnWordsView = {
                ${!this.manageMode ? `onclick="LearnWordsView.showWordDetail(${word.id})"` : ''}>
             <span class="learn-word-status" style="color:${statusInfo.color}" title="${statusInfo.label}">${statusInfo.icon}</span>
             <span class="learn-word-text">${esc(word.word)}</span>
+            ${phonetic ? `<span class="learn-word-phonetic">${esc(phonetic)}</span>` : ''}
+            ${definition ? `<span class="learn-word-definition">${esc(definition)}</span>` : ''}
             ${word.interval ? `<span class="learn-word-interval">${SpacedRepetition.getIntervalText(word.interval)}</span>` : ''}
             ${deleteBtn}
           </div>`;

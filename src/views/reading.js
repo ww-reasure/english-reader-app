@@ -191,19 +191,18 @@ export const ReadingView = {
     if (!article.content || !article.content.trim()) {
       container.innerHTML = `
         <div class="reading-container">
+          <header class="reading-header" data-reading-header="article">
+            ${this._renderArticleTitle(article)}
+            <div class="reading-action-strip" aria-label="阅读工具">
+              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
+            </div>
+          </header>
           <div class="reading-layout" data-reading-layout="article">
-            <aside class="reading-study-pane" data-reading-pane="study" aria-label="阅读学习面板">
-              <div class="reading-header">
-                ${this._renderArticleTitle(article)}
-                <div class="reading-action-strip" aria-label="阅读工具">
-                  <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
-                </div>
-              </div>
-            </aside>
             <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
               <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
             </section>
           </div>
+          <div id="readingAiPanelHost" class="reading-ai-panel-host" data-reading-ai-panel="side" aria-hidden="true"></div>
         </div>
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
       this.initInteractions();
@@ -254,9 +253,7 @@ export const ReadingView = {
 
     container.innerHTML = `
       <div class="reading-container">
-        <div class="reading-layout" data-reading-layout="article">
-          <aside class="reading-study-pane" data-reading-pane="study" aria-label="阅读学习面板">
-            <header class="reading-header">
+        <header class="reading-header" data-reading-header="article">
           <p class="page-eyebrow">02 / READING NOTE</p>
           ${this._renderArticleTitle(article)}
           <div class="reading-meta">
@@ -282,8 +279,8 @@ export const ReadingView = {
             </div>
           </div>
           <div class="reading-hint">${this.reviewMode ? '复习标记词：点击后记录你的掌握程度' : '点击单词查释义；选中句子可以请求 AI 分析'}</div>
-            </header>
-          </aside>
+        </header>
+        <div class="reading-layout" data-reading-layout="article">
           <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
             <div id="articleBody" class="article-body">${parasHTML}</div>
             <div class="reading-finish-bar">
@@ -291,6 +288,7 @@ export const ReadingView = {
             </div>
           </section>
         </div>
+        <div id="readingAiPanelHost" class="reading-ai-panel-host" data-reading-ai-panel="side" aria-hidden="true"></div>
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
       <div id="readingSummary" class="modal-overlay" style="display:none"></div>
