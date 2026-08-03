@@ -18,6 +18,7 @@ import {
 } from './word-study-materials.mjs';
 import {
   getFocusedWordStudyExamples,
+  getHorizontalSwipeDirection,
   renderFocusedWordStudyExample,
   renderWordStudyDefinitionLine
 } from './word-study-stage.mjs';
@@ -47,6 +48,8 @@ export const WordStudyDetail = {
   exampleIndex: 0,
   examplesExpanded: false,
   previousFocus: null,
+  _exampleGesture: null,
+  _exampleGestureMoved: false,
   _onKeydown: null,
 
   ensureOverlay() {
@@ -56,6 +59,9 @@ export const WordStudyDetail = {
     overlay.className = 'modal-overlay word-study-detail-overlay';
     overlay.style.display = 'none';
     overlay.addEventListener('click', event => this.handleClick(event));
+    overlay.addEventListener('pointerdown', event => this.handleExamplePointerDown(event));
+    overlay.addEventListener('pointerup', event => this.handleExamplePointerUp(event));
+    overlay.addEventListener('pointercancel', () => { this._exampleGesture = null; });
     document.body.appendChild(overlay);
     this.overlay = overlay;
     return overlay;
@@ -98,6 +104,9 @@ export const WordStudyDetail = {
     const examPresentation = selectExamCorpusPresentation(this.definition?.examCorpus, targetTrack);
     const eyebrow = this.sourceMeta?.eyebrow || 'WORD NOTE';
     const status = this.sourceMeta?.status;
+    const originLabel = this.sourceMeta?.originLabel || '离线词典';
+    const examMarkup = renderExamCorpusDetail(examPresentation, esc)
+      || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
     return `
       <section class="word-study-detail-sheet word-study-detail-sheet--stage" role="dialog" aria-modal="true" aria-labelledby="wordStudyDetailTitle">
         <header class="flashcard-study-head flashcard-study-masthead word-study-detail-masthead">
@@ -108,7 +117,7 @@ export const WordStudyDetail = {
           <div class="flashcard-study-definition-list">${definitionLines.length
             ? definitionLines.map(line => renderWordStudyDefinitionLine(line)).join('')
             : '<div class="flashcard-study-translation">暂无可靠中文释义</div>'}</div>
-          <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog">
+          <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog" aria-expanded="false">
             <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
             <span>词汇信息</span>
           </button>
@@ -125,7 +134,8 @@ export const WordStudyDetail = {
               </div>
               <button class="flashcard-study-info-close" type="button" data-study-info-close aria-label="关闭词汇信息"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </header>
-            <div data-word-study-exam-corpus>${renderExamCorpusDetail(examPresentation, esc)}</div>
+            <div data-word-study-exam-corpus>${examMarkup}</div>
+            <div class="word-study-detail-info-row"><span>资料来源</span><strong>${esc(originLabel)}</strong></div>
             ${status ? `<div class="word-study-detail-info-row"><span>学习状态</span><strong>${esc(status.icon || '')} ${esc(status.label || '')}</strong></div>` : ''}
             ${this.sourceMeta?.schedule ? `<div class="word-study-detail-info-row"><span>复习间隔</span><strong>${esc(this.sourceMeta.schedule)}</strong></div>` : ''}
             ${this.sourceMeta?.contextSentence ? `<blockquote class="word-study-context">${esc(this.sourceMeta.contextSentence)}</blockquote>` : ''}
@@ -194,7 +204,10 @@ export const WordStudyDetail = {
     this.definition = { ...this.definition, examCorpus };
     this.materials = { examples: mergeWordStudyExamples(examExamples, examples), rootAnalysis };
     const examTarget = this.overlay?.querySelector('[data-word-study-exam-corpus]');
-    if (examTarget) examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc);
+    if (examTarget) {
+      examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc)
+        || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
+    }
     this.renderPanel();
 
     if (rootAnalysis && Affixes.getRelatedWordDetails(rootAnalysis).some(item => !item.translation)) {
@@ -325,18 +338,60 @@ export const WordStudyDetail = {
     const info = this.overlay?.querySelector('[data-study-info-overlay]');
     if (!info) return;
     info.hidden = false;
+    this.overlay?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'true');
     document.body.classList.add('word-study-detail-info-open');
     info.querySelector('[data-study-info-close]')?.focus();
   },
 
-  closeStudyInfo() {
-    this.overlay?.querySelector('[data-study-info-overlay]')?.setAttribute('hidden', '');
+  closeStudyInfo({ restoreFocus = true } = {}) {
+    const info = this.overlay?.querySelector('[data-study-info-overlay]');
+    info?.setAttribute('hidden', '');
+    this.overlay?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('word-study-detail-info-open');
+    if (restoreFocus) this.overlay?.querySelector('[data-study-info-open]')?.focus();
+  },
+
+  handleExamplePointerDown(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const carousel = target?.closest('[data-example-carousel]');
+    if (!carousel || this.activeTab !== 'examples' || this.examplesExpanded) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (target.closest('button, a, input, textarea, select, [role="button"]')) return;
+    this._exampleGesture = {
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerId: event.pointerId
+    };
+    this._exampleGestureMoved = false;
+    carousel.setPointerCapture?.(event.pointerId);
+  },
+
+  handleExamplePointerUp(event) {
+    const gesture = this._exampleGesture;
+    this._exampleGesture = null;
+    if (!gesture || (gesture.pointerId != null && event.pointerId != null && gesture.pointerId !== event.pointerId)) return;
+    const direction = getHorizontalSwipeDirection({
+      startX: gesture.startX,
+      startY: gesture.startY,
+      endX: event.clientX,
+      endY: event.clientY
+    });
+    if (!direction) return;
+    this._exampleGestureMoved = true;
+    event.preventDefault();
+    event.stopPropagation();
+    this.selectExample(this.exampleIndex + (direction === 'next' ? 1 : -1));
   },
 
   handleClick(event) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    if (this._exampleGestureMoved) {
+      this._exampleGestureMoved = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (target === this.overlay || target.closest('.word-study-close')) {
       event.preventDefault();
       this.close();
@@ -403,6 +458,15 @@ export const WordStudyDetail = {
     if (this._onKeydown) document.removeEventListener('keydown', this._onKeydown);
     this._onKeydown = event => {
       if (event.key === 'Escape') this.close();
+      if (this.activeTab !== 'examples' || this.examplesExpanded) return;
+      if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        this.selectExample(this.exampleIndex + 1);
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        this.selectExample(this.exampleIndex - 1);
+      }
     };
     document.addEventListener('keydown', this._onKeydown);
   },
@@ -416,9 +480,11 @@ export const WordStudyDetail = {
     this.similarController = null;
     this.rootController?.abort();
     this.rootController = null;
+    this._exampleGesture = null;
+    this._exampleGestureMoved = false;
     if (this._onKeydown) document.removeEventListener('keydown', this._onKeydown);
     this._onKeydown = null;
-    this.closeStudyInfo();
+    this.closeStudyInfo({ restoreFocus: false });
     if (this.overlay) this.overlay.style.display = 'none';
     document.body?.classList.remove('word-study-detail-open');
     const fallbackFocus = document.querySelector?.('#aiResultModal #aiResultClose');

@@ -27,9 +27,17 @@ test('highlight wrappers remain selectable for sentence-level long press', async
     readFileText('../src/components/ai-analysis.js')
   ]);
 
-  assert.match(reading, /class="review-word/);
-  assert.match(reading, /class="learning-word/);
+  assert.match(reading, /review-word/);
+  assert.match(reading, /learning-word/);
+  assert.match(reading, /renderExactWordMarking/);
   assert.match(css, /\.review-word,\.learning-word\s*\{[^}]*user-select:text/s);
   assert.match(analysis, /getParagraphTextNodes\(node\)/);
   assert.match(analysis, /createSentenceRangeForTextNodes/);
+});
+
+test('reading word marking uses exact dictionary forms instead of stem prefixes', async () => {
+  const reading = await readFileText('../src/views/reading.js');
+  assert.match(reading, /word-marking\.mjs/);
+  assert.match(reading, /buildExactWordFormIndex/);
+  assert.doesNotMatch(reading, /\\w\*\\b/);
 });

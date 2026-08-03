@@ -4,7 +4,7 @@
  */
 
 import { DB } from '../db.js';
-import { DIFFICULTY_LABELS, esc, escAttr, getStemForm, ReadingTimer } from '../helpers.js';
+import { DIFFICULTY_LABELS, esc, getStemForm, ReadingTimer } from '../helpers.js';
 import { Tooltip } from '../components/tooltip.js';
 import { AIAnalysis } from '../components/ai-analysis.js';
 import { Dictionary } from '../dictionary.js';
@@ -25,11 +25,13 @@ import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.m
 import { SentenceGuide } from '../components/sentence-guide.js';
 import { ContextualSense } from '../components/contextual-sense.js';
 import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
+import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
   storage: DB
 });
+const readingLexiconLoader = createLexiconLoader();
 
 export const ReadingView = {
   timer: null,
@@ -38,6 +40,10 @@ export const ReadingView = {
   reviewMode: false,
   reviewWordsMap: new Map(), // stem -> word data
   learningWordsMap: new Map(),
+  learningWords: [],
+  learningWordFormIndex: new Map(),
+  reviewWordFormIndex: new Map(),
+  wordMarkingSession: 0,
   wordMarkingEnabled: false,
   englishParagraphs: [],
   paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
@@ -149,6 +155,10 @@ export const ReadingView = {
     this.readingScrollDepth = 0;
     this.reviewWordsMap = new Map();
     this.learningWordsMap = new Map();
+    this.learningWords = [];
+    this.learningWordFormIndex = new Map();
+    this.reviewWordFormIndex = new Map();
+    this.wordMarkingSession += 1;
     this.wordMarkingEnabled = Config.get('reading_word_marking') === 'true';
     this.englishParagraphs = [];
     this.guideSentences = [];
@@ -186,11 +196,23 @@ export const ReadingView = {
     // Normal reading may optionally mark only existing new/learning words;
     // review reading keeps its mandatory markers and rating behavior.
     const learnWords = await DB.getAllLearnWords();
+    this.learningWords = learnWords;
     learnWords.forEach(w => {
       const stem = getStemForm(w.word.toLowerCase());
       this.learningWordsMap.set(stem, w);
       if (this.reviewMode) this.reviewWordsMap.set(stem, w);
     });
+    if (this.reviewMode || this.wordMarkingEnabled) {
+      const exactWords = learnWords.map(word => ({
+        ...word,
+        stem: getStemForm(String(word.word || '').toLowerCase())
+      }));
+      const exactIndex = await buildExactWordFormIndex(exactWords, {
+        loadCore: readingLexiconLoader.loadCore
+      });
+      this.learningWordFormIndex = exactIndex;
+      this.reviewWordFormIndex = exactIndex;
+    }
 
     const enParas = this._splitParas(article.content);
     this.englishParagraphs = enParas;
@@ -546,10 +568,23 @@ export const ReadingView = {
     if (session === this.guideSession) this.renderSentenceGuide();
   },
 
-  toggleWordMarking() {
+  async toggleWordMarking() {
     if (this.reviewMode) return;
     this.wordMarkingEnabled = !this.wordMarkingEnabled;
     Config.set('reading_word_marking', this.wordMarkingEnabled ? 'true' : 'false');
+    const session = ++this.wordMarkingSession;
+    const button = document.getElementById('wordMarkingBtn');
+    if (button) button.setAttribute('aria-busy', this.wordMarkingEnabled ? 'true' : 'false');
+    if (this.wordMarkingEnabled && !this.learningWordFormIndex.size) {
+      const exactWords = this.learningWords.map(word => ({
+        ...word,
+        stem: getStemForm(String(word.word || '').toLowerCase())
+      }));
+      this.learningWordFormIndex = await buildExactWordFormIndex(exactWords, {
+        loadCore: readingLexiconLoader.loadCore
+      });
+      if (session !== this.wordMarkingSession || !this.wordMarkingEnabled) return;
+    }
     document.querySelectorAll('#articleBody .paragraph-pair').forEach((pair, index) => {
       const paragraph = this.englishParagraphs[index];
       const english = pair.querySelector('.en-paragraph');
@@ -557,8 +592,8 @@ export const ReadingView = {
         english.innerHTML = this.wordMarkingEnabled ? this._highlightLearningWords(paragraph) : esc(paragraph);
       }
     });
-    const button = document.getElementById('wordMarkingBtn');
     if (button) {
+      button.removeAttribute('aria-busy');
       button.classList.toggle('is-active', this.wordMarkingEnabled);
       button.setAttribute('aria-checked', String(this.wordMarkingEnabled));
       button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
@@ -566,37 +601,30 @@ export const ReadingView = {
   },
 
   _highlightLearningWords(text) {
-    if (!this.learningWordsMap.size) return esc(text);
-    const candidates = [...this.learningWordsMap.entries()]
-      .filter(([, word]) => {
-        const status = SpacedRepetition.getStatus(word);
-        return status === 'new' || status === 'learning';
-      })
-      .map(([stem]) => stem);
-    if (!candidates.length) return esc(text);
-    const pattern = new RegExp('\\b(' + candidates.map(stem => stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\w*\\b', 'gi');
-    return esc(text).replace(pattern, (match) => {
-      const stem = getStemForm(match.toLowerCase());
-      return `<mark class="learning-word" data-stem="${escAttr(stem)}">${match}</mark>`;
+    if (!this.learningWordFormIndex.size) return esc(text);
+    return renderExactWordMarking(text, this.learningWordFormIndex, 'learning-word', word => {
+      const stem = word?.stem || getStemForm(word?.word || '');
+      const wordData = this.learningWordsMap.get(stem);
+      if (!wordData) return false;
+      const status = SpacedRepetition.getStatus(wordData);
+      return status === 'new' || status === 'learning';
     });
   },
 
   // Highlight review words in text
   _highlightReviewWords(text) {
-    if (!this.reviewWordsMap.size) return esc(text);
-
-    // Build regex from review word stems
-    const stems = Array.from(this.reviewWordsMap.keys());
-    const pattern = new RegExp('\\b(' + stems.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\w*\\b', 'gi');
-
-    return esc(text).replace(pattern, (match) => {
-      const stem = getStemForm(match.toLowerCase());
+    if (!this.reviewWordFormIndex.size) return esc(text);
+    return renderExactWordMarking(text, this.reviewWordFormIndex, word => {
+      const stem = word?.stem || getStemForm(word?.word || '');
       const wordData = this.reviewWordsMap.get(stem);
-      if (!wordData) return match;
       const status = SpacedRepetition.getStatus(wordData);
-      const cssClass = status === 'new' ? 'review-new' : status === 'stable' ? '' : 'review-learning';
-      if (!cssClass) return match; // Don't highlight mastered words
-      return `<mark class="review-word ${cssClass}" data-stem="${escAttr(stem)}">${match}</mark>`;
+      return status === 'new' ? 'review-word review-new' : 'review-word review-learning';
+    }, word => {
+      const stem = word?.stem || getStemForm(word?.word || '');
+      const wordData = this.reviewWordsMap.get(stem);
+      if (!wordData) return false;
+      const status = SpacedRepetition.getStatus(wordData);
+      return status !== 'stable';
     });
   },
 

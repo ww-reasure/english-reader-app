@@ -1,6 +1,14 @@
 import { esc, getStemForm } from '../helpers.js';
 import { normalizeWordStudyExample } from './word-study-materials.mjs';
 
+export function getHorizontalSwipeDirection({ startX, startY, endX, endY } = {}) {
+  const deltaX = Number(endX) - Number(startX);
+  const deltaY = Number(endY) - Number(startY);
+  if (![deltaX, deltaY].every(Number.isFinite)) return null;
+  if (Math.abs(deltaX) < 44 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return null;
+  return deltaX < 0 ? 'next' : 'previous';
+}
+
 export function renderWordStudyDefinitionLine(line, className = 'flashcard-study-translation') {
   return `<div class="${className} definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`;
 }

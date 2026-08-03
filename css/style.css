@@ -674,7 +674,8 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .word-study-schedule { margin:12px 0 0; color:var(--moss); font-size:12px; font-weight:800; }
 .word-study-context { margin:14px 0 0; padding:10px 0 10px 13px; border-left:2px solid var(--signal); color:var(--ink-soft); font-family:Georgia,"Noto Serif SC",serif; font-size:14px; line-height:1.62; }
 .word-study-panel { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:23px 22px 28px; background:var(--paper-note); color:var(--ink-soft); font-size:15px; line-height:1.75; }
-.word-study-loading,.word-study-empty { min-height:140px; display:grid; place-items:center; align-content:center; gap:10px; color:var(--muted); text-align:center; }
+.word-study-loading,.word-study-empty,.word-study-info-empty { min-height:140px; display:grid; place-items:center; align-content:center; gap:10px; color:var(--muted); text-align:center; }
+.word-study-info-empty { min-height:72px; margin:0; padding:12px 0; font-size:13px; }
 .word-study-empty p { margin:0; }
 .word-study-retry { min-height:38px; padding:7px 14px; border:1px solid var(--rule-strong); border-radius:999px; background:transparent; color:var(--moss); font-weight:800; }
 .word-study-example-list { display:grid; gap:0; padding:0 0 0 27px; margin:0; border-left:1px solid color-mix(in srgb,var(--signal) 72%,transparent); list-style-position:outside; }
@@ -704,6 +705,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .word-study-memory-tip { margin:0; padding:4px 0 4px 14px; border-left:3px solid var(--amber); color:var(--ink); font-size:16px; line-height:1.82; }
 .word-study-tabs { min-width:0; display:flex; gap:0; overflow-x:auto; overscroll-behavior-x:contain; padding:0; border-top:1px solid var(--rule); background:var(--surface); scrollbar-width:none; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; }
 .word-study-tabs::-webkit-scrollbar { display:none; }
+.flashcard-focused-example[data-example-carousel] { touch-action:pan-y; }
 .word-study-tab { min-width:82px; min-height:62px; flex:0 0 82px; padding:8px 10px; border:0; border-right:1px solid var(--rule); border-radius:0; background:transparent; color:var(--muted); font-size:12px; font-weight:800; white-space:nowrap; scroll-snap-align:start; }
 .word-study-tab.active { background:var(--pine); color:var(--on-pine); box-shadow:none; }
 .word-study-tab.active::after { content:""; display:block; width:18px; height:2px; margin:5px auto 0; background:var(--signal); }

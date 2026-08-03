@@ -186,6 +186,7 @@ export const Tooltip = {
           definition: { ...data, contextualSenseIndex, contextualSenseReason: options.contextualSenseReason || '' },
           sourceMeta: {
             eyebrow: 'WORD NOTE',
+            originLabel: '阅读点词',
             contextSentence: options.contextSentence || '',
             targetTrack
           }

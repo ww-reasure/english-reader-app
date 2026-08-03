@@ -106,6 +106,7 @@ export const VocabularyView = {
       definition: word,
       sourceMeta: {
         eyebrow: 'WORD NOTE',
+        originLabel: '我的生词本',
         contextSentence: word.contextSentence || ''
       }
     });

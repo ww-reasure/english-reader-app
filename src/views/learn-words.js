@@ -148,6 +148,7 @@ export const LearnWordsView = {
       definition: word,
       sourceMeta: {
         eyebrow: 'STUDY NOTE',
+        originLabel: '学习词库',
         status: statusInfo,
         schedule: word.interval ? `下次复习间隔：${intervalText}` : ''
       }

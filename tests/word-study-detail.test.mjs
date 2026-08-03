@@ -158,3 +158,22 @@ test('all full detail surfaces use the same focused study-stage renderer', async
   assert.match(flashcard, /renderFocusedWordStudyExample/);
   assert.match(detail, /flashcard-study-tabs/);
 });
+
+test('focused example stage exposes a guarded horizontal swipe transition', async () => {
+  const stage = await read('../src/components/word-study-stage.mjs');
+  assert.match(stage, /export function getHorizontalSwipeDirection/);
+  assert.match(stage, /Math\.abs\(deltaX\)/);
+  assert.match(stage, /Math\.abs\(deltaY\)/);
+  assert.match(stage, /44/);
+});
+
+test('full word details keep stable gesture and information-panel contracts', async () => {
+  const [detail, stage] = await Promise.all([
+    read('../src/components/word-study-detail.js'),
+    read('../src/components/word-study-stage.mjs')
+  ]);
+  assert.match(detail, /getHorizontalSwipeDirection/);
+  assert.match(detail, /data-study-info-overlay/);
+  assert.match(detail, /word-study-info-empty/);
+  assert.match(stage, /export function getHorizontalSwipeDirection/);
+});

@@ -44,6 +44,7 @@ import {
 } from '../components/word-study-materials.mjs';
 import {
   getFocusedWordStudyExamples,
+  getHorizontalSwipeDirection,
   renderFocusedWordStudyExample,
   renderWordStudyDefinitionLine
 } from '../components/word-study-stage.mjs';
@@ -89,6 +90,8 @@ export const FlashcardView = {
   _exampleTooltipDismissCleanup: null,
   _studyInfoKeyHandler: null,
   _studyExampleTouchStartX: null,
+  _studyExampleTouchStartY: null,
+  _studyExampleKeyHandler: null,
   _cardPronunciationController: null,
   _phraseController: null,
   _similarController: null,
@@ -353,7 +356,7 @@ export const FlashcardView = {
               <div class="flashcard-study-definition-list">${this.currentDefinitionLines.length
                 ? this.currentDefinitionLines.map((line) => renderWordStudyDefinitionLine(line, 'flashcard-study-translation')).join('')
                 : `<div class="flashcard-study-translation">${esc(this.currentTranslation)}</div>`}</div>
-              <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog">
+              <button class="flashcard-study-info-trigger" type="button" data-study-info-open aria-haspopup="dialog" aria-expanded="false">
                 <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
                 <span>考试信息与复习间隔</span>
               </button>
@@ -478,15 +481,33 @@ export const FlashcardView = {
     if (carousel) {
       carousel.addEventListener('touchstart', (event) => {
         this._studyExampleTouchStartX = event.touches?.[0]?.clientX ?? null;
+        this._studyExampleTouchStartY = event.touches?.[0]?.clientY ?? null;
       }, { passive: true });
       carousel.addEventListener('touchend', (event) => {
         const startX = this._studyExampleTouchStartX;
+        const startY = this._studyExampleTouchStartY;
         this._studyExampleTouchStartX = null;
+        this._studyExampleTouchStartY = null;
         const endX = event.changedTouches?.[0]?.clientX;
-        if (!Number.isFinite(startX) || !Number.isFinite(endX) || Math.abs(endX - startX) < 42) return;
-        this.selectStudyExample(this.studyExampleIndex + (endX < startX ? 1 : -1));
+        const endY = event.changedTouches?.[0]?.clientY;
+        const direction = getHorizontalSwipeDirection({ startX, startY, endX, endY });
+        if (!direction) return;
+        this.selectStudyExample(this.studyExampleIndex + (direction === 'next' ? 1 : -1));
       }, { passive: true });
     }
+    if (this._studyExampleKeyHandler) document.removeEventListener('keydown', this._studyExampleKeyHandler);
+    this._studyExampleKeyHandler = (event) => {
+      if (this.studyTab !== 'examples' || this.studyExamplesExpanded) return;
+      if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        this.selectStudyExample(this.studyExampleIndex + 1);
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        this.selectStudyExample(this.studyExampleIndex - 1);
+      }
+    };
+    document.addEventListener('keydown', this._studyExampleKeyHandler);
     this.container?.querySelector('[data-retry-phrases]')?.addEventListener('click', () => {
       void this.loadPhrases(this.cardSession);
     });
@@ -518,6 +539,7 @@ export const FlashcardView = {
     const overlay = this.container?.querySelector('[data-study-info-overlay]');
     if (!overlay) return;
     overlay.hidden = false;
+    this.container?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'true');
     document.body.classList.add('flashcard-study-info-open');
     this._studyInfoKeyHandler = (event) => {
       if (event.key === 'Escape') this.closeStudyInfo();
@@ -528,6 +550,7 @@ export const FlashcardView = {
 
   closeStudyInfo() {
     this.container?.querySelector('[data-study-info-overlay]')?.setAttribute('hidden', '');
+    this.container?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('flashcard-study-info-open');
     if (this._studyInfoKeyHandler) {
       document.removeEventListener('keydown', this._studyInfoKeyHandler);
@@ -974,6 +997,10 @@ export const FlashcardView = {
     this.cancelRootRequest();
     this.cleanupExampleWordLookup();
     this.closeStudyInfo();
+    if (this._studyExampleKeyHandler) {
+      document.removeEventListener('keydown', this._studyExampleKeyHandler);
+      this._studyExampleKeyHandler = null;
+    }
   }
 };
 
