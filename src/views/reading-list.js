@@ -205,7 +205,6 @@ export const ReadingListView = {
 
   _setRefreshState(state) {
     const status = this._container?.querySelector?.('.shelf-pull-status');
-    const button = this._container?.querySelector?.('.shelf-refresh-button');
     if (!status) return;
     const labels = {
       idle: '下拉刷新',
@@ -215,10 +214,6 @@ export const ReadingListView = {
     };
     status.textContent = labels[state] || labels.idle;
     status.hidden = state === 'idle';
-    if (button) {
-      button.disabled = state === 'loading';
-      button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
-    }
   },
 
   _applyCatalogSnapshot(snapshot, { scrollTop = 0 } = {}) {
@@ -372,13 +367,7 @@ export const ReadingListView = {
           <h1 class="page-title">阅读书架</h1>
           <p class="page-desc">按考试轨道、常考主题和文章类型，挑选下一篇阅读。</p>
         </header>
-        <div class="shelf-sync-row">
-          <div class="shelf-pull-status" role="status" aria-live="polite" hidden>下拉刷新</div>
-          <button type="button" class="shelf-refresh-button" onclick="ReadingListView.refreshCatalog({ applyImmediately: true, source: 'manual' })" aria-label="刷新书架" aria-busy="false">
-            <span aria-hidden="true">↻</span>
-            <span>刷新书架</span>
-          </button>
-        </div>
+        <div class="shelf-pull-status" role="status" aria-live="polite" hidden>下拉刷新</div>
         <aside class="shelf-catalog-notice" role="status" ${this._pendingArticles ? '' : 'hidden'}>
           <span>书架已有新内容</span>
           <button type="button" onclick="ReadingListView.applyCatalogUpdate()">点击查看</button>

@@ -32,11 +32,12 @@ test('bookshelf requests the complete cloud catalog and renders auditable exam m
   assert.match(source, /const showSourceLabel = sourceLabel && !pastExamLabel/);
 });
 
-test('bookshelf exposes manual and pull refresh without replacing the application shell', async () => {
+test('bookshelf keeps pull refresh while hiding the redundant refresh button', async () => {
   const source = await readFile(new URL('../src/views/reading-list.js', import.meta.url), 'utf8');
 
-  assert.match(source, /class="shelf-refresh-button"/);
-  assert.match(source, /source:\s*['"]manual['"]/);
+  assert.doesNotMatch(source, /class="shelf-refresh-button"/);
+  assert.doesNotMatch(source, /source:\s*['"]manual['"]/);
+  assert.match(source, /class="shelf-pull-status"/);
   assert.match(source, /touchstart/);
   assert.match(source, /distance\s*>=\s*72/);
   assert.match(source, /source:\s*['"]pull['"]/);
