@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const readingUrl = new URL('../src/views/reading.js', import.meta.url);
+const readSource = async () => (await readFile(readingUrl, 'utf8')).replace(/\r\n?/g, '\n');
 
 test('reading title exposes a collapsed cloud translation only when titleZh is available', async () => {
-  const source = await readFile(readingUrl, 'utf8');
+  const source = await readSource();
 
   assert.match(source, /_renderArticleTitle\(article\)/);
   assert.match(source, /const titleZh = String\(article\.titleZh \|\| ''\)\.trim\(\);/);
@@ -17,7 +18,7 @@ test('reading title exposes a collapsed cloud translation only when titleZh is a
 });
 
 test('reading title uses the shared Tooltip and Dictionary lookup with close-first behavior', async () => {
-  const source = await readFile(readingUrl, 'utf8');
+  const source = await readSource();
 
   assert.match(source, /id="readingTitleLookup"/);
   assert.match(source, /const titleLookupHost = document\.getElementById\('readingTitleLookup'\);/);
