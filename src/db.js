@@ -63,7 +63,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 13, // v13: cloud article catalog metadata cache
+  DB_VERSION: 14, // v14: versioned AI material cache
 
   // Open database connection with retry
   open(retries = 3) {
@@ -181,6 +181,15 @@ export const DB = {
           db.createObjectStore('articleCatalog', { keyPath: 'key' });
         }
 
+        // v14: bounded, versioned AI material cache. This store is
+        // deliberately additive: it never contains articles, vocabulary,
+        // SRS state or reading history.
+        if (!db.objectStoreNames.contains('aiCache')) {
+          const store = db.createObjectStore('aiCache', { keyPath: 'key' });
+          store.createIndex('updatedAt', 'updatedAt');
+          store.createIndex('sizeBytes', 'sizeBytes');
+        }
+
         // v10 is intentionally a field-only migration. Existing derived
         // knowledge snapshots stay intact; knowledge-profile.mjs supplies
         // zero-valued independent counters when older records are read, so we
@@ -260,6 +269,64 @@ export const DB = {
       const tx = db.transaction('articleCatalog', 'readwrite');
       tx.objectStore('articleCatalog').put(record);
       tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  // ===== Versioned AI material cache =====
+
+  async getAiCache(key) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('aiCache', 'readonly');
+      const req = tx.objectStore('aiCache').get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async saveAiCache(record, { maxEntries = 1000, maxBytes = 12 * 1024 * 1024 } = {}) {
+    if (!record?.key) return record;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('aiCache', 'readwrite');
+      const store = tx.objectStore('aiCache');
+      const allRequest = store.getAll();
+      allRequest.onsuccess = () => {
+        const existing = Array.isArray(allRequest.result) ? allRequest.result : [];
+        const ordered = [record, ...existing.filter(item => item?.key !== record.key)]
+          .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
+        const limitEntries = Math.max(1, Number(maxEntries) || 1000);
+        const limitBytes = Math.max(1, Number(maxBytes) || 12 * 1024 * 1024);
+        const keep = [];
+        let totalBytes = 0;
+        for (const item of ordered) {
+          const itemBytes = Math.max(0, Number(item?.sizeBytes) || 0);
+          const mustKeepCurrent = item?.key === record.key;
+          if (keep.length >= limitEntries) break;
+          if (mustKeepCurrent || totalBytes + itemBytes <= limitBytes || keep.length === 0) {
+            keep.push(item);
+            totalBytes += itemBytes;
+          }
+        }
+        const keepKeys = new Set(keep.map(item => item.key));
+        for (const item of existing) {
+          if (!keepKeys.has(item?.key)) store.delete(item.key);
+        }
+        for (const item of keep) store.put(item);
+      };
+      tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('AI cache transaction aborted'));
+    });
+  },
+
+  async deleteAiCache(key) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('aiCache', 'readwrite');
+      tx.objectStore('aiCache').delete(key);
+      tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
   },
@@ -817,3 +884,9 @@ export const DB = {
     return Math.round(stats.reduce((sum, s) => sum + s.wpm, 0) / stats.length);
   }
 };
+
+// The small `.mjs` cache adapter is also used by Node-side cache tests. Expose
+// the already-loaded database service without making that adapter import this
+// browser `.js` module directly (the package intentionally remains CommonJS
+// for its scripts).
+globalThis.__EnglishReaderDB = DB;

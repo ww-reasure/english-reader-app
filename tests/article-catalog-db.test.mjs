@@ -30,7 +30,7 @@ function openVersion12(name) {
   });
 }
 
-test('v13 adds catalog cache without modifying existing articles or study words', async () => {
+test('v14 adds AI cache alongside catalog metadata without modifying existing articles or study words', async () => {
   globalThis.indexedDB = indexedDB;
   const module = await loadDatabaseModule();
   const name = `EnglishReaderCatalogUpgrade-${process.pid}-${sequence++}`;
@@ -46,8 +46,9 @@ test('v13 adds catalog cache without modifying existing articles or study words'
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 13);
+  assert.equal(upgraded.version, 14);
   assert.equal(upgraded.objectStoreNames.contains('articleCatalog'), true);
+  assert.equal(upgraded.objectStoreNames.contains('aiCache'), true);
   upgraded.close();
 
   assert.equal((await module.DB.getArticle(7)).title, 'Keep me');

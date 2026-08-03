@@ -50,6 +50,11 @@ export const App = {
 
       // Initialize global event listeners
       this.initGlobalEvents();
+      if (Config.shouldShowApiOnboarding()) {
+        setTimeout(() => {
+          if (Config.shouldShowApiOnboarding()) Modal.showApiSettings({ onboarding: true });
+        }, 0);
+      }
 
       // Global error handler for unhandled promise rejections
       window.addEventListener('unhandledrejection', (event) => {
@@ -78,6 +83,7 @@ export const App = {
     document.getElementById('settingsBtn')?.addEventListener('click', () => Modal.showApiSettings());
     document.getElementById('saveApiKey')?.addEventListener('click', () => Modal.saveApiSettings());
     document.getElementById('cancelApiKey')?.addEventListener('click', () => Modal.hideApiSettings());
+    document.getElementById('closeApiKey')?.addEventListener('click', () => Modal.hideApiSettings());
     document.getElementById('modelPreset')?.addEventListener('change', () => Modal.onModelPresetChange());
 
     // Import modal

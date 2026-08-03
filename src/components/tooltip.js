@@ -6,14 +6,13 @@
 import { DB } from '../db.js';
 import { Config } from '../config.js';
 import { getStemForm, esc } from '../helpers.js';
-import { Affixes } from '../affixes.js';
-import { Examples } from '../examples.js';
 import { AudioCache } from '../audio-cache.js';
 import { TooltipSession } from './tooltip-session.js';
 import { formatPartOfSpeech, formatPhonetic, getDefinitionPreview, getDefinitionSenses, getSavableTranslation } from './definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from './saved-word-definition.mjs';
 import { renderTooltipWordBadges } from './tooltip-metadata.mjs';
 import { WordStudyDetail } from './word-study-detail.js';
+import { WordStudyDetailCache } from './word-study-detail-cache.mjs';
 
 export const Tooltip = {
   session: new TooltipSession(),
@@ -334,9 +333,11 @@ export const Tooltip = {
         // Duplicate word in learn library, ignore
       }
 
-      // Background: pre-analyze word root and examples for flashcard review
-      Affixes.preAnalyze(word);
-      Examples.preGenerate(word);
+      // Background: warm the shared detail cache after the save has settled.
+      // This keeps the first full detail view local and avoids duplicate AI
+      // requests from the old per-service prefetchers.
+      const targetTrack = Config.get('exam_level') || '';
+      void WordStudyDetailCache.prefetch(word, { targetTrack }).catch(() => {});
 
       const btn = document.querySelector('.btn-save-word');
       if (btn) {

@@ -179,6 +179,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 /* Dialogs */
 .modal-overlay { position:fixed; inset:0; z-index:var(--z-modal); display:flex; align-items:flex-end; justify-content:center; padding:16px 12px calc(16px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); background:rgba(18,24,23,.56); backdrop-filter:blur(4px); overscroll-behavior:contain; }
 .modal { width:min(100%,560px); max-height:88dvh; overflow:auto; overscroll-behavior:contain; padding:24px 20px; background:var(--surface); border:1px solid var(--rule); border-radius:7px 7px 3px 3px; box-shadow:var(--shadow); }
+.modal-close { display:inline-grid; place-items:center; min-width:44px; min-height:44px; border:0; background:transparent; color:var(--muted); font-size:26px; line-height:1; cursor:pointer; }
+.modal-close:hover,.modal-close:focus-visible { color:var(--ink); background:var(--surface-soft); }
+#apiKeyModal .modal { position:relative; }
+#apiKeyModal .api-key-modal-close { position:absolute; top:9px; right:9px; border-radius:50%; }
+#apiKeyModal h2 { padding-right:48px; }
 .modal::before { content:""; display:block; width:34px; height:3px; margin:-10px auto 22px; background:var(--rule-strong); }
 .modal h2 { margin:0 0 20px; font-family:Georgia,serif; font-size:25px; letter-spacing:-.03em; }
 .modal-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; margin-top:22px; }

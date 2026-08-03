@@ -8,6 +8,11 @@ import { SecureStorage } from '@aparajita/capacitor-secure-storage';
 import { createConfigStorage } from './config-storage.mjs';
 import { requiresTargetTrackSelection } from './learning-track.mjs';
 
+const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen';
+const shouldShowApiOnboarding = ({ apiKey = '', seen = false } = {}) => (
+  !String(apiKey || '').trim() && !Boolean(seen)
+);
+
 export const ARTICLE_SERVER_URL = 'https://ww-d3g9m97i69d544809.service.tcloudbase.com';
 
 export const Config = {
@@ -19,7 +24,9 @@ export const Config = {
 
   // Default values
   defaults: {
+    // api_onboarding_seen is persisted with the rest of the secure settings.
     api_key: '',
+    [API_ONBOARDING_SEEN_KEY]: 'false',
     base_url: 'https://api.deepseek.com/v1',
     model: 'deepseek-v4-flash',
     theme: 'light',
@@ -75,6 +82,17 @@ export const Config = {
     return !!this.get('api_key');
   },
 
+  shouldShowApiOnboarding() {
+    return shouldShowApiOnboarding({
+      apiKey: this.get('api_key'),
+      seen: this.get(API_ONBOARDING_SEEN_KEY) === 'true'
+    });
+  },
+
+  markApiOnboardingSeen() {
+    this.set(API_ONBOARDING_SEEN_KEY, 'true');
+  },
+
   // Get all settings as object
   getAll() {
     return {
@@ -101,6 +119,7 @@ export const Config = {
     this.set('api_key', key);
     this.set('base_url', document.getElementById('baseUrlInput').value.trim() || this.defaults.base_url);
     this.set('model', model || this.defaults.model);
+    this.markApiOnboardingSeen();
 
     return true;
   }

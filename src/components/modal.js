@@ -8,8 +8,11 @@ import { DB } from '../db.js';
 
 export const Modal = {
   // Show API settings modal
-  showApiSettings() {
+  showApiSettings({ onboarding = false } = {}) {
     const modal = document.getElementById('apiKeyModal');
+    if (!modal) return;
+    modal.dataset.onboarding = onboarding ? 'true' : 'false';
+    modal.querySelector('#apiKeyModalTitle')?.replaceChildren(document.createTextNode(onboarding ? '连接 AI 学习助手' : '连接阅读引擎'));
     modal.style.display = 'flex';
 
     // Populate fields
@@ -32,15 +35,16 @@ export const Modal = {
   },
 
   // Hide API settings modal
-  hideApiSettings() {
+  hideApiSettings({ markSeen = true } = {}) {
     const modal = document.getElementById('apiKeyModal');
-    modal.style.display = 'none';
+    if (modal) modal.style.display = 'none';
+    if (markSeen) Config.markApiOnboardingSeen();
   },
 
   // Save API settings
   saveApiSettings() {
     if (Config.saveFromModal()) {
-      this.hideApiSettings();
+      this.hideApiSettings({ markSeen: true });
     }
   },
 

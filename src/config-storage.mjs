@@ -2,6 +2,7 @@ export const CONFIG_STORAGE_KEY = 'english_reader_settings_v1';
 
 export const CONFIG_STORAGE_KEYS = [
   'api_key',
+  'api_onboarding_seen',
   'base_url',
   'model',
   'theme',

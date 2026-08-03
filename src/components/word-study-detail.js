@@ -8,6 +8,7 @@ import { esc } from '../helpers.js';
 import { formatPartOfSpeech, formatPhonetic, getDefinitionDisplayLines, getDefinitionSenses } from './definition-trust.mjs';
 import { WordPhrases } from './word-phrases.js';
 import { WordSimilar } from './word-similar.js';
+import { WordStudyDetailCache, loadCachedDetail, persistDetailCache } from './word-study-detail-cache.mjs';
 import { renderExamCorpusDetail, selectExamCorpusPresentation } from './exam-corpus-presentation.mjs';
 import {
   isWordStudyTab,
@@ -38,9 +39,11 @@ export const WordStudyDetail = {
   activeTab: 'examples',
   definition: null,
   sourceMeta: {},
+  cacheContext: {},
   materialStatus: 'idle',
   materialStages: { examples: 'idle', root: 'idle', exam: 'idle' },
   materialExampleSources: { exam: [], personal: [] },
+  materialExampleSuccess: { exam: false, personal: false },
   materialExamplePending: 0,
   materials: { examples: [], rootAnalysis: null },
   phrases: { status: 'idle', items: [] },
@@ -84,6 +87,11 @@ export const WordStudyDetail = {
     this.examplesExpanded = false;
     this.definition = { ...definition, word: normalizedWord };
     this.sourceMeta = { ...sourceMeta };
+    this.cacheContext = {
+      targetTrack: this.sourceMeta?.targetTrack || Config.get('exam_level') || '',
+      lexiconVersion: this.definition?.lexiconVersion || this.definition?.definitionLexiconVersion || Config.get('lexicon_version') || '',
+      promptVersion: 'study-material-v2'
+    };
     const cachedExamples = Examples.getCachedExamples?.(normalizedWord) || [];
     const cachedRoot = Affixes.getCachedAnalysis?.(normalizedWord) || null;
     this.materialStatus = cachedExamples.length || cachedRoot ? 'partial' : 'loading';
@@ -93,6 +101,7 @@ export const WordStudyDetail = {
       exam: definition?.examCorpus ? 'ready' : 'loading'
     };
     this.materialExampleSources = { exam: [], personal: cachedExamples };
+    this.materialExampleSuccess = { exam: Boolean(cachedExamples.length), personal: Boolean(cachedExamples.length) };
     this.materialExamplePending = 2;
     this.materials = { examples: cachedExamples, rootAnalysis: cachedRoot };
     this.phrases = { status: 'idle', items: [] };
@@ -213,9 +222,10 @@ export const WordStudyDetail = {
     });
   },
 
-  updateExampleMaterials(session, word, source, examples) {
+  updateExampleMaterials(session, word, source, examples, succeeded = true) {
     if (!this.isCurrent(session, word)) return;
     this.materialExampleSources[source] = Array.isArray(examples) ? examples : [];
+    this.materialExampleSuccess[source] = Boolean(succeeded);
     this.materialExamplePending = Math.max(0, this.materialExamplePending - 1);
     this.materials = {
       ...this.materials,
@@ -228,29 +238,86 @@ export const WordStudyDetail = {
       ? 'ready'
       : 'partial';
     this.renderPanel();
+    if (this.materialExamplePending === 0) {
+      const complete = this.materialExampleSuccess.exam && this.materialExampleSuccess.personal;
+      void WordStudyDetailCache.update(word, this.cacheContext, {
+        examples: this.materials.examples,
+        examExamples: this.materialExampleSources.exam,
+        personalExamples: this.materialExampleSources.personal,
+        loaded: { examples: complete }
+      });
+    }
+  },
+
+  applyCachedDetail(snapshot) {
+    const value = snapshot?.value || snapshot;
+    if (!value) return;
+    this.materialExampleSources = {
+      exam: Array.isArray(value.examExamples) ? value.examExamples : [],
+      personal: Array.isArray(value.personalExamples) ? value.personalExamples : []
+    };
+    this.materialExampleSuccess = { exam: true, personal: true };
+    this.materials = {
+      ...this.materials,
+      examples: Array.isArray(value.examples) && value.examples.length
+        ? value.examples
+        : mergeWordStudyExamples(this.materialExampleSources.exam, this.materialExampleSources.personal),
+      rootAnalysis: value.rootAnalysis || this.materials.rootAnalysis
+    };
+    if (value.examCorpus && typeof value.examCorpus === 'object') {
+      this.definition = { ...this.definition, examCorpus: value.examCorpus };
+    }
+    const loaded = value.loaded || {};
+    if (loaded.examples) {
+      this.materialExamplePending = 0;
+      this.materialStages.examples = 'ready';
+    }
+    if (loaded.root) this.materialStages.root = 'ready';
+    if (loaded.exam) this.materialStages.exam = 'ready';
+    if (loaded.phrases) this.phrases = { status: 'ready', items: Array.isArray(value.phrases) ? value.phrases : [] };
+    if (loaded.similar) this.similar = { status: 'ready', items: Array.isArray(value.similar) ? value.similar : [] };
+    this.materialStatus = 'ready';
   },
 
   async loadMaterials(session, word) {
     const targetTrack = this.sourceMeta?.targetTrack || Config.get('exam_level') || '';
-    const tasks = [
-      ExamCorpus.getExamples(word, targetTrack).then(
-        examples => this.updateExampleMaterials(session, word, 'exam', examples),
-        () => this.updateExampleMaterials(session, word, 'exam', [])
-      ),
-      Examples.getExamples(word).then(
-        examples => this.updateExampleMaterials(session, word, 'personal', examples),
-        () => this.updateExampleMaterials(session, word, 'personal', [])
-      ),
-      Affixes.getAnalysis(word).then(async rootAnalysis => {
+    const cached = await loadCachedDetail(word, this.cacheContext).catch(() => null);
+    if (this.isCurrent(session, word) && cached?.value) {
+      this.applyCachedDetail(cached.value);
+      this.renderPanel();
+    }
+    const cachedValue = cached?.value;
+    const refreshExamples = !cachedValue?.loaded?.examples || Boolean(cached?.stale);
+    const refreshRoot = !cachedValue?.loaded?.root || Boolean(cached?.stale);
+    const refreshExam = !cachedValue?.loaded?.exam || Boolean(cached?.stale);
+    this.materialExamplePending = refreshExamples ? 2 : 0;
+    if (refreshExamples) this.materialStages.examples = this.materials.examples.length ? 'partial' : 'loading';
+    if (refreshRoot) this.materialStages.root = this.materials.rootAnalysis ? 'partial' : 'loading';
+    const tasks = [];
+    if (refreshExamples) {
+      tasks.push(
+        ExamCorpus.getExamples(word, targetTrack).then(
+          examples => this.updateExampleMaterials(session, word, 'exam', examples, true),
+          () => this.updateExampleMaterials(session, word, 'exam', [], false)
+        ),
+        Examples.getExamples(word).then(
+          examples => this.updateExampleMaterials(session, word, 'personal', examples, true),
+          () => this.updateExampleMaterials(session, word, 'personal', [], false)
+        )
+      );
+    }
+    if (refreshRoot) tasks.push(Affixes.getAnalysis(word).then(async rootAnalysis => {
         if (!this.isCurrent(session, word)) return;
         this.materialStages.root = 'ready';
         this.materialStatus = this.materialStages.examples === 'ready' ? 'ready' : 'partial';
         this.materials = { ...this.materials, rootAnalysis: rootAnalysis || null };
         this.renderPanel();
+        if (rootAnalysis) void WordStudyDetailCache.update(word, this.cacheContext, { rootAnalysis });
         if (rootAnalysis && Affixes.getRelatedWordDetails(rootAnalysis).some(item => !item.translation)) {
           const enriched = await Affixes.enrichRelatedTranslations(word, rootAnalysis).catch(() => rootAnalysis);
           if (!this.isCurrent(session, word) || !enriched) return;
           this.materials = { ...this.materials, rootAnalysis: enriched };
+          void WordStudyDetailCache.update(word, this.cacheContext, { rootAnalysis: enriched });
           if (this.activeTab === 'related') this.renderPanel();
         }
         if (this.activeTab === 'related') void this.loadStructuredRoot();
@@ -260,10 +327,14 @@ export const WordStudyDetail = {
         this.materialStatus = this.materialStages.examples === 'ready' ? 'ready' : 'partial';
         this.renderPanel();
       }),
-      ExamCorpus.lookupAll(word).then(examCorpus => {
+    );
+    if (refreshExam) tasks.push(ExamCorpus.lookupAll(word).then(examCorpus => {
         if (!this.isCurrent(session, word)) return;
         this.materialStages.exam = 'ready';
         this.definition = { ...this.definition, examCorpus };
+        if (examCorpus && Object.keys(examCorpus).length) {
+          void WordStudyDetailCache.update(word, this.cacheContext, { examCorpus });
+        }
         const examTarget = this.overlay?.querySelector('[data-word-study-exam-corpus]');
         if (examTarget) {
           examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc)
@@ -271,8 +342,7 @@ export const WordStudyDetail = {
         }
       }, () => {
         if (this.isCurrent(session, word)) this.materialStages.exam = 'ready';
-      })
-    ];
+      }));
     await Promise.allSettled(tasks);
     if (this.isCurrent(session, word)) {
       this.materialStatus = 'ready';
@@ -310,6 +380,7 @@ export const WordStudyDetail = {
       const enriched = await Affixes.ensureStructuredRoot(word, analysis, { signal: controller.signal });
       if (!this.isCurrent(session, word) || controller.signal.aborted || !enriched) return;
       this.materials = { ...this.materials, rootAnalysis: enriched };
+      void WordStudyDetailCache.update(word, this.cacheContext, { rootAnalysis: enriched });
       this.renderPanel();
     } catch {
       // The original cached analysis remains useful when enrichment is unavailable.
@@ -331,6 +402,7 @@ export const WordStudyDetail = {
       const items = await WordPhrases.get(word, { signal: controller.signal });
       if (!this.isCurrent(session, word) || controller.signal.aborted) return;
       this.phrases = { status: 'ready', items };
+      void WordStudyDetailCache.update(word, this.cacheContext, { phrases: items });
       this.renderPanel();
     } catch (error) {
       if (!this.isCurrent(session, word) || error?.name === 'AbortError') return;
@@ -354,6 +426,7 @@ export const WordStudyDetail = {
       const items = await WordSimilar.get(word, { signal: controller.signal });
       if (!this.isCurrent(session, word) || controller.signal.aborted) return;
       this.similar = { status: 'ready', items };
+      void WordStudyDetailCache.update(word, this.cacheContext, { similar: items });
       this.renderPanel();
     } catch (error) {
       if (!this.isCurrent(session, word) || error?.name === 'AbortError') return;
