@@ -148,7 +148,7 @@ export const FlashcardView = {
       const masteredCount = allWords.filter(w => SpacedRepetition.getStatus(w) === 'stable').length;
       container.innerHTML = `
         <section class="app-standard-page flashcard-review-shell flashcard-review-shell--empty" aria-labelledby="flashcardContentTitle">
-          <div class="flashcard-container">
+          <div class="flashcard-container flashcard-content" data-flashcard-content="empty">
           <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
           <div class="empty-state flashcard-empty-sheet">
             <p>🎉 暂时没有需要复习的单词</p>
@@ -270,7 +270,7 @@ export const FlashcardView = {
 
     container.innerHTML = `
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--recall" aria-labelledby="flashcardContentTitle">
-        <div class="flashcard-container">
+        <div class="flashcard-container flashcard-content" data-flashcard-content="recall">
           <h2 id="flashcardContentTitle" class="sr-only">单词回忆评分</h2>
           ${this.renderProgress('RECALL')}
           <section class="flashcard flashcard-recall-card flashcard-recall-stage" aria-live="polite">
@@ -346,10 +346,10 @@ export const FlashcardView = {
     const intervalText = word.interval ? SpacedRepetition.getIntervalText(word.interval) : '';
     container.innerHTML = `
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--study" aria-labelledby="flashcardStudyTitle">
-        <div class="flashcard-container flashcard-study-container">
+        <div class="flashcard-container flashcard-content flashcard-study-container" data-flashcard-content="study">
           <h2 id="flashcardStudyTitle" class="sr-only">单词学习详情</h2>
           ${this.renderProgress('STUDY')}
-          <section class="flashcard-study-sheet">
+          <section class="flashcard-study-sheet flashcard-study-pane" data-flashcard-pane="study">
             <header class="flashcard-study-head flashcard-study-masthead">
               <button class="flashcard-study-word" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(word.word)}</button>
               ${this.currentPhonetic ? `<button class="flashcard-phonetic flashcard-study-phonetic" type="button" data-study-audio="${esc(word.word)}" title="播放发音">${esc(this.currentPhonetic)}</button>` : ''}

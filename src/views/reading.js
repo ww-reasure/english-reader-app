@@ -55,6 +55,8 @@ export const ReadingView = {
   guideSession: 0,
   guideAbortController: null,
   guideModeUsed: false,
+  _viewportResizeHandler: null,
+  _viewportResizeFrame: null,
 
   goBack() {
     if (window.Router?.back?.()) return;
@@ -145,6 +147,15 @@ export const ReadingView = {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
     }
+    if (this._viewportResizeHandler && typeof window !== 'undefined') {
+      window.removeEventListener('resize', this._viewportResizeHandler);
+      window.removeEventListener('orientationchange', this._viewportResizeHandler);
+    }
+    this._viewportResizeHandler = null;
+    if (this._viewportResizeFrame != null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(this._viewportResizeFrame);
+    }
+    this._viewportResizeFrame = null;
     if (this.timer) { this.timer.stop(); this.timer = null; }
   },
 
@@ -180,16 +191,23 @@ export const ReadingView = {
     if (!article.content || !article.content.trim()) {
       container.innerHTML = `
         <div class="reading-container">
-          <div class="reading-header">
-            ${this._renderArticleTitle(article)}
-            <div class="reading-action-strip" aria-label="阅读工具">
-              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
-            </div>
+          <div class="reading-layout" data-reading-layout="article">
+            <aside class="reading-study-pane" data-reading-pane="study" aria-label="阅读学习面板">
+              <div class="reading-header">
+                ${this._renderArticleTitle(article)}
+                <div class="reading-action-strip" aria-label="阅读工具">
+                  <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
+                </div>
+              </div>
+            </aside>
+            <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
+              <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
+            </section>
           </div>
-          <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
         </div>
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
       this.initInteractions();
+      this._bindViewportLifecycle();
       return;
     }
 
@@ -236,7 +254,9 @@ export const ReadingView = {
 
     container.innerHTML = `
       <div class="reading-container">
-        <header class="reading-header">
+        <div class="reading-layout" data-reading-layout="article">
+          <aside class="reading-study-pane" data-reading-pane="study" aria-label="阅读学习面板">
+            <header class="reading-header">
           <p class="page-eyebrow">02 / READING NOTE</p>
           ${this._renderArticleTitle(article)}
           <div class="reading-meta">
@@ -262,10 +282,14 @@ export const ReadingView = {
             </div>
           </div>
           <div class="reading-hint">${this.reviewMode ? '复习标记词：点击后记录你的掌握程度' : '点击单词查释义；选中句子可以请求 AI 分析'}</div>
-        </header>
-        <div id="articleBody" class="article-body">${parasHTML}</div>
-        <div class="reading-finish-bar">
-          <button class="btn btn-success btn-lg" onclick="ReadingView.finishReading()">✓ 阅读完成</button>
+            </header>
+          </aside>
+          <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
+            <div id="articleBody" class="article-body">${parasHTML}</div>
+            <div class="reading-finish-bar">
+              <button class="btn btn-success btn-lg" onclick="ReadingView.finishReading()">✓ 阅读完成</button>
+            </div>
+          </section>
         </div>
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
@@ -273,6 +297,7 @@ export const ReadingView = {
       <div id="sentenceGuideModal" class="modal-overlay sentence-guide-overlay" style="display:none"></div>`;
 
     this.initInteractions();
+    this._bindViewportLifecycle();
     AudioCache.preloadWords(article.content).catch(() => {});
 
     // Auto-start timer
@@ -659,6 +684,38 @@ export const ReadingView = {
   },
 
   // ===== Timer =====
+  _bindViewportLifecycle() {
+    if (typeof window === 'undefined') return;
+    if (this._viewportResizeHandler) {
+      window.removeEventListener('resize', this._viewportResizeHandler);
+      window.removeEventListener('orientationchange', this._viewportResizeHandler);
+    }
+    this._viewportResizeHandler = () => this._handleViewportChange();
+    window.addEventListener('resize', this._viewportResizeHandler, { passive: true });
+    window.addEventListener('orientationchange', this._viewportResizeHandler, { passive: true });
+  },
+
+  _handleViewportChange() {
+    if (this._viewportResizeFrame != null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(this._viewportResizeFrame);
+    }
+    const refresh = () => {
+      this._viewportResizeFrame = null;
+      if (!this.container) return;
+      // Let the new viewport/grid settle before measuring completion progress.
+      this._updateReadingScrollDepth();
+      // A tooltip or selection action is positioned in viewport coordinates. It
+      // is safer to dismiss it after rotation than to leave a stale overlay.
+      if (Tooltip.isVisible()) Tooltip.hide();
+      AIAnalysis.hideButton();
+    };
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      this._viewportResizeFrame = window.requestAnimationFrame(refresh);
+    } else {
+      refresh();
+    }
+  },
+
   autoStartTimer() {
     const wordCount = this.articleData?.wordCount || 300;
     this.timer = new ReadingTimer(wordCount);

@@ -120,7 +120,7 @@ export const WordStudyDetail = {
     const examMarkup = renderExamCorpusDetail(examPresentation, esc)
       || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
     return `
-      <section class="word-study-detail-sheet word-study-detail-sheet--stage" role="dialog" aria-modal="true" aria-labelledby="wordStudyDetailTitle">
+      <section class="word-study-detail-sheet word-study-detail-sheet--stage word-study-content" data-word-study-content="detail" role="dialog" aria-modal="true" aria-labelledby="wordStudyDetailTitle">
         <header class="app-header word-study-detail-app-header">
           <button class="app-icon-button word-study-close" type="button" aria-label="关闭单词学习详情" title="返回"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
           <div class="app-header-copy"><p class="app-header-kicker">ENGLISH LEARNING</p><h1 class="app-header-title">单词学习</h1></div>
@@ -140,7 +140,7 @@ export const WordStudyDetail = {
           </button>
         </header>
         <nav class="flashcard-study-tabs" role="tablist" aria-label="学习资料">${renderWordStudyTabs(this.activeTab)}</nav>
-        <div class="flashcard-study-panel word-study-detail-panel" role="tabpanel">${this.renderPanelContent()}</div>
+        <div class="flashcard-study-panel word-study-detail-panel word-study-material-pane" data-word-study-pane="materials" role="tabpanel">${this.renderPanelContent()}</div>
         <div class="flashcard-study-info-overlay word-study-detail-info-overlay" data-study-info-overlay hidden>
           <button class="flashcard-study-info-backdrop" type="button" data-study-info-close aria-label="关闭词汇信息"></button>
           <section class="flashcard-study-info-sheet" role="dialog" aria-modal="true" aria-labelledby="wordStudyInfoTitle">

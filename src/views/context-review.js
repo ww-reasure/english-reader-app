@@ -107,7 +107,7 @@ export const ContextReviewView = {
     this.notice = '';
     this.pendingEvidence = null;
     this.controller = new AbortController();
-    container.innerHTML = '<main class="app-standard-page context-review-page"><div class="context-review-loading"><span></span><p>正在准备语境句子…</p><small>优先使用目标考试真题正文、书架与既有例句</small></div></main>';
+    container.innerHTML = '<main class="app-standard-page context-review-page context-review-content" data-context-review-content="loading"><div class="context-review-loading"><span></span><p>正在准备语境句子…</p><small>优先使用目标考试真题正文、书架与既有例句</small></div></main>';
     try {
       const restored = await DB.getContextReviewSession(ACTIVE_SESSION_ID);
       if (restored?.items?.length) {
@@ -175,7 +175,7 @@ export const ContextReviewView = {
     const answered = Boolean(this.answered);
     const progress = Math.round((this.currentIndex / this.session.items.length) * 100);
     this.container.innerHTML = `
-      <main class="app-standard-page context-review-page" aria-labelledby="contextReviewTitle">
+      <main class="app-standard-page context-review-page context-review-content" data-context-review-content="card" aria-labelledby="contextReviewTitle">
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
         <header class="context-review-progress">
           <a href="#/flashcard" class="context-review-back" aria-label="返回复习方式"><i class="fa-solid fa-arrow-left"></i></a>
@@ -183,7 +183,7 @@ export const ContextReviewView = {
           <span>${this.currentIndex + 1} / ${this.session.items.length}</span>
         </header>
         <div class="context-review-progress-track"><i style="width:${progress}%"></i></div>
-        <section class="context-review-sheet ${answered ? 'is-answered' : ''}">
+        <section class="context-review-sheet context-review-detail-pane ${answered ? 'is-answered' : ''}" data-context-review-pane="detail">
           <p class="context-review-instruction">${answered ? `你的判断：${RESULT_LABELS[this.answered]}` : '读句子，判断高亮单词在这里是否认识'}</p>
           <p class="context-review-sentence">${wordTokens(item.sentence, item, answered)}</p>
           ${answered ? `<div class="context-review-answer" aria-live="polite">
@@ -404,7 +404,7 @@ export const ContextReviewView = {
   renderResult() {
     const completed = this.counts.known + this.counts.uncertain + this.counts.unknown;
     this.container.innerHTML = `
-      <main class="app-standard-page context-review-page context-review-result-page">
+      <main class="app-standard-page context-review-page context-review-content context-review-result-page" data-context-review-content="result">
         <section class="flashcard-result-sheet context-review-result">
           <p class="page-eyebrow">CONTEXT REVIEW / DONE</p>
           <h2>语境复习完成</h2>
@@ -420,7 +420,7 @@ export const ContextReviewView = {
   },
 
   renderPrepareError() {
-    this.container.innerHTML = `<main class="app-standard-page context-review-page"><section class="flashcard-empty-sheet"><h2>暂时没有可用的语境句子</h2><p>离线候选不足或网络生成未完成。不会改动任何复习排期。</p><button class="btn btn-primary" type="button" onclick="ContextReviewView.render(ContextReviewView.container)">重新准备</button><a class="btn btn-outline" href="#/flashcard/recall">改用单词回忆</a></section></main>`;
+    this.container.innerHTML = `<main class="app-standard-page context-review-page context-review-content" data-context-review-content="error"><section class="flashcard-empty-sheet context-review-detail-pane" data-context-review-pane="error"><h2>暂时没有可用的语境句子</h2><p>离线候选不足或网络生成未完成。不会改动任何复习排期。</p><button class="btn btn-primary" type="button" onclick="ContextReviewView.render(ContextReviewView.container)">重新准备</button><a class="btn btn-outline" href="#/flashcard/recall">改用单词回忆</a></section></main>`;
   },
 
   hideTooltip() {

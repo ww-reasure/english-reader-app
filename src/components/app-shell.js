@@ -8,6 +8,8 @@ const routes = [
 
 export const AppShell = {
   _onKeydown: null,
+  _onMediaChange: null,
+  _mediaQuery: null,
   _setDrawerOpen: null,
 
   getRouteMeta(hash) {
@@ -46,14 +48,14 @@ export const AppShell = {
     container.innerHTML = `
       <div class="app-shell app-shell--${pageMode}">
         <header class="app-header">
-          <button id="appMenuBtn" class="app-icon-button" type="button" aria-label="打开导航" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+          <button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
           <div class="app-header-copy"><p class="app-header-kicker">${kicker}</p><h1 class="app-header-title">${meta.title}</h1></div>
           ${headerActions}
         </header>
         <button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>
         <aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
           <div class="app-drawer-top"><p class="app-drawer-brand">LEARNING NOTEBOOK</p><button id="appDrawerClose" class="app-drawer-close" type="button" aria-label="关闭导航"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="sr-only">关闭导航</span></button></div>
-          <nav>${links}</nav>
+          <nav aria-label="主要导航">${links}</nav>
         </aside>
         <main id="pageOutlet" class="app-page-outlet" tabindex="-1"></main>
       </div>`;
@@ -62,15 +64,26 @@ export const AppShell = {
     const backdrop = document.getElementById('appDrawerBackdrop');
     const menu = document.getElementById('appMenuBtn');
     const close = document.getElementById('appDrawerClose');
-    const setOpen = open => {
+    const mediaQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 600px)')
+      : null;
+    this._mediaQuery = mediaQuery;
+    const isPersistent = () => mediaQuery ? mediaQuery.matches : (typeof window !== 'undefined' && window.innerWidth >= 600);
+    const setOpen = (open, { focusMenu = true } = {}) => {
+      const persistent = isPersistent();
+      if (persistent) open = false;
       drawer.classList.toggle('is-open', open);
-      drawer.setAttribute('aria-hidden', String(!open));
+      drawer.setAttribute('aria-hidden', String(persistent ? false : !open));
       backdrop.classList.toggle('is-open', open);
-      menu.setAttribute('aria-expanded', String(open));
+      menu.setAttribute('aria-expanded', String(!persistent && open));
       if (open) drawer.querySelector('a.active, a')?.focus();
-      else menu.focus();
+      else if (!persistent && focusMenu) menu.focus();
     };
     this._setDrawerOpen = setOpen;
+    this._onMediaChange = () => setOpen(false);
+    if (mediaQuery?.addEventListener) mediaQuery.addEventListener('change', this._onMediaChange);
+    else mediaQuery?.addListener?.(this._onMediaChange);
+    setOpen(false, { focusMenu: false });
 
     menu.addEventListener('click', () => setOpen(!drawer.classList.contains('is-open')));
     close.addEventListener('click', () => setOpen(false));
@@ -84,7 +97,11 @@ export const AppShell = {
 
   cleanup() {
     if (this._onKeydown) document.removeEventListener('keydown', this._onKeydown);
+    if (this._mediaQuery?.removeEventListener) this._mediaQuery.removeEventListener('change', this._onMediaChange);
+    else this._mediaQuery?.removeListener?.(this._onMediaChange);
     this._onKeydown = null;
+    this._onMediaChange = null;
+    this._mediaQuery = null;
     this._setDrawerOpen = null;
     document.body.classList.remove('app-shell-active');
     delete document.body.dataset.pageMode;
