@@ -39,6 +39,9 @@ export const WordStudyDetail = {
   definition: null,
   sourceMeta: {},
   materialStatus: 'idle',
+  materialStages: { examples: 'idle', root: 'idle', exam: 'idle' },
+  materialExampleSources: { exam: [], personal: [] },
+  materialExamplePending: 0,
   materials: { examples: [], rootAnalysis: null },
   phrases: { status: 'idle', items: [] },
   similar: { status: 'idle', items: [] },
@@ -81,8 +84,17 @@ export const WordStudyDetail = {
     this.examplesExpanded = false;
     this.definition = { ...definition, word: normalizedWord };
     this.sourceMeta = { ...sourceMeta };
-    this.materialStatus = 'loading';
-    this.materials = { examples: [], rootAnalysis: null };
+    const cachedExamples = Examples.getCachedExamples?.(normalizedWord) || [];
+    const cachedRoot = Affixes.getCachedAnalysis?.(normalizedWord) || null;
+    this.materialStatus = cachedExamples.length || cachedRoot ? 'partial' : 'loading';
+    this.materialStages = {
+      examples: cachedExamples.length ? 'partial' : 'loading',
+      root: cachedRoot ? 'ready' : 'loading',
+      exam: definition?.examCorpus ? 'ready' : 'loading'
+    };
+    this.materialExampleSources = { exam: [], personal: cachedExamples };
+    this.materialExamplePending = 2;
+    this.materials = { examples: cachedExamples, rootAnalysis: cachedRoot };
     this.phrases = { status: 'idle', items: [] };
     this.similar = { status: 'idle', items: [] };
     this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -109,8 +121,13 @@ export const WordStudyDetail = {
       || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
     return `
       <section class="word-study-detail-sheet word-study-detail-sheet--stage" role="dialog" aria-modal="true" aria-labelledby="wordStudyDetailTitle">
+        <header class="app-header word-study-detail-app-header">
+          <button class="app-icon-button word-study-close" type="button" aria-label="关闭单词学习详情" title="返回"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+          <div class="app-header-copy"><p class="app-header-kicker">ENGLISH LEARNING</p><h1 class="app-header-title">单词学习</h1></div>
+          <div class="app-header-actions" aria-hidden="true"></div>
+        </header>
         <header class="flashcard-study-head flashcard-study-masthead word-study-detail-masthead">
-          <button class="word-study-close" type="button" aria-label="关闭单词学习详情" title="关闭"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+          <p class="flashcard-study-kicker">${esc(eyebrow)}</p>
           <button id="wordStudyDetailTitle" class="flashcard-study-word" type="button" data-audio-word="${esc(word)}" title="播放发音">${esc(word)}</button>
           ${phonetic ? `<button class="flashcard-study-phonetic" type="button" data-audio-word="${esc(word)}" title="播放发音">${esc(phonetic)}</button>` : ''}
           ${renderContextualSense(this.definition)}
@@ -145,8 +162,13 @@ export const WordStudyDetail = {
   },
 
   renderPanelContent() {
-    if (this.activeTab !== 'phrases' && this.materialStatus === 'loading') {
-      return '<div class="flashcard-study-loading">正在整理学习资料…</div>';
+    if (this.activeTab === 'examples' && this.materialStages.examples === 'loading' && !this.materials.examples.length) {
+      return '<div class="word-study-detail-material-loading flashcard-study-loading" role="status"><span>正在查找例句…</span><small>已有资料会优先显示，其他内容会继续补充</small></div>';
+    }
+    if ((this.activeTab === 'roots' || this.activeTab === 'related')
+      && this.materialStages.root === 'loading'
+      && !this.materials.rootAnalysis) {
+      return '<div class="word-study-detail-material-loading flashcard-study-loading" role="status"><span>正在整理词根资料…</span><small>例句和词汇信息不受影响</small></div>';
     }
     if (this.activeTab === 'examples' && !this.examplesExpanded) {
       return this.renderFocusedExample();
@@ -180,8 +202,9 @@ export const WordStudyDetail = {
     if (!this.overlay || this.overlay.style.display === 'none') return;
     const panel = this.overlay.querySelector('.word-study-detail-panel');
     if (panel) {
+      const scrollTop = panel.scrollTop;
       panel.innerHTML = this.renderPanelContent();
-      panel.scrollTop = 0;
+      panel.scrollTop = scrollTop;
     }
     this.overlay.querySelectorAll('[data-study-tab]').forEach(button => {
       const active = button.dataset.studyTab === this.activeTab;
@@ -190,33 +213,71 @@ export const WordStudyDetail = {
     });
   },
 
+  updateExampleMaterials(session, word, source, examples) {
+    if (!this.isCurrent(session, word)) return;
+    this.materialExampleSources[source] = Array.isArray(examples) ? examples : [];
+    this.materialExamplePending = Math.max(0, this.materialExamplePending - 1);
+    this.materials = {
+      ...this.materials,
+      examples: mergeWordStudyExamples(this.materialExampleSources.exam, this.materialExampleSources.personal)
+    };
+    this.materialStages.examples = this.materialExamplePending > 0
+      ? (this.materials.examples.length ? 'partial' : 'loading')
+      : 'ready';
+    this.materialStatus = this.materialStages.examples === 'ready' && this.materialStages.root !== 'loading'
+      ? 'ready'
+      : 'partial';
+    this.renderPanel();
+  },
+
   async loadMaterials(session, word) {
     const targetTrack = this.sourceMeta?.targetTrack || Config.get('exam_level') || '';
-    const [examExamples, examples, rootAnalysis, examCorpus] = await Promise.all([
-      ExamCorpus.getExamples(word, targetTrack).catch(() => []),
-      Examples.getExamples(word).catch(() => []),
-      Affixes.getAnalysis(word).catch(() => null),
-      ExamCorpus.lookupAll(word).catch(() => ({}))
-    ]);
-    if (!this.isCurrent(session, word)) return;
-
-    this.materialStatus = 'ready';
-    this.definition = { ...this.definition, examCorpus };
-    this.materials = { examples: mergeWordStudyExamples(examExamples, examples), rootAnalysis };
-    const examTarget = this.overlay?.querySelector('[data-word-study-exam-corpus]');
-    if (examTarget) {
-      examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc)
-        || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
+    const tasks = [
+      ExamCorpus.getExamples(word, targetTrack).then(
+        examples => this.updateExampleMaterials(session, word, 'exam', examples),
+        () => this.updateExampleMaterials(session, word, 'exam', [])
+      ),
+      Examples.getExamples(word).then(
+        examples => this.updateExampleMaterials(session, word, 'personal', examples),
+        () => this.updateExampleMaterials(session, word, 'personal', [])
+      ),
+      Affixes.getAnalysis(word).then(async rootAnalysis => {
+        if (!this.isCurrent(session, word)) return;
+        this.materialStages.root = 'ready';
+        this.materialStatus = this.materialStages.examples === 'ready' ? 'ready' : 'partial';
+        this.materials = { ...this.materials, rootAnalysis: rootAnalysis || null };
+        this.renderPanel();
+        if (rootAnalysis && Affixes.getRelatedWordDetails(rootAnalysis).some(item => !item.translation)) {
+          const enriched = await Affixes.enrichRelatedTranslations(word, rootAnalysis).catch(() => rootAnalysis);
+          if (!this.isCurrent(session, word) || !enriched) return;
+          this.materials = { ...this.materials, rootAnalysis: enriched };
+          if (this.activeTab === 'related') this.renderPanel();
+        }
+        if (this.activeTab === 'related') void this.loadStructuredRoot();
+      }, () => {
+        if (!this.isCurrent(session, word)) return;
+        this.materialStages.root = 'ready';
+        this.materialStatus = this.materialStages.examples === 'ready' ? 'ready' : 'partial';
+        this.renderPanel();
+      }),
+      ExamCorpus.lookupAll(word).then(examCorpus => {
+        if (!this.isCurrent(session, word)) return;
+        this.materialStages.exam = 'ready';
+        this.definition = { ...this.definition, examCorpus };
+        const examTarget = this.overlay?.querySelector('[data-word-study-exam-corpus]');
+        if (examTarget) {
+          examTarget.innerHTML = renderExamCorpusDetail(selectExamCorpusPresentation(examCorpus, targetTrack), esc)
+            || '<p class="word-study-info-empty">当前没有可显示的考试频度记录。</p>';
+        }
+      }, () => {
+        if (this.isCurrent(session, word)) this.materialStages.exam = 'ready';
+      })
+    ];
+    await Promise.allSettled(tasks);
+    if (this.isCurrent(session, word)) {
+      this.materialStatus = 'ready';
+      this.renderPanel();
     }
-    this.renderPanel();
-
-    if (rootAnalysis && Affixes.getRelatedWordDetails(rootAnalysis).some(item => !item.translation)) {
-      const enriched = await Affixes.enrichRelatedTranslations(word, rootAnalysis).catch(() => rootAnalysis);
-      if (!this.isCurrent(session, word) || !enriched) return;
-      this.materials = { ...this.materials, rootAnalysis: enriched };
-      if (this.activeTab === 'related') this.renderPanel();
-    }
-    if (this.activeTab === 'related') void this.loadStructuredRoot();
   },
 
   isCurrent(session, word = this.definition?.word) {
@@ -229,6 +290,8 @@ export const WordStudyDetail = {
     if (!isWordStudyTab(tab)) return;
     this.activeTab = tab;
     this.examplesExpanded = false;
+    const panel = this.overlay?.querySelector('.word-study-detail-panel');
+    if (panel) panel.scrollTop = 0;
     this.renderPanel();
     if (tab === 'phrases' && this.phrases.status === 'idle') void this.loadPhrases();
     if (tab === 'similar' && this.similar.status === 'idle') void this.loadSimilar();

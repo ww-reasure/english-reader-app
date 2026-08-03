@@ -5,18 +5,22 @@
  */
 
 import { API } from './api.js';
+import { getExampleCacheKey, readExampleCache } from './examples-cache.mjs';
 
 export const Examples = {
+  // Synchronous cache accessor for study surfaces that should render before
+  // a missing example falls back to AI generation.
+  getCachedExamples(word) {
+    return readExampleCache(word).examples;
+  },
+
   // Get examples for a word (cache-first, then AI)
   async getExamples(word) {
-    const key = word.toLowerCase();
-    const cacheKey = `examples_${key}`;
+    const key = String(word || '').toLowerCase();
 
     // Check cache
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) return JSON.parse(cached);
-    } catch {}
+    const cached = readExampleCache(key);
+    if (cached.hit) return cached.examples;
 
     // Generate with AI
     return await this.generateWithAI(key);
@@ -54,7 +58,7 @@ export const Examples = {
       // Cache permanently
       if (examples.length > 0) {
         try {
-          localStorage.setItem(`examples_${word.toLowerCase()}`, JSON.stringify(examples));
+          localStorage.setItem(getExampleCacheKey(word), JSON.stringify(examples));
         } catch {}
       }
 
@@ -66,14 +70,10 @@ export const Examples = {
 
   // Pre-generate examples in background (called when saving to favorites)
   preGenerate(word) {
-    const key = word.toLowerCase();
-    const cacheKey = `examples_${key}`;
+    const key = String(word || '').toLowerCase();
 
     // Skip if already cached
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) return;
-    } catch {}
+    if (readExampleCache(key).hit) return;
 
     // Generate in background
     this.generateWithAI(key).catch(() => {});

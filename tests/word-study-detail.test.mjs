@@ -110,8 +110,26 @@ test('all full word details share the focused study sheet while tooltip stays co
   assert.match(detail, /flashcard-study-masthead/);
   assert.match(detail, /flashcard-study-tabs/);
   assert.match(detail, /flashcard-study-info-overlay/);
-  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto auto minmax\(0,1fr\)/s);
+  assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto auto auto minmax\(0,1fr\)/s);
   assert.match(css, /\.flashcard-study-tabs\s*\{[^}]*overflow-x:auto/s);
+});
+
+test('shared detail keeps the standard app hierarchy and renders cached materials before remote enrichment', async () => {
+  const [detail, examples, css] = await Promise.all([
+    read('../src/components/word-study-detail.js'),
+    read('../src/examples.js'),
+    read('../css/style.css')
+  ]);
+
+  assert.match(detail, /word-study-detail-app-header/);
+  assert.match(detail, /ENGLISH LEARNING/);
+  assert.match(detail, /单词学习/);
+  assert.match(detail, /getCachedExamples/);
+  assert.match(detail, /word-study-detail-material-loading/);
+  assert.match(detail, /Promise\.allSettled/);
+  assert.match(examples, /getCachedExamples\s*\(/);
+  assert.match(css, /\.word-study-detail-app-header\s*\{/);
+  assert.match(css, /\.word-study-detail-material-loading\s*\{/);
 });
 
 test('full details and review reuse the same focused study-stage hierarchy', async () => {

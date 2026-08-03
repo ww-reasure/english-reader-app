@@ -11,6 +11,20 @@ import { normalizeRelatedRootWord, normalizeRootFamily } from './components/affi
 export const Affixes = {
   structuredRootRequests: new Map(),
 
+  // Synchronous cache accessor for study details that should render before
+  // a missing analysis falls back to an AI request.
+  getCachedAnalysis(word) {
+    const key = String(word || '').trim().toLowerCase();
+    if (!key) return null;
+    try {
+      const cached = localStorage.getItem(`root_v3_${key}`) || localStorage.getItem(`root_v2_${key}`);
+      if (!cached) return null;
+      return this.normalizeAnalysis(JSON.parse(cached)) || null;
+    } catch {
+      return null;
+    }
+  },
+
   // Get word analysis (cache-first, then AI)
   async getAnalysis(word) {
     const key = word.toLowerCase();
