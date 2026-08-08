@@ -3,6 +3,7 @@ const routes = [
   ['#/history', 'history', '阅读记录'],
   ['#/vocab', 'vocab', '词汇学习'],
   ['#/reading-list', 'reading-list', '我的书架'],
+  ['#/exam', 'exam', '真题训练'],
   ['#/profile', 'profile', '学习档案']
 ];
 
@@ -13,6 +14,16 @@ export const AppShell = {
   _setDrawerOpen: null,
 
   getRouteMeta(hash) {
+    if (hash === '#/exam') return { navKey: 'exam', title: '真题训练', headerMode: 'drawer' };
+    if (hash === '#/exam/review') return { navKey: 'exam', title: '错题复习', headerMode: 'back' };
+    if (hash === '#/exam/history') return { navKey: 'exam', title: '学习记录', headerMode: 'back' };
+    if (hash.startsWith('#/exam/catalog/')) {
+      const type = hash.match(/^#\/exam\/catalog\/([^/]+)/)?.[1];
+      const titles = { cloze_choice: '完形填空', reading_mcq: '阅读理解', paragraph_ordering: '段落排序', translation: '翻译' };
+      return { navKey: 'exam', title: titles[type] || '专项训练', headerMode: 'back' };
+    }
+    if (hash.startsWith('#/exam/practice/')) return { navKey: 'exam', title: '真题练习', headerMode: 'back' };
+    if (hash.startsWith('#/exam/result/')) return { navKey: 'exam', title: '练习结果', headerMode: 'back' };
     if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读' };
     if (hash === '#/learn-words' || hash.startsWith('#/flashcard')) {
       return { navKey: 'vocab', title: hash.startsWith('#/flashcard') ? '单词复习' : '词汇学习' };
@@ -35,7 +46,7 @@ export const AppShell = {
     </div>`;
   },
 
-  mount(container, meta, pageMode) {
+  mount(container, meta, pageMode, hash = '') {
     this.cleanup();
     document.body.classList.add('app-shell-active');
     document.body.dataset.pageMode = pageMode;
@@ -45,18 +56,21 @@ export const AppShell = {
 
     const kicker = meta.navKey === 'chat' ? 'AI STUDY COACH' : 'ENGLISH LEARNING';
     const headerActions = this.getHeaderActions(meta.navKey);
+    const headerMode = meta.headerMode || 'drawer';
+    const isExamDesktop = headerMode === 'drawer';
+    const examShellVariant = hash === '#/exam' ? ' app-shell--exam-home' : hash.startsWith('#/exam/catalog/') ? ' app-shell--exam-catalog' : '';
     container.innerHTML = `
-      <div class="app-shell app-shell--${pageMode}">
+      <div class="app-shell app-shell--${pageMode}${meta.navKey === 'exam' ? ' app-shell--exam' : ''}${examShellVariant}">
         <header class="app-header">
-          <button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+          ${headerMode === 'back' ? '<button id="appMenuBtn" class="app-icon-button" type="button" aria-label="返回真题训练"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>' : '<button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>'}
           <div class="app-header-copy"><p class="app-header-kicker">${kicker}</p><h1 class="app-header-title">${meta.title}</h1></div>
           ${headerActions}
         </header>
-        <button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>
-        <aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
+        ${isExamDesktop ? '<button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>' : ''}
+        ${isExamDesktop ? `<aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
           <div class="app-drawer-top"><p class="app-drawer-brand">LEARNING NOTEBOOK</p><button id="appDrawerClose" class="app-drawer-close" type="button" aria-label="关闭导航"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="sr-only">关闭导航</span></button></div>
           <nav aria-label="主要导航">${links}</nav>
-        </aside>
+        </aside>` : ''}
         <main id="pageOutlet" class="app-page-outlet" tabindex="-1"></main>
       </div>`;
 
@@ -64,11 +78,17 @@ export const AppShell = {
     const backdrop = document.getElementById('appDrawerBackdrop');
     const menu = document.getElementById('appMenuBtn');
     const close = document.getElementById('appDrawerClose');
+    if (!isExamDesktop) {
+      menu.addEventListener('click', () => {
+        if (headerMode === 'back') location.hash = '#/exam';
+      });
+      return document.getElementById('pageOutlet');
+    }
     const mediaQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
       ? window.matchMedia('(min-width: 600px)')
       : null;
     this._mediaQuery = mediaQuery;
-    const isPersistent = () => mediaQuery ? mediaQuery.matches : (typeof window !== 'undefined' && window.innerWidth >= 600);
+    const isPersistent = () => meta.navKey !== 'exam' && (mediaQuery ? mediaQuery.matches : (typeof window !== 'undefined' && window.innerWidth >= 600));
     const setOpen = (open, { focusMenu = true } = {}) => {
       const persistent = isPersistent();
       if (persistent) open = false;

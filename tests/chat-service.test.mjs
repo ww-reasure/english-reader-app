@@ -59,6 +59,33 @@ test('forwards the home activity ledger to the context builder with the same ses
   assert.deepEqual(built.activities, activities);
 });
 
+test('forwards an explicit structured response format to the API without changing normal chat flow', async () => {
+  const { ChatService } = await loadService();
+  let capturedOptions = null;
+  const service = new ChatService({
+    api: {
+      chatCompletion: async (_messages, options) => {
+        capturedOptions = options;
+        return { message: { role: 'assistant', content: '{"trainingScore":7}' } };
+      }
+    },
+    agent: {},
+    builder: { build: () => [{ role: 'user', content: 'score it' }] }
+  });
+
+  await service.ask({
+    sessionKey: 'exam:attempt:q46',
+    session: { summary: '', messages: [] },
+    userMessage: 'score it',
+    kind: 'translation_training_feedback',
+    tools: [],
+    responseFormat: { type: 'json_object' }
+  });
+
+  assert.deepEqual(capturedOptions.responseFormat, { type: 'json_object' });
+  assert.deepEqual(capturedOptions.tools, []);
+});
+
 test('tool rounds use the standard assistant tool_calls followed by matching tool messages', async () => {
   const { ChatService } = await loadService();
   const requests = [];

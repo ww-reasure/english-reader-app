@@ -30,7 +30,7 @@ function openVersion12(name) {
   });
 }
 
-test('v14 adds AI cache alongside catalog metadata without modifying existing articles or study words', async () => {
+test('v17 adds AI cache and exam stores alongside catalog metadata without modifying existing articles or study words', async () => {
   globalThis.indexedDB = indexedDB;
   const module = await loadDatabaseModule();
   const name = `EnglishReaderCatalogUpgrade-${process.pid}-${sequence++}`;
@@ -46,9 +46,16 @@ test('v14 adds AI cache alongside catalog metadata without modifying existing ar
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 14);
+  assert.equal(upgraded.version, 17);
   assert.equal(upgraded.objectStoreNames.contains('articleCatalog'), true);
   assert.equal(upgraded.objectStoreNames.contains('aiCache'), true);
+  for (const storeName of [
+    'examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions',
+    'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks',
+    'examTranslationReviews'
+  ]) {
+    assert.equal(upgraded.objectStoreNames.contains(storeName), true, storeName);
+  }
   upgraded.close();
 
   assert.equal((await module.DB.getArticle(7)).title, 'Keep me');

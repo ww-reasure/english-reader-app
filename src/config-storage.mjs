@@ -14,6 +14,7 @@ export const CONFIG_STORAGE_KEYS = [
   'target_track_selection_required',
   'calibration_status',
   'lexicon_version',
+  'exam_word_lookup_enabled',
   'assessment_done',
   'assessment_profile',
   'assessment_date',

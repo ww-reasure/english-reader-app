@@ -13,6 +13,24 @@ test('maps article routes to the bookshelf drawer item', async () => {
   assert.equal(AppShell.getRouteMeta('#/history').title, '阅读记录');
 });
 
+test('maps the exam route to a dedicated drawer item', async () => {
+  const { AppShell } = await loadShell();
+  assert.deepEqual(AppShell.getRouteMeta('#/exam'), { navKey: 'exam', title: '真题训练', headerMode: 'drawer' });
+});
+
+test('maps practice and result routes to the exam drawer item', async () => {
+  const { AppShell } = await loadShell();
+  assert.deepEqual(AppShell.getRouteMeta('#/exam/practice/attempt_1'), { navKey: 'exam', title: '真题练习', headerMode: 'back' });
+  assert.deepEqual(AppShell.getRouteMeta('#/exam/result/attempt_1'), { navKey: 'exam', title: '练习结果', headerMode: 'back' });
+});
+
+test('catalog, review and history use back navigation instead of the global drawer', async () => {
+  const { AppShell } = await loadShell();
+  assert.equal(AppShell.getRouteMeta('#/exam/review').headerMode, 'back');
+  assert.equal(AppShell.getRouteMeta('#/exam/history').headerMode, 'back');
+  assert.equal(AppShell.getRouteMeta('#/exam/catalog/reading_mcq').headerMode, 'back');
+});
+
 test('keeps flashcard review in the standard English Learning header', async () => {
   const { AppShell } = await loadShell();
   const meta = AppShell.getRouteMeta('#/flashcard');

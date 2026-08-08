@@ -17,13 +17,21 @@ import { ReportView } from './views/report.js';
 import { AssessmentView } from './views/assessment.js';
 import { CalibrationView } from './views/calibration.js';
 import { ReadingListView } from './views/reading-list.js';
+import { ExamHomeView } from './views/exam-home.js';
+import { ExamPracticeView } from './views/exam-practice.js';
+import { ExamResultView } from './views/exam-result.js';
+import { ExamReviewView } from './views/exam-review.js';
+import { ExamCatalogView } from './views/exam-catalog.js';
+import { ExamHistoryView } from './views/exam-history.js';
 import { AppShell } from './components/app-shell.js';
 import { RouteHistory } from './components/route-history.js';
 import { WordStudyDetail } from './components/word-study-detail.js';
 
+// exam/catalog/:type and exam/history are kept within the exam module.
+
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView, ReviewModeView, ContextReviewView,
-  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView
+  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView, ExamHomeView, ExamPracticeView, ExamResultView, ExamReviewView, ExamCatalogView, ExamHistoryView
 };
 
 export const Router = {
@@ -31,12 +39,14 @@ export const Router = {
   routeHistory: null,
 
   // Views that have cleanup methods
-  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView'],
+  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView', 'ExamHomeView', 'ExamPracticeView', 'ExamResultView', 'ExamReviewView', 'ExamCatalogView', 'ExamHistoryView'],
 
   // Cleanup current view before navigation
-  cleanupCurrentView() {
+  async cleanupCurrentView() {
     WordStudyDetail.close();
-    if (this.currentView && typeof this.currentView.cleanup === 'function') this.currentView.cleanup();
+    if (this.currentView && typeof this.currentView.cleanup === 'function') {
+      await this.currentView.cleanup();
+    }
     AppShell.cleanup();
     this.currentView = null;
   },
@@ -47,7 +57,7 @@ export const Router = {
     const app = document.getElementById('app');
 
     // Cleanup previous view's event listeners
-    this.cleanupCurrentView();
+    await this.cleanupCurrentView();
 
     let view;
     let args = [];
@@ -92,6 +102,32 @@ export const Router = {
       case hash === '#/reading-list':
         view = ReadingListView;
         break;
+      case hash === '#/exam':
+        view = ExamHomeView;
+        break;
+      case hash === '#/exam/review':
+        view = ExamReviewView;
+        break;
+      case hash === '#/exam/history':
+        view = ExamHistoryView;
+        break;
+      case /^#\/exam\/catalog\//.test(hash): {
+        view = ExamCatalogView;
+        const [, type] = hash.match(/^#\/exam\/catalog\/([^/]+)$/) || [];
+        args = [decodeURIComponent(type || '')];
+        break;
+      }
+      case /^#\/exam\/practice\//.test(hash): {
+        view = ExamPracticeView;
+        const [, attemptId, mode] = hash.match(/^#\/exam\/practice\/([^/]+)(?:\/(explanation))?$/) || [];
+        args = [decodeURIComponent(attemptId || ''), mode || null];
+        break;
+      }
+      case /^#\/exam\/result\//.test(hash): {
+        view = ExamResultView;
+        args = [decodeURIComponent(hash.split('/').pop())];
+        break;
+      }
       case hash === '#/profile':
         view = StatsView;
         break;
@@ -99,7 +135,7 @@ export const Router = {
         view = ChatView;
     }
 
-    const outlet = AppShell.mount(app, AppShell.getRouteMeta(hash), hash === '#/chat' ? 'chat' : 'standard');
+    const outlet = AppShell.mount(app, AppShell.getRouteMeta(hash), hash === '#/chat' ? 'chat' : 'standard', hash);
     await view.render(outlet, ...args);
     this.currentView = view;
   },

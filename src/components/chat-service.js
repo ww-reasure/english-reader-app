@@ -38,7 +38,7 @@ export class ChatService {
     this.controllers.delete(key);
   }
 
-  async ask({ sessionKey, session, userMessage, kind, pageContext = null, tools = LEARNING_TOOLS, executeTool = null }) {
+  async ask({ sessionKey, session, userMessage, kind, pageContext = null, tools = LEARNING_TOOLS, executeTool = null, responseFormat = null, temperature = null }) {
     this.cancel(sessionKey);
     const controller = new AbortController();
     this.controllers.set(sessionKey, controller);
@@ -53,7 +53,12 @@ export class ChatService {
       toolResults: toolResults || []
     });
     const call = async (messages, requestTools, phase) => {
-      const options = { tools: requestTools || [], signal: controller.signal };
+      const options = {
+        tools: requestTools || [],
+        signal: controller.signal,
+        ...(responseFormat ? { responseFormat } : {}),
+        ...(Number.isFinite(temperature) ? { temperature } : {})
+      };
       const completion = typeof this.api.chatCompletion === 'function'
         ? await this.api.chatCompletion(messages, options)
         : { message: await this.api.chat(messages, options), usage: null };

@@ -63,7 +63,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 14, // v14: versioned AI material cache
+  DB_VERSION: 17, // v17: exam review scheduling indexes and legacy due normalization
 
   // Open database connection with retry
   open(retries = 3) {
@@ -188,6 +188,133 @@ export const DB = {
           const store = db.createObjectStore('aiCache', { keyPath: 'key' });
           store.createIndex('updatedAt', 'updatedAt');
           store.createIndex('sizeBytes', 'sizeBytes');
+        }
+
+        // v14: exam practice content domain. These stores are additive and
+        // only hold versioned question-bank content; user practice state will
+        // be added in later phases and must never be replaced by pack upgrades.
+        if (!db.objectStoreNames.contains('examPackMeta')) {
+          const store = db.createObjectStore('examPackMeta', { keyPath: 'packageId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+        }
+        if (!db.objectStoreNames.contains('examBanks')) {
+          const store = db.createObjectStore('examBanks', { keyPath: 'bankId' });
+          store.createIndex('examId', 'examId');
+        }
+        if (!db.objectStoreNames.contains('examPapers')) {
+          const store = db.createObjectStore('examPapers', { keyPath: 'contentId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('packageId', 'packageId');
+          store.createIndex('paperKey', 'paperKey');
+        }
+        if (!db.objectStoreNames.contains('examUnits')) {
+          const store = db.createObjectStore('examUnits', { keyPath: 'contentId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('packageId', 'packageId');
+          store.createIndex('paperKey', 'paperKey');
+          store.createIndex('unitKey', 'unitKey');
+        }
+        if (!db.objectStoreNames.contains('examQuestions')) {
+          const store = db.createObjectStore('examQuestions', { keyPath: 'contentId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('packageId', 'packageId');
+          store.createIndex('paperKey', 'paperKey');
+          store.createIndex('unitKey', 'unitKey');
+          store.createIndex('questionKey', 'questionKey');
+        }
+
+        // v15: user practice state. These stores are deliberately separate
+        // from content stores so pack upgrades never touch learning history.
+        if (!db.objectStoreNames.contains('examAttempts')) {
+          const store = db.createObjectStore('examAttempts', { keyPath: 'attemptId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('packageId', 'packageId');
+          store.createIndex('paperKey', 'paperKey');
+          store.createIndex('unitKey', 'unitKey');
+          store.createIndex('status', 'status');
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('examResponses')) {
+          const store = db.createObjectStore('examResponses', { keyPath: 'responseId' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('attemptId', 'attemptId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('packageId', 'packageId');
+          store.createIndex('paperKey', 'paperKey');
+          store.createIndex('unitKey', 'unitKey');
+          store.createIndex('questionKey', 'questionKey');
+        }
+        if (!db.objectStoreNames.contains('examWrongStates')) {
+          const store = db.createObjectStore('examWrongStates', { keyPath: 'key' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('questionKey', 'questionKey');
+          store.createIndex('status', 'status');
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains('examBookmarks')) {
+          const store = db.createObjectStore('examBookmarks', { keyPath: 'key' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('questionKey', 'questionKey');
+          store.createIndex('createdAt', 'createdAt');
+        }
+
+        // v16: translation learning status. This is deliberately separate
+        // from objective wrong states because translation has no correctness
+        // grade and its three states are user mastery labels.
+        if (!db.objectStoreNames.contains('examTranslationReviews')) {
+          const store = db.createObjectStore('examTranslationReviews', { keyPath: 'key' });
+          store.createIndex('examId', 'examId');
+          store.createIndex('bankId', 'bankId');
+          store.createIndex('paperKey', 'paperKey');
+          store.createIndex('unitKey', 'unitKey');
+          store.createIndex('questionKey', 'questionKey');
+          store.createIndex('status', 'status');
+          store.createIndex('updatedAt', 'updatedAt');
+        }
+
+        // v17: review scheduling is additive. Compound indexes make due
+        // queries bounded by exam and lifecycle state; legacy active states
+        // without a due time enter today's queue without rewriting history.
+        if (e.oldVersion < 17) {
+          const migrationTime = Date.now();
+          const wrongStates = e.target.transaction.objectStore('examWrongStates');
+          const translationReviews = e.target.transaction.objectStore('examTranslationReviews');
+          if (!wrongStates.indexNames.contains('examIdStatusNextDueAt')) {
+            wrongStates.createIndex('examIdStatusNextDueAt', ['examId', 'status', 'nextDueAt']);
+          }
+          if (!translationReviews.indexNames.contains('examIdStatusNextDueAt')) {
+            translationReviews.createIndex('examIdStatusNextDueAt', ['examId', 'status', 'nextDueAt']);
+          }
+
+          const cursorRequest = wrongStates.openCursor();
+          cursorRequest.onsuccess = () => {
+            const cursor = cursorRequest.result;
+            if (!cursor) return;
+            const row = cursor.value;
+            if (row.status !== 'mastered' && row.nextDueAt == null) {
+              cursor.update({
+                ...row,
+                status: 'active',
+                nextDueAt: migrationTime,
+                independentCorrectStreak: Number(row.independentCorrectStreak) || 0,
+                firstAddedAt: row.firstAddedAt || row.createdAt || row.updatedAt || migrationTime,
+                originAttemptId: row.originAttemptId || null,
+                lastReviewedAt: row.lastReviewedAt ?? null,
+                lastReviewAttemptId: row.lastReviewAttemptId ?? null,
+                lastIndependentCorrectAt: row.lastIndependentCorrectAt ?? null,
+                masteredAt: row.masteredAt ?? null,
+                updatedAt: migrationTime
+              });
+            }
+            cursor.continue();
+          };
         }
 
         // v10 is intentionally a field-only migration. Existing derived

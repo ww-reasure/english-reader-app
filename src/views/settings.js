@@ -14,6 +14,7 @@ export const SettingsView = {
   // Render settings page
   render(container) {
     const currentTheme = Config.get('theme') || 'light';
+    const examWordLookupEnabled = Config.get('exam_word_lookup_enabled') !== 'false';
     const storedTrack = Config.get('exam_level');
     const targetMigrationRequired = Config.get('target_track_selection_required') === 'true' || storedTrack === 'graduate';
     // A legacy or unselected target must remain visibly unselected. Falling
@@ -91,6 +92,21 @@ export const SettingsView = {
           <p class="settings-desc">这是你想练习的固定目标；阅读匹配方式只改变材料的相对压力，不会替你更改目标考试。</p>
           <div class="settings-options">
             ${trackOptions}
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h2 class="settings-section-title">真题练习</h2>
+          <div class="settings-switch-row">
+            <div class="settings-switch-copy">
+              <strong>做题时点词翻译</strong>
+              <span>控制作答过程中的英文点词查词；提交后查看解析时始终可用。</span>
+            </div>
+            <label class="settings-switch-control">
+              <span class="sr-only">做题时点词翻译</span>
+              <input id="settingsExamWordLookup" type="checkbox" role="switch" aria-checked="${examWordLookupEnabled ? 'true' : 'false'}" ${examWordLookupEnabled ? 'checked' : ''}>
+              <b id="settingsExamWordLookupState">${examWordLookupEnabled ? '开' : '关'}</b>
+            </label>
           </div>
         </div>
 
@@ -234,6 +250,16 @@ export const SettingsView = {
       radio.addEventListener('change', (e) => {
         Theme.apply(e.target.value);
       });
+    });
+
+    const findInContainer = selector => typeof container.querySelector === 'function' ? container.querySelector(selector) : null;
+    const examWordLookupToggle = findInContainer('#settingsExamWordLookup');
+    examWordLookupToggle?.addEventListener('change', event => {
+      const enabled = Boolean(event.target.checked);
+      event.target.setAttribute('aria-checked', String(enabled));
+      const state = findInContainer('#settingsExamWordLookupState');
+      if (state) state.textContent = enabled ? '开' : '关';
+      void Config.set('exam_word_lookup_enabled', String(enabled));
     });
 
     // Load cache info

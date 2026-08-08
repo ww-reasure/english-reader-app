@@ -7,7 +7,6 @@ import { DB } from '../db.js';
 import { DIFFICULTY_LABELS, esc, getStemForm, ReadingTimer } from '../helpers.js';
 import { Tooltip } from '../components/tooltip.js';
 import { AIAnalysis } from '../components/ai-analysis.js';
-import { Dictionary } from '../dictionary.js';
 import { AudioCache } from '../audio-cache.js';
 import { Config, ARTICLE_SERVER_URL } from '../config.js';
 import { Modal } from '../components/modal.js';
@@ -23,9 +22,9 @@ import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
 import { SentenceGuide } from '../components/sentence-guide.js';
-import { ContextualSense } from '../components/contextual-sense.js';
 import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
+import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -116,21 +115,11 @@ export const ReadingView = {
 
   cleanup() {
     this.closeSentenceGuide({ restoreReading: false });
-    if (this._globalClickHandler) {
-      document.removeEventListener('click', this._globalClickHandler);
-      this._globalClickHandler = null;
-    }
-    if (this._audioClickHandler) {
-      document.removeEventListener('click', this._audioClickHandler);
-      this._audioClickHandler = null;
-    }
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = null;
     if (this._reviewRatedHandler) {
       document.removeEventListener('review-rated', this._reviewRatedHandler);
       this._reviewRatedHandler = null;
-    }
-    if (this._tooltipDismissCleanup) {
-      this._tooltipDismissCleanup();
-      this._tooltipDismissCleanup = null;
     }
     Tooltip.hide();
     AIAnalysis.clearArticleContext();
@@ -308,15 +297,45 @@ export const ReadingView = {
     if (!articleBody && !titleLookupHost) return;
     const articleTrack = resolveArticleTrack(this.articleData || {});
 
-    this._globalClickHandler = (e) => {
-      const tooltip = document.getElementById('wordTooltip');
-      if (!tooltip || tooltip.style.display === 'none') return;
-      if (tooltip.contains(e.target)) return;
-      Tooltip.hide();
-      AIAnalysis.hideButton();
-    };
-    document.addEventListener('click', this._globalClickHandler);
-    this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
+    const lookupRoot = this.container?.querySelector('.reading-container') || articleBody || titleLookupHost;
+    this._wordLookupCleanup = bindReadingStyleWordLookup({
+      root: lookupRoot,
+      getContextSentence: event => this.getLookupSentence(event) || (event.target.closest?.('#readingTitleLookup') ? this.articleData?.title || '' : ''),
+      getTargetTrack: () => articleTrack.targetTrack,
+      isReviewWord: word => this.reviewMode && this.reviewWordsMap.has(getStemForm(word.toLowerCase())),
+      shouldIgnoreClick: event => {
+        if (!event.target?.closest?.('#articleBody') || !AIAnalysis.ignoreNextArticleClick) return false;
+        AIAnalysis.ignoreNextArticleClick = false;
+        return true;
+      },
+      onHide: () => AIAnalysis.hideButton(),
+      onShown: ({ event, word, data, reviewWord, lookupId }) => {
+        const stem = getStemForm(word.toLowerCase());
+        void knowledgeEvidenceBridge.recordLookup({
+          word,
+          source: 'reading-word-lookup',
+          articleId: this.articleData?.id,
+          attemptId: `reading-lookup:${this.articleData?.id || 'article'}:${lookupId}`,
+          contextId: `tooltip:${lookupId}`
+        });
+
+        if (!event?.target?.closest?.('#articleBody') || this.clickedWords.some(item => item.stem === stem)) return;
+        this.clickedWords.push({
+          word: word.toLowerCase(),
+          stem,
+          translation: getSavableTranslation(data),
+          phonetic: data.phonetic || '',
+          pos: data.pos || '',
+          definitionSenses: getDefinitionSenses(data),
+          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+          definitionLexiconVersion: data.lexiconVersion || '',
+          freqLevel: data.freqLevel || 'unknown',
+          isReviewWord: reviewWord,
+          quality: reviewWord ? 3 : null,
+          explicitRating: false
+        });
+      }
+    });
 
     // Listen for review rating events from tooltip
     this._reviewRatedHandler = (e) => {
@@ -329,153 +348,11 @@ export const ReadingView = {
     };
     document.addEventListener('review-rated', this._reviewRatedHandler);
 
-    const lookupWord = async (e, { allowSentenceAnalysis = false, recordLookup = false } = {}) => {
-      // Long press 的 synthetic click 不能触发查词或关闭刚出现的“问 AI”按钮
-      if (allowSentenceAnalysis && AIAnalysis.ignoreNextArticleClick) {
-        AIAnalysis.ignoreNextArticleClick = false;
-        e.stopPropagation();
-        return;
-      }
-      const tooltip = document.getElementById('wordTooltip');
-      if (tooltip?.contains(e.target)) return;
-      // 阅读控件本身不应触发基于 caret 的查词
-      if (e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
-
-      // 卡片打开时，正文第一次点击只负责收起，不立即查询其他单词。
-      if (Tooltip.isVisible()) {
-        e.stopPropagation();
-        Tooltip.hide();
-        AIAnalysis.hideButton();
-        return;
-      }
-
-      const word = Tooltip.getWordAtPoint(e);
-      if (!word || word.length < 2) return;
-      e.stopPropagation();
-
-      AIAnalysis.hideButton();
-      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
-
-      try {
-        const data = await Dictionary.lookup(word);
-        const contextSentence = this.getLookupSentence(e) || (e.target.closest?.('#readingTitleLookup') ? this.articleData?.title || '' : '');
-        const stem = getStemForm(word.toLowerCase());
-        const isReviewWord = this.reviewMode && this.reviewWordsMap.has(stem);
-
-        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, {
-          contextSentence,
-          targetTrack: articleTrack.targetTrack
-        });
-        if (!shown) return;
-
-        const senses = getDefinitionSenses(data);
-        if (contextSentence && senses.length) {
-          void ContextualSense.resolve({
-            word: data.baseForm || data.word || word,
-            sentence: contextSentence,
-            senses,
-            lexiconVersion: data.lexiconVersion || ''
-          }).then(contextualSense => {
-            if (!contextualSense || !Tooltip.isCurrent(lookupId)) return;
-            return Tooltip.show(lookupId, e.clientX, e.clientY, data, isReviewWord, {
-              contextSentence,
-              targetTrack: articleTrack.targetTrack,
-              contextualSenseIndex: contextualSense.senseIndex,
-              contextualSenseReason: contextualSense.reasonZh
-            });
-          }).catch(() => {});
-        }
-
-        // An intentional lookup is evidence of current uncertainty. It is
-        // separate from saving/favouriting a word and becomes a no-op until
-        // the versioned lexicon can assign an audited frequency band.
-        void knowledgeEvidenceBridge.recordLookup({
-          word,
-          source: 'reading-word-lookup',
-          articleId: this.articleData?.id,
-          attemptId: `reading-lookup:${this.articleData?.id || 'article'}:${lookupId}`,
-          contextId: `tooltip:${lookupId}`
-        });
-
-        if (recordLookup && !this.clickedWords.some(w => w.stem === stem)) {
-          this.clickedWords.push({
-            word: word.toLowerCase(),
-            stem,
-            translation: getSavableTranslation(data),
-            phonetic: data.phonetic || '',
-            pos: data.pos || '',
-            definitionSenses: getDefinitionSenses(data),
-            definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-            definitionLexiconVersion: data.lexiconVersion || '',
-            freqLevel: data.freqLevel || 'unknown',
-            isReviewWord,
-            quality: isReviewWord ? 3 : null,
-            explicitRating: false
-          });
-        }
-      } catch {
-        if (Tooltip.isCurrent(lookupId)) {
-          Tooltip.showError(lookupId, e.clientX, e.clientY, '暂时无法查询，请稍后重试');
-        }
-      }
-    };
-
-    const titleLookupHandler = e => {
-      e.stopPropagation();
-      lookupWord(e);
-    };
-
-    if (articleBody) {
-      articleBody.addEventListener('click', e => lookupWord(e, { allowSentenceAnalysis: true, recordLookup: true }));
-    }
-    titleLookupHost?.addEventListener('click', titleLookupHandler);
-
-    // Audio button click (direct binding in tooltip.js, this is backup)
-    this._audioClickHandler = (e) => {
-      const btn = e.target.closest('.btn-speak');
-      if (btn) {
-        e.preventDefault();
-        e.stopPropagation();
-        const word = btn.getAttribute('data-word');
-        if (word && window.AudioCache) {
-          window.AudioCache.getAudio(word).catch(err => console.warn('Audio play failed:', err));
-        }
-      }
-    };
-    document.addEventListener('click', this._audioClickHandler);
-
     if (articleBody) AIAnalysis.initSelectionDetection(articleBody);
   },
 
   getLookupSentence(e) {
-    let range;
-    if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    else if (document.caretPositionFromPoint) {
-      const position = document.caretPositionFromPoint(e.clientX, e.clientY);
-      if (position) {
-        range = document.createRange();
-        range.setStart(position.offsetNode, position.offset);
-        range.setEnd(position.offsetNode, position.offset);
-      }
-    }
-    const pointNode = range?.startContainer;
-    const element = pointNode?.nodeType === Node.TEXT_NODE ? pointNode.parentElement : pointNode;
-    const paragraph = element?.closest?.('.en-paragraph');
-    if (!paragraph || !pointNode || pointNode.nodeType !== Node.TEXT_NODE) return '';
-
-    const walker = document.createTreeWalker(paragraph, globalThis.NodeFilter?.SHOW_TEXT || 4);
-    const nodes = [];
-    let node;
-    while ((node = walker.nextNode())) nodes.push(node);
-    const offset = nodes.slice(0, nodes.indexOf(pointNode)).reduce((total, item) => total + item.textContent.length, 0) + range.startOffset;
-    const text = paragraph.textContent || '';
-    if (offset < 0 || offset > text.length) return '';
-    const before = text.slice(0, offset);
-    const sentenceStart = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?')) + 1;
-    const after = text.slice(offset);
-    const boundary = after.search(/[.!?](?=\s|$)/);
-    const sentenceEnd = boundary === -1 ? text.length : offset + boundary + 1;
-    return text.slice(sentenceStart, sentenceEnd).replace(/\s+/g, ' ').trim();
+    return getContextSentenceAtPoint(e, this.container);
   },
 
   async openSentenceGuide() {

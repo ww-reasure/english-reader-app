@@ -117,7 +117,7 @@ test('serializes native writes so a slow earlier save cannot overwrite later set
 });
 
 test('persists the separate target, recommendation and calibration migration settings', () => {
-  for (const key of ['reading_mode', 'target_track_selection_required', 'calibration_status', 'lexicon_version']) {
+  for (const key of ['reading_mode', 'target_track_selection_required', 'calibration_status', 'lexicon_version', 'exam_word_lookup_enabled']) {
     assert.ok(CONFIG_STORAGE_KEYS.includes(key), `${key} should survive the native-settings migration`);
   }
 });

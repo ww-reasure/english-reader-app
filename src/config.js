@@ -37,6 +37,7 @@ export const Config = {
     // `exam_level` is the fixed target; recommendation is stored separately.
     reading_mode: 'support',
     reading_word_marking: 'false',
+    exam_word_lookup_enabled: 'true',
     coverage: '97',
     new_word_percent: '3',
     target_track_selection_required: 'true',

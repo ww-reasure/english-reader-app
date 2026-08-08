@@ -12,7 +12,22 @@ test('Android build script selects the platform Gradle wrapper from the android 
   assert.deepEqual(getGradleCommand('win32'), { command: 'gradlew.bat', args: ['assembleDebug'] });
   assert.deepEqual(getGradleCommand('linux'), { command: './gradlew', args: ['assembleDebug'] });
   assert.match(getAndroidProjectDirectory(), /android$/);
-  assert.equal(packageJson.scripts['build:apk'], 'npm run build && node scripts/build-apk.js');
+  assert.equal(packageJson.scripts.dev, 'vite --mode private-qa');
+  assert.equal(packageJson.scripts.build, 'vite build --mode public && node scripts/release-artifact.mjs --dir www --flavor public && npx cap sync android');
+  assert.equal(packageJson.scripts['build:private-qa'], 'vite build --mode private-qa && node scripts/release-artifact.mjs --dir www --flavor private-qa && npx cap sync android');
+  assert.equal(packageJson.scripts['build:apk'], 'npm run build:private-qa && node scripts/build-apk.js --flavor private-qa');
+});
+
+test('APK build options require the private QA flavor and use the shared output root', () => {
+  const { parseBuildOptions, getReleaseApkPath } = require('../scripts/build-apk.js');
+
+  assert.deepEqual(parseBuildOptions(['node', 'scripts/build-apk.js', '--flavor', 'private-qa']), { flavor: 'private-qa' });
+  assert.throws(() => parseBuildOptions(['node', 'scripts/build-apk.js']), /--flavor private-qa/);
+  assert.throws(() => parseBuildOptions(['node', 'scripts/build-apk.js', '--flavor', 'public']), /--flavor private-qa/);
+  assert.match(
+    getReleaseApkPath({ projectDirectory: 'E:\\play\\claude\\english-reader\\mobile', version: '1.9.3', versionCode: 37, flavor: 'private-qa' }),
+    /EnglishReader-private-qa-v1\.9\.3-37-debug\.apk$/
+  );
 });
 
 test('legacy Capacitor libraries receive an Android namespace only when missing', () => {
@@ -46,7 +61,7 @@ test('minor releases rebuild the OEWN derivative after the lexicon and before ve
   );
   assert.equal(
     packageJson.scripts['release:preflight'],
-    'npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify'
+    'npm run security:audit && npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify'
   );
   assert.equal(packageJson.scripts['oewn:fetch'], 'node scripts/fetch-oewn-source.mjs');
   assert.equal(packageJson.scripts['oewn:build'], 'node scripts/build-oewn-artifact.mjs');

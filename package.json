@@ -4,9 +4,10 @@
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && npx cap sync android",
-    "build:apk": "npm run build && node scripts/build-apk.js",
+    "dev": "vite --mode private-qa",
+    "build": "vite build --mode public && node scripts/release-artifact.mjs --dir www --flavor public && npx cap sync android",
+    "build:private-qa": "vite build --mode private-qa && node scripts/release-artifact.mjs --dir www --flavor private-qa && npx cap sync android",
+    "build:apk": "npm run build:private-qa && node scripts/build-apk.js --flavor private-qa",
     "lexicon:fetch": "node scripts/fetch-lexicon-sources.mjs",
     "lexicon:build": "node scripts/build-lexicon.mjs",
     "lexicon:verify": "npm run lexicon:fetch && npm run lexicon:build",
@@ -14,13 +15,15 @@
     "exam-focus:verify": "node scripts/build-exam-focus.mjs",
     "exam-corpus:build": "node scripts/build-exam-corpus.mjs",
     "exam-corpus:verify": "node scripts/build-exam-corpus.mjs",
+    "exam-pack:build": "node scripts/build-exam-practice-pack.mjs",
     "oewn:fetch": "node scripts/fetch-oewn-source.mjs",
     "oewn:build": "node scripts/build-oewn-artifact.mjs",
     "oewn:verify": "npm run oewn:fetch && npm run oewn:build",
     "track-baseline:verify": "node scripts/verify-track-baselines.mjs",
+    "security:audit": "npm audit --omit=dev --audit-level=high && npm audit --audit-level=high",
     "version:patch": "node scripts/bump-version.js patch",
     "version:minor": "node scripts/bump-version.js minor",
-    "release:preflight": "npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify",
+    "release:preflight": "npm run security:audit && npm run exam-focus:verify && npm run exam-corpus:verify && npm run lexicon:verify && npm run oewn:verify && npm run track-baseline:verify",
     "release:patch": "npm run release:preflight && npm run version:patch && npm run build:apk",
     "release:minor": "npm run release:preflight && npm run version:minor && npm run build:apk",
     "preview": "vite preview"
@@ -42,7 +45,6 @@
     "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/android": "^8.4.2",
     "@capacitor/app": "^8.1.1",
-    "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "@fortawesome/fontawesome-free": "^7.3.1",
     "udpipe-wasm": "0.1.0",
@@ -56,7 +58,12 @@
     "url": "https://github.com/ww-reasure/english-reader-app/issues"
   },
   "homepage": "https://github.com/ww-reasure/english-reader-app#readme",
+  "overrides": {
+    "brace-expansion": "5.0.9",
+    "nanoid": "3.3.17"
+  },
   "devDependencies": {
+    "@capacitor/cli": "8.4.2",
     "@msgpack/msgpack": "3.1.2",
     "fake-indexeddb": "^6.2.5",
     "vite": "^8.0.16"

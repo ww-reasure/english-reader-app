@@ -7,13 +7,16 @@ async function readSource(relativePath) {
 }
 
 test('reading lookup supplies the full current sentence to a constrained contextual-sense resolver', async () => {
-  const reading = await readSource('../src/views/reading.js');
+  const [reading, lookup] = await Promise.all([
+    readSource('../src/views/reading.js'),
+    readSource('../src/components/reading-word-lookup.js')
+  ]);
 
-  assert.match(reading, /import\s+\{\s*ContextualSense\s*\}\s+from '\.\.\/components\/contextual-sense\.js';/);
+  assert.match(reading, /bindReadingStyleWordLookup/);
   assert.match(reading, /getLookupSentence\(e\)/);
-  assert.match(reading, /ContextualSense\.resolve\(\{/);
-  assert.match(reading, /sentence:\s*contextSentence/);
-  assert.match(reading, /Tooltip\.show\([^;]*contextSentence/s);
+  assert.match(lookup, /ContextualSense\.resolve\(\{/);
+  assert.match(lookup, /sentence:\s*contextSentence/);
+  assert.match(lookup, /Tooltip\.show\([^;]*contextSentence/s);
 });
 
 test('tooltip and full study detail display a selected in-sentence meaning without replacing full dictionary senses', async () => {
