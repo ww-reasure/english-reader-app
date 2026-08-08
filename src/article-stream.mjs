@@ -4,10 +4,25 @@ export function parseSseChunk(chunk = '', remainder = '') {
   const lines = `${String(remainder || '')}${String(chunk || '')}`.split(/\r?\n/);
   const nextRemainder = lines.pop() || '';
   const events = [];
+  let dataLines = [];
+  const flushEvent = () => {
+    if (dataLines.length) events.push(dataLines.join('\n'));
+    dataLines = [];
+  };
   for (const line of lines) {
-    if (!line.startsWith('data:')) continue;
-    events.push(line.slice(5).replace(/^\s/, ''));
+    if (!line) {
+      flushEvent();
+      continue;
+    }
+    // SSE comments are used by DeepSeek as keep-alive frames.
+    if (line.startsWith(':')) continue;
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).replace(/^\s/, ''));
+    }
   }
+  // DeepSeek normally terminates each event with a blank line, but flushing
+  // complete lines here keeps compatibility with gateways that omit it.
+  flushEvent();
   return { events, remainder: nextRemainder };
 }
 

@@ -566,28 +566,25 @@ export const FlashcardView = {
     this._exampleLookupHandler = async (e) => {
       const target = e.target instanceof Element ? e.target : null;
       if (!target || target.closest('.example-translate-btn')) return;
-      if (!target.closest('.flashcard-example-item p')) return;
+      const wordTarget = target.closest('[data-word-study-word]');
+      const sentence = target.closest('.flashcard-example-item p[data-example-text]');
+      if (!sentence) return;
 
-      // Opening another word is deliberately a second tap: the first one only
-      // closes the current card so readers do not accidentally change lookups.
-      if (Tooltip.isVisible()) {
-        e.stopPropagation();
-        Tooltip.hide();
-        return;
-      }
-
-      const word = Tooltip.getWordAtPoint(e);
+      const word = String(wordTarget?.dataset.wordStudyWord || Tooltip.getWordAtPoint(e) || '').trim();
       if (!word) return;
 
       e.stopPropagation();
+      e.preventDefault();
+      Tooltip.hide();
       const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
       try {
         const data = await Dictionary.lookup(word);
         await Tooltip.show(lookupId, e.clientX, e.clientY, data, false, {
-          targetTrack: Config.get('exam_level') || ''
+          targetTrack: Config.get('exam_level') || '',
+          contextSentence: sentence.textContent || ''
         });
       } catch {
-        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
+        if (Tooltip.isCurrent(lookupId)) Tooltip.showError(lookupId, e.clientX, e.clientY);
       }
     };
     root.addEventListener('click', this._exampleLookupHandler);

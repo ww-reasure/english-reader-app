@@ -13,6 +13,14 @@ test('parses SSE data lines across chunk boundaries and ignores the terminal mar
   assert.equal(second.remainder, '');
 });
 
+test('keeps one SSE event together across multiple data lines and ignores keep-alive comments', () => {
+  const parsed = parseSseChunk(
+    ': keep-alive\r\nevent: message\r\ndata: {"first":1}\r\ndata: {"second":2}\r\n\r\n'
+  );
+  assert.deepEqual(parsed.events, ['{"first":1}\n{"second":2}']);
+  assert.equal(parsed.remainder, '');
+});
+
 test('extracts confirmed article fields from a partial JSON response without treating it as final', () => {
   const draft = extractArticleDraft('{"title":"A short title","titleZh":"短标题","content":"First sentence. Second');
   assert.deepEqual(draft, {

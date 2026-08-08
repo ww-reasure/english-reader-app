@@ -1,5 +1,5 @@
 import { esc, getStemForm } from '../helpers.js';
-import { normalizeWordStudyExample } from './word-study-materials.mjs';
+import { normalizeWordStudyExample, renderWordStudyClickableSentence } from './word-study-materials.mjs';
 
 export function getHorizontalSwipeDirection({ startX, startY, endX, endY } = {}) {
   const deltaX = Number(endX) - Number(startX);
@@ -15,12 +15,10 @@ export function renderWordStudyDefinitionLine(line, className = 'flashcard-study
 
 export function renderHighlightedWordStudySentence(sentence, targetWord) {
   const targetStem = getStemForm(targetWord);
-  return String(sentence || '').split(/([A-Za-z]+(?:['’-][A-Za-z]+)*)/gu).map(part => {
-    if (!/^[A-Za-z]/u.test(part)) return esc(part);
-    const isTarget = getStemForm(part) === targetStem
-      || part.toLocaleLowerCase('en-US') === String(targetWord || '').toLocaleLowerCase('en-US');
-    return isTarget ? `<mark class="flashcard-focused-target">${esc(part)}</mark>` : esc(part);
-  }).join('');
+  return renderWordStudyClickableSentence(sentence, {
+    isHighlighted: part => getStemForm(part) === targetStem
+      || part.toLocaleLowerCase('en-US') === String(targetWord || '').toLocaleLowerCase('en-US')
+  });
 }
 
 function focusedExampleSourceLabel(example) {

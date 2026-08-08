@@ -80,7 +80,23 @@ test('true exam examples lead the example panel with an honest source and cached
   assert.match(html, /考研英语一 2024/);
   assert.match(html, /文章原文 · 第2段/);
   assert.match(html, /data-cached-translation="作者解释了政策为何发生变化。"/);
-  assert.match(html, /The author wrote a short note\./);
+  assert.match(html, /data-word-study-word="wrote"/);
+});
+
+test('all example sentences expose each English word as a lookup target', async () => {
+  const examples = [{
+    sentenceEn: 'The author explains policy changes.',
+    translationZh: '作者解释政策变化。'
+  }];
+
+  const fullList = renderWordStudyPanel({ activeTab: 'examples', examples, targetWord: 'explains' });
+  assert.match(fullList, /data-word-study-word="The"/);
+  assert.match(fullList, /data-word-study-word="explains"/);
+  assert.match(fullList, /word-study-inline-word/);
+
+  const stage = await read('../src/components/word-study-stage.mjs');
+  assert.match(stage, /renderWordStudyClickableSentence/);
+  assert.match(fullList, /data-word-study-word="policy"/);
 });
 
 test('all full word details share the focused study sheet while tooltip stays compact with a detail entry', async () => {
@@ -110,6 +126,10 @@ test('all full word details share the focused study sheet while tooltip stays co
   assert.match(detail, /flashcard-study-masthead/);
   assert.match(detail, /flashcard-study-tabs/);
   assert.match(detail, /flashcard-study-info-overlay/);
+  assert.match(detail, /Dictionary\.lookup\(word\)/);
+  assert.match(detail, /Tooltip\.show\(lookupId/);
+  assert.match(detail, /data-word-study-word/);
+  assert.match(detail, /Tooltip\.attachAutoDismiss\(\)/);
   assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto auto auto minmax\(0,1fr\)/s);
   assert.match(css, /\.flashcard-study-tabs\s*\{[^}]*overflow-x:auto/s);
 });

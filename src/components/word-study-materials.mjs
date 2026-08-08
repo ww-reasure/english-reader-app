@@ -60,6 +60,23 @@ export function mergeWordStudyExamples(examExamples = [], genericExamples = [], 
   return merged.slice(0, Math.max(0, Number.parseInt(limit, 10) || 0));
 }
 
+const WORD_TOKEN_PATTERN = /([A-Za-z]+(?:['’-][A-Za-z]+)*)/gu;
+
+/**
+ * Render an English sentence with every word as a lightweight lookup target.
+ * The wrapper intentionally stays a span so the sentence remains selectable
+ * and keeps the same typography/line wrapping as the surrounding paragraph.
+ */
+export function renderWordStudyClickableSentence(sentence, { isHighlighted = () => false } = {}) {
+  return String(sentence || '').split(WORD_TOKEN_PATTERN).map(part => {
+    if (!/^[A-Za-z]/u.test(part)) return esc(part);
+    const content = isHighlighted(part)
+      ? `<mark class="flashcard-focused-target">${esc(part)}</mark>`
+      : esc(part);
+    return `<span class="word-study-inline-word" data-word-study-word="${esc(part)}">${content}</span>`;
+  }).join('');
+}
+
 function examExampleLabel(example) {
   if (example.sourceKind === 'question') return '真题题干';
   if (example.sourceKind === 'passage') return '真题正文';
@@ -97,7 +114,7 @@ export function renderWordStudyPanel({
       return `
       <li class="word-study-example-item flashcard-example-item">
         ${example.isExam ? `<div class="word-study-example-source"><span>${esc(examExampleLabel(example))}</span>${sourceDetails ? `<small>${esc(sourceDetails)}</small>` : ''}</div>` : ''}
-        <p class="word-study-example-text flashcard-example-text" data-example-text>${esc(example.sentenceEn)}</p>
+        <p class="word-study-example-text flashcard-example-text" data-example-text>${renderWordStudyClickableSentence(example.sentenceEn)}</p>
         <button class="example-translate-btn" type="button" data-example-translate="${index}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''} title="翻译例句">译</button>
         <div class="example-translation" data-example-translation="${index}"></div>
       </li>`;

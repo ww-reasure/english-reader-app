@@ -224,8 +224,18 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /Dictionary\.lookup\(word\)/);
   assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:/s);
   assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
-  assert.match(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
+  assert.match(source, /data-word-study-word/);
+  assert.match(source, /Tooltip\.hide\(\);/);
   assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+});
+
+test('study example lookup can switch words after a tooltip is open and keeps sentence context', async () => {
+  const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
+
+  assert.match(source, /data-word-study-word/);
+  assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:[\s\S]*?contextSentence:/s);
+  assert.match(source, /Tooltip\.showError\(lookupId, e\.clientX, e\.clientY/);
+  assert.doesNotMatch(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
 });
 
 test('a recall card starts one cancellable automatic pronunciation', async () => {

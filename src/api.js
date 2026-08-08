@@ -38,9 +38,60 @@ const VOCABULARY_GUIDANCE = {
 const MAX_GENERATION_PREFERENCE_LENGTH = 2400;
 const MAX_VALIDATION_CORRECTION_LENGTH = 1800;
 const CONSERVATIVE_CORE_GUIDANCE = '- 材料构成硬性检查：至少 90% 的可词形还原词次来自可追溯核心频率层，且至少 80% 来自 NGSL 1-3 层；NGSL 4 及以上词次不超过 12%。这些是材料来源约束，不是学习者掌握率。';
+const ARTICLE_MAX_TOKENS = 4096;
+const REVIEW_ARTICLE_MAX_TOKENS = 3072;
 
 const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
 const CHINESE_TEXT = /[\u3400-\u9fff]/u;
+
+const isDeepSeekV4Model = model => /^deepseek-v4-(?:flash|pro)(?:$|[-:])/i.test(String(model || '').trim());
+
+/**
+ * V4 enables thinking by default. Structured article/material requests do not
+ * need a reasoning transcript, so explicitly disable it to reduce time to the
+ * first content delta. Unknown/custom providers receive no V4-only fields.
+ */
+export const getDeepSeekRequestControls = (model, { thinking = null, maxTokens = null, stream = false } = {}) => {
+  const controls = {};
+  if (isDeepSeekV4Model(model) && thinking) controls.thinking = { type: thinking };
+  if (Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0) {
+    controls.max_tokens = Math.floor(Number(maxTokens));
+  }
+  if (stream) {
+    controls.stream = true;
+    controls.stream_options = { include_usage: true };
+  }
+  return controls;
+};
+
+const apiUrl = (baseUrl, endpoint) => {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const path = String(endpoint || '').startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${base}${path}`;
+};
+
+const articleFromCompletion = (data, difficulty, topic) => {
+  const rawContent = data?.choices?.[0]?.message?.content;
+  if (typeof rawContent !== 'string' || !rawContent.trim()) throw new Error('文章 JSON 内容为空');
+  let result;
+  try {
+    result = JSON.parse(rawContent);
+  } catch {
+    throw new Error('文章 JSON 格式无效');
+  }
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error('文章 JSON 格式无效');
+  }
+  return {
+    title: typeof result.title === 'string' && result.title.trim() ? result.title.trim() : 'Untitled',
+    titleZh: typeof result.titleZh === 'string' ? result.titleZh.trim() : '',
+    content: typeof result.content === 'string' ? result.content : '',
+    translation: typeof result.translation === 'string' ? result.translation : '',
+    difficulty,
+    topic,
+    wordCount: (typeof result.content === 'string' ? result.content : '').split(/\s+/).filter(Boolean).length
+  };
+};
 
 function validChineseTranslation(value) {
   const translation = String(value || '').trim();
@@ -197,11 +248,14 @@ export const API = {
 
     return `你是一位专业的英语阅读教练，擅长编写目标考试导向训练材料。请严格按照可审计的生成规格生成文章。
 
-请以 JSON 格式回复，包含以下字段：
+请以 JSON（json object）格式回复，且只输出一个合法的 json 对象，包含以下字段：
 - "title": 英文文章标题（简短，学术风格）
 - "titleZh": 文章标题的自然中文翻译
 - "content": 完整的英文文章，段落之间用双换行分隔
 - "translation": 完整的中文翻译，段落结构与英文一一对应，段落之间用双换行分隔
+
+示例结构（仅示意字段，不要照抄示例内容）：
+{"title":"Example title","titleZh":"示例标题","content":"English article text.","translation":"中文文章翻译。"}
 
 ${rules}
 
@@ -236,13 +290,19 @@ ${personalizationGuidance}
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const resp = await fetch(`${baseUrl}${endpoint}`, {
+      const resp = await fetch(apiUrl(baseUrl, endpoint), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
         },
-        body: JSON.stringify({ model, ...body }),
+        body: JSON.stringify({
+          model,
+          ...body,
+          ...(body?.response_format?.type === 'json_object' && !body?.thinking
+            ? getDeepSeekRequestControls(model, { thinking: 'disabled' })
+            : {})
+        }),
         signal: controller.signal
       });
 
@@ -292,14 +352,21 @@ ${personalizationGuidance}
     }
 
     try {
-      const response = await fetch(`${baseUrl}${endpoint}`, {
+      const requestBody = {
+        model,
+        ...body,
+        ...(body?.response_format?.type === 'json_object' && !body?.thinking
+          ? getDeepSeekRequestControls(model, { thinking: 'disabled' })
+          : {})
+      };
+      const response = await fetch(apiUrl(baseUrl, endpoint), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
           'Accept': 'text/event-stream'
         },
-        body: JSON.stringify({ model, ...body, stream: true }),
+        body: JSON.stringify({ ...requestBody, stream: true }),
         signal: controller.signal
       });
       if (!response.ok) {
@@ -307,12 +374,24 @@ ${personalizationGuidance}
         error.streamUnsupported = [400, 404, 405, 415, 422].includes(response.status);
         throw error;
       }
+      const contentType = response.headers?.get?.('content-type') || '';
+      if (contentType && !/text\/event-stream/i.test(contentType)) {
+        const raw = await response.text();
+        let payload;
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          throw new Error('流式响应格式无效');
+        }
+        return { usage: payload?.usage || null, payload };
+      }
       if (!response.body?.getReader) return null;
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let remainder = '';
       let usage = null;
+      let finishReason = null;
       let done = false;
 
       while (!done) {
@@ -340,6 +419,7 @@ ${personalizationGuidance}
                 continue;
               }
               if (event.usage) usage = event.usage;
+              finishReason = event?.choices?.[0]?.finish_reason || finishReason;
               if (typeof onEvent === 'function') onEvent(event);
             }
             done = true;
@@ -359,6 +439,7 @@ ${personalizationGuidance}
                 continue;
               }
               if (event.usage) usage = event.usage;
+              finishReason = event?.choices?.[0]?.finish_reason || finishReason;
               if (typeof onEvent === 'function') onEvent(event);
             }
           }
@@ -366,7 +447,7 @@ ${personalizationGuidance}
           if (idleTimer) clearTimeout(idleTimer);
         }
       }
-      return { usage };
+      return { usage, finishReason };
     } catch (error) {
       if (error.name === 'AbortError') {
         throw new Error(signal?.aborted ? '请求已取消' : '流式请求已中断');
@@ -413,19 +494,11 @@ ${personalizationGuidance}
         }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.7
+      temperature: 0.7,
+      max_tokens: options.maxTokens || (options.reviewMode ? REVIEW_ARTICLE_MAX_TOKENS : ARTICLE_MAX_TOKENS),
+      ...getDeepSeekRequestControls(Config.get('model'), { thinking: 'disabled' })
     }, 60000, signal);
-
-    const result = JSON.parse(data.choices[0].message.content);
-    return {
-      title: result.title || 'Untitled',
-      titleZh: typeof result.titleZh === 'string' ? result.titleZh.trim() : '',
-      content: result.content || '',
-      translation: result.translation || '',
-      difficulty,
-      topic,
-      wordCount: (result.content || '').split(/\s+/).length
-    };
+    return articleFromCompletion(data, difficulty, topic);
   },
 
   async generateArticleStream(prompt, difficulty, topic, keywords, wordCount = 400, learningContext = '', options = {}) {
@@ -464,15 +537,20 @@ ${personalizationGuidance}
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7,
-      stream: true,
-      stream_options: { include_usage: true }
+      max_tokens: options.maxTokens || (options.reviewMode ? REVIEW_ARTICLE_MAX_TOKENS : ARTICLE_MAX_TOKENS),
+      ...getDeepSeekRequestControls(Config.get('model'), {
+        thinking: 'disabled',
+        maxTokens: options.maxTokens || (options.reviewMode ? REVIEW_ARTICLE_MAX_TOKENS : ARTICLE_MAX_TOKENS),
+        stream: true
+      })
     };
 
+    let streamResult = null;
     try {
-      const result = await this.fetchStream(
+      streamResult = await this.fetchStream(
         '/chat/completions',
         requestBody,
-        options.idleTimeoutMs || 45000,
+        options.idleTimeoutMs || 60000,
         options.signal || null,
         event => {
           const delta = event?.choices?.[0]?.delta?.content;
@@ -482,6 +560,7 @@ ${personalizationGuidance}
           }
         }
       );
+      if (streamResult?.payload) return articleFromCompletion(streamResult.payload, difficulty, topic);
       // Some gateways answer with a normal JSON 200 response even though the
       // request asked for SSE. Treat the absence of any delta as an
       // unsupported stream and reuse the non-streaming path instead of trying
@@ -496,6 +575,7 @@ ${personalizationGuidance}
       throw error;
     }
 
+    if (streamResult?.finishReason === 'length') throw new Error('文章流式输出被截断，请重试');
     const article = parser.finish();
     return {
       ...article,
