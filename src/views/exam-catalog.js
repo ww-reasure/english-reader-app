@@ -1,16 +1,9 @@
 import { createExamServices } from '../exam/create-services.js';
-import { buildExamCatalog, selectRandomUnit } from '../exam/catalog.mjs';
-import { filterVisibleExamPapers, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
+import { buildExamCatalog, selectRandomPaper, selectRandomUnit } from '../exam/catalog.mjs';
+import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
 import { installExamPack } from '../exam/pack-installer.mjs';
 import { esc } from '../helpers.js';
-
-const TYPE_META = {
-  cloze_choice: { title: '完形填空', subtitle: 'Section I' },
-  reading_mcq: { title: '阅读理解', subtitle: 'Section II Part A' },
-  paragraph_ordering: { title: '段落排序', subtitle: 'Section II Part B' },
-  translation: { title: '翻译', subtitle: 'Section II Part C' }
-};
 
 async function installPrivatePacks(services) {
   const response = await fetch('/exam-packs/private/index.json');
@@ -65,28 +58,37 @@ function getUnitProgress(unit, attemptRows) {
   return { answered: current.answered, total: current.total, percent: Math.round(current.answered / current.total * 100), status: current.attempt.status === 'submitted' ? '已完成' : '进行中' };
 }
 
-function yearProgress(group, progressByUnit) {
-  const totals = group.units.reduce((result, unit) => {
-    const progress = progressByUnit.get(unitProgressKey(unit)) || { answered: 0, total: unit.questions.length };
-    result.answered += progress.answered;
-    result.total += progress.total;
-    result.inProgress ||= progress.status === '进行中';
-    return result;
-  }, { answered: 0, total: 0, inProgress: false });
-  return { ...totals, status: totals.inProgress ? '进行中' : totals.answered === totals.total && totals.total ? '已完成' : '未开始' };
+function unitHtml(unit, progressByUnit) {
+  const progress = progressByUnit.get(unitProgressKey(unit)) || { answered: 0, total: unit.questions.length, percent: 0, status: '未开始' };
+  const progressIcon = progress.percent ? 'fa-solid fa-circle-notch is-progress' : 'fa-regular fa-circle';
+  return `<button type="button" class="exam-catalog-unit" data-paper="${esc(unit.paperKey)}" data-bank="${esc(unit.bankId || '')}" data-unit="${esc(unit.unitKey)}"><i class="fa-regular fa-file-lines exam-catalog-unit-icon" aria-hidden="true"></i><span><strong>${esc(unitLabel(unit))}</strong></span><em>${unit.questions.length} 题</em><i class="${progressIcon} exam-catalog-unit-progress" aria-label="${esc(progress.status)} ${progress.answered}/${progress.total}" aria-hidden="true"></i><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>`;
 }
 
-function yearGroupHtml(group, isFirst = false, progressByUnit = new Map()) {
-  const summary = yearProgress(group, progressByUnit);
-  const units = group.units.map(unit => {
-    const progress = progressByUnit.get(unitProgressKey(unit)) || { answered: 0, total: unit.questions.length, percent: 0, status: '未开始' };
-    const progressIcon = progress.percent ? 'fa-solid fa-circle-notch is-progress' : 'fa-regular fa-circle';
-    return `<button type="button" class="exam-catalog-unit" data-paper="${esc(unit.paperKey)}" data-bank="${esc(unit.bankId || '')}" data-unit="${esc(unit.unitKey)}"><i class="fa-regular fa-file-lines exam-catalog-unit-icon" aria-hidden="true"></i><span><strong>${esc(unitLabel(unit))}</strong></span><em>${unit.questions.length} 题</em><i class="${progressIcon} exam-catalog-unit-progress" aria-label="${esc(progress.status)} ${progress.answered}/${progress.total}" aria-hidden="true"></i><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>`;
-  }).join('');
+function fullPaperUnitLabel(unit) {
+  if (unit.type === 'cloze_choice') return 'Section I · 完形填空';
+  if (unit.type === 'paragraph_ordering') return 'Section II Part B · 段落排序';
+  if (unit.type === 'translation') return 'Section II Part C · 翻译';
+  return `Section II · ${unit.displayTitle || '阅读理解'}`;
+}
+
+function fullPaperUnitHtml(unit) {
+  return `<div class="exam-catalog-unit exam-catalog-unit--summary"><i class="fa-regular fa-file-lines exam-catalog-unit-icon" aria-hidden="true"></i><span><strong>${esc(fullPaperUnitLabel(unit))}</strong></span></div>`;
+}
+
+function yearGroupHtml(group, { fullPaper = false, progressByUnit = new Map() } = {}) {
+  const units = group.units.map(unit => fullPaper ? fullPaperUnitHtml(unit) : unitHtml(unit, progressByUnit)).join('');
+  const directLabel = fullPaper ? '整卷' : '练习';
   if (group.directStart) {
-    return `<section class="exam-year-group exam-year-direct"><div class="exam-year-summary"><strong>${esc(group.year)}</strong><span>${esc(summary.status)}</span><em>${summary.answered} / ${summary.total}</em><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></div><div class="exam-year-units">${units}</div></section>`;
+    if (fullPaper) {
+      return `<button type="button" class="exam-year-direct-button exam-year-group" data-paper-start="${esc(group.paperKey)}" data-bank="${esc(group.bankId || '')}" aria-label="开始 ${esc(group.year)} 年${directLabel}"><strong>${esc(group.year)}</strong><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>`;
+    }
+    const unit = group.units[0];
+    return `<button type="button" class="exam-year-direct-button exam-year-group" data-paper="${esc(unit.paperKey)}" data-bank="${esc(unit.bankId || '')}" data-unit="${esc(unit.unitKey)}" aria-label="开始 ${esc(group.year)} 年${directLabel}"><strong>${esc(group.year)}</strong><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>`;
   }
-  return `<details class="exam-year-group" ${isFirst ? 'open' : ''}><summary><span><strong>${esc(group.year)}</strong>${summary.status !== '未开始' ? `<small>（${esc(summary.status)}）</small>` : ''}</span><em>${summary.answered} / ${summary.total}</em><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></summary><div class="exam-year-units">${units}</div></details>`;
+  const expanded = fullPaper
+    ? `<div class="exam-paper-start-row"><div><strong>${esc(group.year)} 整卷练习</strong><small>完整试卷</small></div><button type="button" class="exam-paper-start-button" data-paper-start="${esc(group.paperKey)}" data-bank="${esc(group.bankId || '')}">开始练习</button></div><div class="exam-year-units exam-year-paper-units">${units}</div>`
+    : `<div class="exam-year-units">${units}</div>`;
+  return `<details class="exam-year-group"><summary data-year="${esc(group.year)}"><span><strong>${esc(group.year)}</strong></span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></summary>${expanded}</details>`;
 }
 
 export const ExamCatalogView = {
@@ -109,25 +111,18 @@ export const ExamCatalogView = {
     })));
     const activeBankId = resolveExamBankId(bankOptions, bankId);
     const papers = allPapers.filter(paper => !activeBankId || paper.bankId === activeBankId);
-    const meta = TYPE_META[unitType] || TYPE_META.reading_mcq;
-    const catalog = buildExamCatalog(papers, { unitType });
+    const fullPaper = unitType === 'full_paper';
+    const catalog = buildExamCatalog(papers, { unitType: fullPaper ? null : unitType, kind: fullPaper ? 'full_paper' : 'unit' });
     const units = catalog.flatMap(group => group.units);
     const progressByUnit = new Map(units.map(unit => [unitProgressKey(unit), getUnitProgress(unit, attemptRows)]));
-    const overall = catalog.reduce((result, group) => {
-      const progress = yearProgress(group, progressByUnit);
-      result.answered += progress.answered;
-      result.total += progress.total;
-      return result;
-    }, { answered: 0, total: 0 });
     container.innerHTML = `
       <div class="exam-catalog exam-catalog-screen">
-        <label class="exam-bank-picker exam-bank-picker-source"><span class="sr-only">选择题库</span><select id="examCatalogBankPicker" aria-label="选择题库">${bankOptions.map(option => `<option value="${esc(option.bankId)}" ${option.bankId === activeBankId ? 'selected' : ''} ${option.disabled ? 'disabled' : ''}>${esc(option.label)}${option.disabled ? '（暂未安装）' : ''}</option>`).join('')}</select></label>
-        <p class="exam-catalog-progress">已完成 <strong>${overall.answered}</strong> / ${overall.total}</p>
+        <p class="exam-catalog-hint exam-catalog-intro">${fullPaper ? '选择年份查看整卷内容' : '选择年份查看题目'}</p>
         <div class="exam-catalog-years">
-          ${catalog.length ? catalog.map((group, index) => yearGroupHtml(group, index === 0, progressByUnit)).join('') : '<div class="empty-state">暂无可用题组</div>'}
+          ${catalog.length ? catalog.map(group => yearGroupHtml(group, { fullPaper, progressByUnit })).join('') : '<div class="empty-state">暂无可用题组</div>'}
         </div>
-        <button type="button" class="exam-random-entry" data-random="true"><i class="fa-solid fa-shuffle" aria-hidden="true"></i>随机训练 · 从当前题型随机开始</button>
-        <p class="exam-catalog-hint">点击题目后直接开始练习</p>
+        <button type="button" class="exam-random-entry" data-random="true"><i class="fa-solid fa-shuffle" aria-hidden="true"></i>${fullPaper ? '随机整卷' : '随机训练 · 从当前题型随机开始'}</button>
+        <p class="exam-catalog-hint">${fullPaper ? '展开年份后开始整卷练习' : '单个题组会直接进入练习'}</p>
       </div>`;
 
     const handlers = [];
@@ -138,7 +133,19 @@ export const ExamCatalogView = {
       });
       location.hash = `#/exam/practice/${attempt.attemptId}`;
     };
+    const startPaper = async paper => {
+      const attempt = await services.practiceService.startFullPaperAttempt({
+        examId: 'kaoyan_en1', bankId: paper.bankId, packageId: paper.packageId, paperKey: paper.paperKey
+      });
+      location.hash = `#/exam/practice/${attempt.attemptId}`;
+    };
     add(container.querySelector('[data-random]'), 'click', async () => {
+      if (fullPaper) {
+        const completePapers = papers.filter(paper => !isSyntheticExamPaper(paper) && paper.units?.length > 1);
+        const selected = selectRandomPaper(completePapers.length ? completePapers : papers);
+        if (selected) await startPaper(selected);
+        return;
+      }
       const unit = selectRandomUnit(catalog);
       if (unit) await startUnit(unit);
     });
@@ -146,13 +153,10 @@ export const ExamCatalogView = {
       const unit = units.find(item => item.paperKey === button.dataset.paper && item.unitKey === button.dataset.unit && (item.bankId || '') === button.dataset.bank);
       if (unit) await startUnit(unit);
     }));
-    const bankPicker = container.querySelector('#examCatalogBankPicker');
-    const headerActions = document.querySelector('.app-header-actions');
-    if (bankPicker && headerActions) {
-      headerActions.removeAttribute('aria-hidden');
-      headerActions.replaceChildren(bankPicker.closest('label') || bankPicker);
-    }
-    add(bankPicker, 'change', event => this.render(container, unitType, event.target.value));
+    container.querySelectorAll('[data-paper-start]').forEach(button => add(button, 'click', async () => {
+      const paper = papers.find(item => item.paperKey === button.dataset.paperStart && (item.bankId || '') === button.dataset.bank);
+      if (paper) await startPaper(paper);
+    }));
     this._cleanupHandlers = handlers;
   }
 };

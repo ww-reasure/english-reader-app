@@ -19,7 +19,7 @@ export const AppShell = {
     if (hash === '#/exam/history') return { navKey: 'exam', title: '学习记录', headerMode: 'back' };
     if (hash.startsWith('#/exam/catalog/')) {
       const type = hash.match(/^#\/exam\/catalog\/([^/]+)/)?.[1];
-      const titles = { cloze_choice: '完形填空', reading_mcq: '阅读理解', paragraph_ordering: '段落排序', translation: '翻译' };
+      const titles = { full_paper: '整卷练习', cloze_choice: '完形填空', reading_mcq: '阅读理解', paragraph_ordering: '段落排序', translation: '翻译' };
       return { navKey: 'exam', title: titles[type] || '专项训练', headerMode: 'back' };
     }
     if (hash.startsWith('#/exam/practice/')) return { navKey: 'exam', title: '真题练习', headerMode: 'back' };

@@ -17,7 +17,25 @@ function asUnits(paper, unitType) {
     }));
 }
 
-export function buildExamCatalog(papers, { unitType = null } = {}) {
+export function buildExamCatalog(papers, { unitType = null, kind = 'unit' } = {}) {
+  if (kind === 'full_paper') {
+    return (Array.isArray(papers) ? papers : [])
+      .map(paper => ({
+        year: Number(paper.year) || paper.year || '未知年份',
+        paperKey: paper.paperKey,
+        bankId: paper.bankId,
+        packageId: paper.packageId,
+        paper,
+        units: asUnits(paper)
+      }))
+      .filter(group => group.units.length)
+      .map(group => ({
+        ...group,
+        directStart: group.units.length === 1,
+        expandable: group.units.length > 1
+      }))
+      .sort((left, right) => Number(right.year) - Number(left.year));
+  }
   const groups = new Map();
   for (const paper of Array.isArray(papers) ? papers : []) {
     const units = asUnits(paper, unitType);
@@ -31,7 +49,8 @@ export function buildExamCatalog(papers, { unitType = null } = {}) {
     .map(([year, units]) => ({
       year,
       units,
-      directStart: units.length === 1
+      directStart: units.length === 1,
+      expandable: units.length > 1
     }));
 }
 
@@ -50,4 +69,3 @@ export function selectRandomUnit(catalog, random = Math.random) {
   const units = (Array.isArray(catalog) ? catalog : []).flatMap(group => group.units || []);
   return pick(units, random);
 }
-

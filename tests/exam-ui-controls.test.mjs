@@ -53,3 +53,37 @@ test('practice keeps submit in the sheet header while the footer stays focused o
   assert.doesNotMatch(footer, /examSubmitBtn/);
   assert.doesNotMatch(draft, /examWordLookupToggle/);
 });
+
+test('exam home sends full-paper practice through the year catalogue', async () => {
+  const source = await read('src/views/exam-home.js');
+  assert.match(source, /href="#\/exam\/catalog\/full_paper"/);
+  assert.doesNotMatch(source, /examFullPaperStart/);
+  assert.doesNotMatch(source, /selectRandomPaper/);
+});
+
+test('exam catalogue keeps years collapsed and renders direct entry only for one visible unit', async () => {
+  const source = await read('src/views/exam-catalog.js');
+  assert.match(source, /kind: fullPaper \? 'full_paper' : 'unit'/);
+  assert.match(source, /data-year/);
+  assert.match(source, /data-paper-start/);
+  assert.doesNotMatch(source, /index === 0 \? 'open' : ''/);
+});
+
+test('only the exam desktop exposes a compact bank switcher', async () => {
+  const [homeSource, catalogSource, css] = await Promise.all([
+    read('src/views/exam-home.js'),
+    read('src/views/exam-catalog.js'),
+    read('css/style.css')
+  ]);
+
+  assert.match(homeSource, /exam-bank-switcher/);
+  assert.match(homeSource, /exam-bank-switcher-copy/);
+  assert.match(homeSource, /exam-bank-switcher-value/);
+  assert.match(homeSource, /id="examBankPicker"/);
+  assert.match(css, /\.app-shell--exam-home \.exam-bank-switcher/);
+  assert.match(css, /\.exam-bank-switcher:focus-within/);
+
+  assert.doesNotMatch(catalogSource, /examCatalogBankPicker/);
+  assert.doesNotMatch(catalogSource, /exam-bank-picker-source/);
+  assert.doesNotMatch(catalogSource, /headerActions\.replaceChildren/);
+});

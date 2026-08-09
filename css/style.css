@@ -2286,8 +2286,35 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .app-shell--exam .app-header-kicker { margin-bottom:4px; color:var(--moss); font-size:12px; letter-spacing:.14em; }
 .app-shell--exam .app-header-title { font-size:25px; letter-spacing:-.05em; }
 .app-shell--exam .app-header-actions { gap:0; }
-.app-shell--exam .exam-bank-picker { min-width:162px; margin:0; }
-.app-shell--exam .exam-bank-picker select { width:162px; min-width:162px; height:44px; padding:8px 30px 8px 14px; border-color:#c7c0b1; border-radius:8px; background:#fffdf8; font-size:16px; font-weight:600; }
+.app-shell--exam-home .app-header { column-gap:8px; }
+.app-shell--exam-home .exam-bank-switcher {
+  position:relative;
+  display:grid;
+  grid-template-columns:16px minmax(0,1fr) 10px;
+  align-items:center;
+  gap:7px;
+  min-width:108px;
+  min-height:44px;
+  margin:0;
+  padding:5px 12px 5px 11px;
+  overflow:hidden;
+  border:1px solid color-mix(in srgb, var(--moss) 30%, var(--border-light));
+  border-radius:999px;
+  background:color-mix(in srgb, var(--surface) 82%, transparent);
+  box-shadow:0 1px 0 rgba(255,255,255,.72) inset;
+  color:var(--moss-deep, var(--moss));
+  cursor:pointer;
+  transition:border-color .16s ease, background-color .16s ease, transform .16s ease;
+}
+.app-shell--exam-home .exam-bank-switcher:hover { border-color:color-mix(in srgb, var(--moss) 52%, var(--border-light)); background:var(--surface); }
+.app-shell--exam-home .exam-bank-switcher:active { transform:scale(.97); }
+.app-shell--exam-home .exam-bank-switcher:focus-within { outline:2px solid color-mix(in srgb, var(--moss) 55%, transparent); outline-offset:2px; }
+.app-shell--exam-home .exam-bank-switcher-icon { color:#67806f; font-size:14px; }
+.app-shell--exam-home .exam-bank-switcher-copy { display:grid; gap:0; min-width:0; line-height:1.05; }
+.app-shell--exam-home .exam-bank-switcher-copy small { color:#7b847d; font-size:9px; font-weight:700; letter-spacing:.08em; }
+.app-shell--exam-home .exam-bank-switcher-value { overflow:hidden; color:#315a43; font-size:14px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.app-shell--exam-home .exam-bank-switcher-chevron { color:#68736c; font-size:9px; }
+.app-shell--exam-home .exam-bank-switcher select { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; }
 .app-shell--exam-catalog .app-header-copy { position:absolute; left:50%; transform:translateX(-50%); text-align:center; }
 .app-shell--exam-catalog .app-header-title { font-size:25px; }
 .app-shell--exam-catalog .app-header-kicker { display:none; }
@@ -2369,8 +2396,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   padding:17px 28px 28px;
   gap:32px;
 }
-.exam-catalog-progress { margin:0 0 2px; color:#546e5c; text-align:center; font-size:18px; }
-.exam-catalog-progress strong { font-size:20px; font-weight:600; }
+.exam-catalog-progress { display:none; }
 .exam-catalog-years { gap:16px; }
 .exam-year-group { border-color:#ded7ca; border-radius:10px; background:rgba(255,253,248,.34); }
 .exam-year-group[open] { border-color:#a8b8aa; background:#fafbf6; }
@@ -2391,12 +2417,23 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .exam-catalog-unit-progress { color:#aeb3ad; font-size:24px; }
 .exam-catalog-unit-progress.is-progress { color:#4b6c57; }
 .exam-catalog-unit .exam-card-arrow { color:#565c56; font-size:14px; }
+.exam-year-direct-button { display:flex; align-items:center; width:100%; min-height:75px; padding:18px 24px; border:0; color:var(--ink); text-align:left; }
+.exam-year-direct-button strong { font-family:var(--font-sans, "Aptos", sans-serif); font-size:30px; font-weight:500; letter-spacing:-.04em; }
+.exam-year-direct-button i { margin-left:auto; color:#555b55; font-size:16px; }
+.exam-year-direct-button:hover { background:#fafbf6; }
+.exam-paper-start-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; border-bottom:1px solid #d6ddd3; }
+.exam-paper-start-row > div { display:grid; gap:4px; min-width:0; }
+.exam-paper-start-row strong { font-size:20px; font-weight:600; }
+.exam-paper-start-row small { color:#626861; font-size:14px; }
+.exam-paper-start-button { flex:none; min-height:42px; padding:0 18px; border:0; border-radius:8px; background:#315a43; color:#fffdf8; font-size:15px; font-weight:700; }
+.exam-catalog-unit--summary { grid-template-columns:32px minmax(0,1fr); cursor:default; }
 .exam-year-direct-head { display:none; }
 .exam-year-direct .exam-year-summary { display:flex; align-items:baseline; min-height:75px; padding:18px 24px; border-bottom:1px solid #ded7ca; }
 .exam-random-entry { justify-content:center; gap:8px; min-height:42px; padding:8px; border:0; background:transparent; color:#587060; font-size:15px; }
 .exam-random-entry:hover { background:transparent; color:#315a43; }
 .exam-random-entry i { font-size:14px; }
 .exam-catalog-hint { margin:0; color:#587060; text-align:center; font-size:15px; }
+.exam-catalog-intro { margin-bottom:-12px; text-align:left; }
 
 /* Keep every exam surface on the same phone-first paper system. The desktop
    only adds breathing room; it does not introduce a second navigation frame. */
@@ -2604,8 +2641,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   .app-shell--exam .app-header { min-height:102px; padding:24px 20px 14px; }
   .app-shell--exam .app-header-title { font-size:22px; }
   .app-shell--exam .app-header-kicker { font-size:10px; }
-  .app-shell--exam .exam-bank-picker, .app-shell--exam .exam-bank-picker select { min-width:142px; width:142px; }
-  .app-shell--exam .exam-bank-picker select { font-size:14px; }
+  .app-shell--exam-home .exam-bank-switcher { min-width:104px; padding-inline:10px; }
   .exam-dashboard, .exam-catalog { padding-inline:20px; }
   .exam-resume-card { gap:14px; padding-inline:20px; }
   .exam-progress-ring { flex-basis:88px; width:88px; height:88px; }

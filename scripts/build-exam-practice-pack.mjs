@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createExamPack } from '../src/exam/pack.mjs';
 import { parseExamMarkdown } from '../src/exam/parser.mjs';
+import { assertSinglePaperOutputSafe } from '../src/exam/pack-merge.mjs';
 
 function readArg(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -27,6 +28,12 @@ async function runCli() {
     generatedAt: new Date().toISOString()
   });
   const outputPath = resolve(output || `public/exam-packs/private/${pack.manifest.packageId}.json`);
+  try {
+    const previousPack = JSON.parse(await readFile(outputPath, 'utf8'));
+    assertSinglePaperOutputSafe({ existingPack: previousPack, requestedPaperKey: paper.paperKey });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   await mkdir(resolve(outputPath, '..'), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
 

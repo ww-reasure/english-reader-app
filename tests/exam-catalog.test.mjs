@@ -48,5 +48,34 @@ test('a year with one unit is marked for direct entry', () => {
   const catalog = buildExamCatalog(papers, { unitType: 'reading_mcq' });
   assert.equal(catalog[1].units.length, 1);
   assert.equal(catalog[1].directStart, true);
+  assert.equal(catalog[1].expandable, false);
   assert.equal(catalog[0].directStart, false);
+  assert.equal(catalog[0].expandable, true);
+});
+
+test('full-paper year selection keeps the paper together and expands multi-section years only', () => {
+  const catalog = buildExamCatalog(papers, { kind: 'full_paper' });
+
+  assert.deepEqual(catalog.map(group => ({
+    year: group.year,
+    paperKey: group.paperKey,
+    unitKeys: group.units.map(unit => unit.unitKey),
+    directStart: group.directStart,
+    expandable: group.expandable
+  })), [
+    {
+      year: 2026,
+      paperKey: 'paper-2026',
+      unitKeys: ['reading-1', 'reading-2', 'cloze-1'],
+      directStart: false,
+      expandable: true
+    },
+    {
+      year: 2025,
+      paperKey: 'paper-2025',
+      unitKeys: ['reading-1-2025'],
+      directStart: true,
+      expandable: false
+    }
+  ]);
 });

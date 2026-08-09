@@ -1,6 +1,5 @@
 import { createExamServices } from '../exam/create-services.js';
-import { selectRandomPaper } from '../exam/catalog.mjs';
-import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
+import { filterVisibleExamPapers, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
 import { installExamPack } from '../exam/pack-installer.mjs';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
@@ -77,6 +76,9 @@ export const ExamHomeView = {
     const visibleRecords = filterVisibleExamPapers(records, { isProduction: import.meta.env.MODE === 'public' });
     const bankOptions = getExamBankOptions(banks, visibleRecords);
     const activeBankId = resolveExamBankId(bankOptions, bankId);
+    const activeBankLabel = String(bankOptions.find(option => option.bankId === activeBankId)?.label || '英语一')
+      .replace(/^考研/, '')
+      .replace(/^英语四级$/, '四级');
     const papers = await loadVisiblePapers(services, visibleRecords.filter(record => !activeBankId || record.bankId === activeBankId));
     const now = Date.now();
     const [dueWrong, dueTranslations] = await Promise.all([
@@ -88,8 +90,6 @@ export const ExamHomeView = {
       .filter(attempt => attempt.status === 'in_progress' && (!activeBankId || attempt.bankId === activeBankId))
       .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
       .slice(0, 3);
-    const paperQuestionCount = papers.reduce((total, paper) => total + paper.units.reduce((sum, unit) => sum + unit.questions.length, 0), 0);
-
     const resolveAttempt = async attempt => {
       const paper = papers.find(item => item.paperKey === attempt.paperKey && item.bankId === attempt.bankId);
       if (!paper) return { attempt, label: '未知练习' };
@@ -104,13 +104,18 @@ export const ExamHomeView = {
 
     container.innerHTML = `
       <div class="exam-home exam-dashboard">
-        <label class="exam-bank-picker exam-bank-picker-source"><span class="sr-only">选择题库</span><select id="examBankPicker" aria-label="选择题库">${bankOptions.map(option => `<option value="${esc(option.bankId)}" ${option.bankId === activeBankId ? 'selected' : ''} ${option.disabled ? 'disabled' : ''}>${esc(option.label)}${option.disabled ? '（暂未安装）' : ''}</option>`).join('')}</select></label>
+        <label class="exam-bank-switcher exam-bank-picker-source" title="切换题库">
+          <i class="fa-solid fa-book-open exam-bank-switcher-icon" aria-hidden="true"></i>
+          <span class="exam-bank-switcher-copy"><small>题库</small><strong class="exam-bank-switcher-value">${esc(activeBankLabel)}</strong></span>
+          <i class="fa-solid fa-chevron-down exam-bank-switcher-chevron" aria-hidden="true"></i>
+          <select id="examBankPicker" aria-label="选择题库">${bankOptions.map(option => `<option value="${esc(option.bankId)}" ${option.bankId === activeBankId ? 'selected' : ''} ${option.disabled ? 'disabled' : ''}>${esc(option.label)}${option.disabled ? '（暂未安装）' : ''}</option>`).join('')}</select>
+        </label>
         <section class="exam-dashboard-hero">
           <h1>考研英语一</h1>
           <p>最近练习 <strong>${esc(recentLabel)}</strong></p>
         </section>
         ${primaryResume ? `<button class="exam-resume-card" type="button" data-resume="${esc(primaryResume.attempt.attemptId)}"><span class="exam-progress-ring" aria-label="已完成 ${primaryResume.progress.percent}%"><i class="fa-solid fa-circle-notch" aria-hidden="true"></i><b>${primaryResume.progress.percent}%</b></span><span class="exam-resume-copy"><strong>继续练习</strong><small>${esc(primaryResume.unit ? unitTitle(primaryResume.unit).replace(/^阅读理解 /, '阅读理解 ') : '整卷练习')}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>` : ''}
-        <button id="examFullPaperStart" type="button" class="exam-full-paper-card"><i class="fa-regular fa-file-lines exam-card-icon" aria-hidden="true"></i><span><strong>整卷练习</strong><small>全真模拟，完整体验考试节奏</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>
+        <a class="exam-full-paper-card" href="#/exam/catalog/full_paper"><i class="fa-regular fa-file-lines exam-card-icon" aria-hidden="true"></i><span><strong>整卷练习</strong><small>全真模拟，完整体验考试节奏</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>
         <section class="exam-special-section">
           <h2>专项训练</h2>
           <div class="exam-special-list">${TYPE_CARDS.map(card => `<a class="exam-special-card" href="#/exam/catalog/${card.type}"><i class="${esc(card.icon)} exam-special-icon" aria-hidden="true"></i><span><strong>${card.title}</strong><small>${card.subtitle}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>`).join('')}</div>
@@ -127,13 +132,6 @@ export const ExamHomeView = {
       headerActions.removeAttribute('aria-hidden');
       headerActions.replaceChildren(bankPicker.closest('label') || bankPicker);
     }
-    add(container.querySelector('#examFullPaperStart'), 'click', async () => {
-      const completePapers = papers.filter(paper => !isSyntheticExamPaper(paper) && paper.units?.length > 1);
-      const selected = selectRandomPaper(completePapers.length ? completePapers : papers);
-      if (!selected) return;
-      const attempt = await services.practiceService.startFullPaperAttempt({ examId: EXAM_ID, bankId: selected.bankId, packageId: selected.packageId, paperKey: selected.paperKey });
-      location.hash = `#/exam/practice/${attempt.attemptId}`;
-    });
     container.querySelectorAll('[data-resume]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.resume}`; }));
     add(bankPicker, 'change', event => this.render(container, event.target.value));
     this._cleanupHandlers = handlers;
