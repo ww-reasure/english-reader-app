@@ -20,6 +20,7 @@ function dismissTransient() {
   if (visibleOverlay.id === 'apiKeyModal') Modal.hideApiSettings();
   else if (visibleOverlay.id === 'importModal') Modal.hideImport();
   else if (visibleOverlay.id === 'readingSummary') visibleOverlay.style.display = 'none';
+  else if (visibleOverlay.id === 'examAnswerCardOverlay') visibleOverlay.querySelector('#examAnswerCardClose')?.click();
   else visibleOverlay.remove();
   return true;
 }

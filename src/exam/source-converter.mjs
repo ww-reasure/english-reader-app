@@ -239,18 +239,29 @@ function extractReadingDescriptorSurface(readingSource, descriptor) {
 }
 
 function parseReadingQuestions(source, first, last) {
-  const matches = [...source.matchAll(/^\s*(2[1-9]|3[0-9]|40)\.\s+/gmu)].filter(match => Number(match[1]) >= first && Number(match[1]) <= last);
+  const allMatches = [...source.matchAll(/^\s*(2[1-9]|3[0-9]|40)\.\s+/gmu)];
+  const matches = allMatches.filter(match => Number(match[1]) >= first && Number(match[1]) <= last);
   if (matches.length !== last - first + 1) throw new Error(`阅读题干数量异常：${matches.length}`);
-  return matches.map((match, index) => {
+  return matches.map(match => {
     const number = Number(match[1]);
-    const body = source.slice(match.index + match[0].length, matches[index + 1]?.index).trim();
+    const start = match.index + match[0].length;
+    const globalIndex = allMatches.findIndex(candidate => candidate.index === match.index);
+    const nextQuestionIndex = allMatches[globalIndex + 1]?.index ?? source.length;
+    const end = endOfQuestionBlock(source, start, nextQuestionIndex);
+    const body = source.slice(start, end).trim();
     const optionStart = body.search(/\[\s*A\s*\]/u);
     if (optionStart < 0) throw new Error(`Q${number} 缺少 A 选项`);
     const stem = textFromSource(body.slice(0, optionStart));
     const optionPart = body.slice(optionStart);
     const optionMatches = [...optionPart.matchAll(/\[\s*([A-D])\s*\]\s*([\s\S]*?)(?=\s*\[\s*[A-D]\s*\]\s*|$)/gu)];
     if (optionMatches.length !== 4) throw new Error(`Q${number} 选项数量异常：${optionMatches.length}`);
-    return { number, stem, options: optionMatches.map(item => ({ key: item[1], text: textFromSource(item[2]) })) };
+    const options = optionMatches.map(item => ({ key: item[1], text: textFromSource(item[2]) }));
+    for (const option of options) {
+      if (/#{1,6}\s|\bText\s+[1-4]\b|\bDirections:\s*Read the following/iu.test(option.text) || option.text.length > 800) {
+        throw new Error(`Q${number} 选项 ${option.key} 包含越界正文`);
+      }
+    }
+    return { number, stem, options };
   });
 }
 
@@ -377,13 +388,18 @@ export function parsePartBAnswerSequence(source, { candidateKeys = null } = {}) 
     else fixedPlacements.push({ position, candidateKey: token[3] });
   });
   const expectedCandidateKeys = candidateKeys ? new Set(candidateKeys) : null;
-  const expectedCandidateCount = expectedCandidateKeys?.size || 8;
   const actualCandidateKeys = new Set(answerSequence);
-  if (answerSequence.length !== expectedCandidateCount
-    || slotAnswers.size !== 5
-    || fixedPlacements.length !== expectedCandidateCount - 5
-    || (expectedCandidateKeys && actualCandidateKeys.size !== expectedCandidateKeys.size)
-    || (expectedCandidateKeys && [...expectedCandidateKeys].some(key => !actualCandidateKeys.has(key)))) {
+  const sequenceIsUnique = actualCandidateKeys.size === answerSequence.length;
+  const sequenceUsesKnownCandidates = !expectedCandidateKeys
+    || [...actualCandidateKeys].every(key => expectedCandidateKeys.has(key));
+  const sequenceFitsCandidatePool = !expectedCandidateKeys
+    || answerSequence.length <= expectedCandidateKeys.size;
+  if (slotAnswers.size !== 5
+    || fixedPlacements.length < 1
+    || answerSequence.length !== slotAnswers.size + fixedPlacements.length
+    || !sequenceIsUnique
+    || !sequenceUsesKnownCandidates
+    || !sequenceFitsCandidatePool) {
     throw new Error('Part B 正确顺序数量异常');
   }
   return { answerSequence, fixedPlacements, slotAnswers };
@@ -408,6 +424,57 @@ function parsePartBCandidates(partB, candidateStart) {
     if (endMarker >= 0) text = text.slice(0, endMarker);
     return { candidateKey: header[1], text: textFromSource(text) };
   });
+}
+
+function parseMatchingAnswers(source) {
+  const answers = [...String(source || '').matchAll(/【答案】\s*\[\s*([A-G])\s*\]/gu)].map(match => match[1]).slice(-5);
+  if (answers.length !== 5 || new Set(answers).size !== 5) throw new Error(`Part B matching 答案数量异常：${answers.length}`);
+  return new Map(answers.map((answer, index) => [41 + index, answer]));
+}
+
+function matchingPassage(partB, candidateStart) {
+  const body = partB.slice(0, candidateStart);
+  const blocks = splitBlocks(body)
+    .filter(block => !/^#{1,6}\s/u.test(block))
+    .filter(block => !/(?:Questions?\s*41\s*[-–]\s*45|Questions?\s*41-45).*(?:list|A\s*[-–]\s*G)/isu.test(block));
+  const english = extractEnglishPassageBlocks(blocks)
+    .map(block => block.replace(/\(\s*(4[1-5])\s*\)/gu, '[$1]'));
+  const combined = english.join('\n\n');
+  return splitBlocks(combined).map((text, index) => ({ paragraphKey: `P${index + 1}`, text }));
+}
+
+function makeMatchingUnit(source, meta, matchingVariant) {
+  const partB = sectionSlice(source, '## Part B', ['## Part C', '## Section III']);
+  const candidateStart = partB.search(/^\[\s*[A-G]\s*\]/mu);
+  if (candidateStart < 0) throw new Error('Part B matching 缺少候选项');
+  const candidates = parsePartBCandidates(partB, candidateStart).map(candidate => ({
+    ...candidate,
+    text: extractEnglishPassageBlocks([candidate.text]).join(' ') || candidate.text
+  }));
+  if (candidates.length !== 7) throw new Error(`Part B matching candidates 数量异常：${candidates.length}`);
+  const answers = parseMatchingAnswers(source);
+  const passage = matchingPassage(partB, candidateStart);
+  const questions = [41, 42, 43, 44, 45].map(number => ({
+    number,
+    questionKey: stableQuestionKey({ year: meta.year, section: 'part_b', number }),
+    answer: answers.get(number)
+  }));
+  const lines = [
+    documentHead(meta, 'Section II Part B'),
+    '### Part B', '',
+    code({
+      unitKey: `kaoyan_en1_${meta.year}_part_b_1`, type: 'matching', displayTitle: 'Part B',
+      matchingVariant, slots: [41, 42, 43, 44, 45]
+    }), '',
+    '#### Directions', textFromSource(partB.slice(partB.indexOf('## Directions:') + '## Directions:'.length, partB.indexOf('\n\n', partB.indexOf('## Directions:') + 20))), '',
+    '#### Passage', '',
+    ...passage.flatMap(item => [`##### ${item.paragraphKey}`, item.text, '']),
+    ...candidates.flatMap(candidate => [`#### Candidate ${candidate.candidateKey}`, candidate.text, '']),
+    ...questions.flatMap(question => ['', `#### Slot ${question.number}`, '', code({
+      questionKey: question.questionKey, type: 'matching_slot', answer: question.answer, points: 2, slotNumber: question.number
+    }), ''])
+  ];
+  return { name: 'part-b', markdown: lines.join('\n').replace(/\n{3,}/gu, '\n\n').trimEnd() + '\n', warnings: [] };
 }
 
 function makePartBUnit(source, meta) {
@@ -533,7 +600,7 @@ function fieldCoverage(paper) {
 export function convertYearSource({ source, year = 2025, packageVersion = '1.1.0' }) {
   const meta = examMetaForYear(year, packageVersion);
   const sourceSummary = summarizeSourceSections(source);
-  const unsupportedPartB = sourceSummary.partB.variant.startsWith('unsupported_');
+  const unsupportedPartB = sourceSummary.partB.variant === 'unknown';
   const results = [];
   const builders = [
     () => makeClozeUnit(source, meta),
@@ -546,7 +613,9 @@ export function convertYearSource({ source, year = 2025, packageVersion = '1.1.0
         gate: { name: 'part-b', status: 'SKIPPED', blockers: [], reason: UNSUPPORTED_PART_B_VARIANT, variant: sourceSummary.partB.variant },
         warnings: [`${UNSUPPORTED_PART_B_VARIANT}: ${sourceSummary.partB.variant}`]
       }
-      : makePartBUnit(source, meta),
+      : sourceSummary.partB.variant === 'paragraph_ordering'
+        ? makePartBUnit(source, meta)
+        : makeMatchingUnit(source, meta, sourceSummary.partB.variant),
     () => makePartCUnit(source, meta)
   ];
   for (const build of builders) {

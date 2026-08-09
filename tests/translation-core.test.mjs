@@ -82,7 +82,7 @@ test('translation practice autosaves free text, submits immutable snapshots, and
   assert.equal(secondReview.status, 'mostly_mastered');
   assert.equal(secondReview.createdAt, firstReview.createdAt);
   assert.equal(secondReview.firstMarkedAt, firstReview.firstMarkedAt);
-  assert.equal(secondReview.nextDueAt, 1_700_000_001_000 + 7 * 24 * 60 * 60 * 1000);
+  assert.equal(secondReview.nextDueAt, null);
   const redo = await practiceService.startAttempt(request);
   assert.notEqual(redo.attemptId, attempt.attemptId);
   db.close();

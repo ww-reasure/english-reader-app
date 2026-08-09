@@ -11,13 +11,16 @@ import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../compon
 import { esc } from '../helpers.js';
 import { Config } from '../config.js';
 import { SNAP_ORDER, SNAP_HEIGHTS, closestSnap, isFinalPracticeQuestion } from '../exam/practice-ui.mjs';
+import { buildAnswerCardModel, renderAnswerCardHtml } from '../exam/practice-answer-card.mjs';
+import { bindSentenceLongPress } from '../components/sentence-long-press.mjs';
+import { createSentenceRangeForTextNodes } from '../components/sentence-selection.mjs';
 const IDLE_PAUSE_MS = 2 * 60 * 1000;
 const AUTOSAVE_MS = 500;
 
 function sectionLabel(unitType) {
   if (unitType === 'cloze_choice') return 'Section I';
   if (unitType === 'reading_mcq') return 'Section II Part A';
-  if (unitType === 'paragraph_ordering') return 'Section II Part B';
+  if (['paragraph_ordering', 'matching'].includes(unitType)) return 'Section II Part B';
   if (unitType === 'translation') return 'Section II Part C';
   return '真题训练';
 }
@@ -25,6 +28,11 @@ function sectionLabel(unitType) {
 function typeTitle(unit) {
   if (unit.type === 'cloze_choice') return '完形填空';
   if (unit.type === 'paragraph_ordering') return 'Part B · 段落排序';
+  if (unit.type === 'matching') return `Part B · ${{
+    sentence_insertion: '句子插入',
+    heading_matching: '小标题匹配',
+    statement_matching: '观点匹配'
+  }[unit.matchingVariant] || '匹配题'}`;
   if (unit.type === 'translation') return 'Part C · 翻译';
   return unit.displayTitle || '阅读理解';
 }
@@ -66,6 +74,10 @@ export const ExamPracticeView = {
     this.examTutorDialog = null;
     this.selectionActions?.destroy();
     this.selectionActions = null;
+    this._sentenceLongPressCleanup?.();
+    this._sentenceLongPressCleanup = null;
+    this.clearSentenceAiConfirmation?.();
+    this.closeAnswerCard?.({ restoreFocus: false });
     this.examTutor = null;
     this.isExplanation = false;
     this.wordLookupEnabled = true;
@@ -126,8 +138,9 @@ export const ExamPracticeView = {
           <div class="exam-sheet-handle" id="examSheetHandle" role="slider" tabindex="0" aria-label="调整题目面板高度"></div>
           <div class="exam-sheet-header">
             <button id="examSheetPrev" class="exam-sheet-nav" type="button" aria-label="上一题">‹</button>
-            <span class="exam-sheet-progress" id="examSheetProgress"></span>
+            <button class="exam-sheet-progress" id="examSheetProgress" type="button" aria-haspopup="dialog" aria-label="打开答题卡"></button>
             <div class="exam-sheet-header-actions">
+              <button id="examWordLookupToggle" class="exam-sheet-lookup-toggle ${this.wordLookupEnabled ? 'is-active' : ''}" type="button" role="switch" aria-checked="${this.wordLookupEnabled}" aria-label="点词翻译：${this.wordLookupEnabled ? '开' : '关'}" title="点词翻译">⌁</button>
               <button id="examSheetNext" class="exam-sheet-nav" type="button" aria-label="下一题">›</button>
               <button id="examSubmitBtn" class="btn btn-primary btn-sm" type="button" hidden>提交</button>
             </div>
@@ -150,6 +163,7 @@ export const ExamPracticeView = {
     this.uncertainBtn = container.querySelector('#examUncertainBtn');
     this.bookmarkBtn = container.querySelector('#examBookmarkBtn');
     this.submitBtn = container.querySelector('#examSubmitBtn');
+    this.wordLookupToggle = container.querySelector('#examWordLookupToggle');
     this.articleScroll.scrollTop = this.getPassageScrollAnchor(this.unit.unitKey);
 
     this.renderArticle();
@@ -217,6 +231,7 @@ export const ExamPracticeView = {
     this.replaceMenuWithExplanationBack();
     this.bindExplanationEvents();
     this.bindSubmittedSelection();
+    this.bindExplanationSentenceLongPress();
   },
 
   getQuestionsForUnit(unit) {
@@ -247,6 +262,7 @@ export const ExamPracticeView = {
   async goToUnit(unitIndex, questionIndex = 0) {
     if (!this.isFullPaper || unitIndex < 0 || unitIndex >= this.units.length) return false;
     this.saveCurrentPassageAnchor();
+    this.clearSentenceAiConfirmation?.();
     const nextUnit = this.units[unitIndex];
     const nextQuestions = this.getQuestionsForUnit(nextUnit);
     if (!nextUnit || !nextQuestions.length) return false;
@@ -305,6 +321,91 @@ export const ExamPracticeView = {
       }
     });
     this.selectionActions.bind();
+  },
+
+  bindExplanationSentenceLongPress() {
+    this._sentenceLongPressCleanup?.();
+    if (!this.isExplanation || !this.articleScroll) return;
+    const controls = 'button, a, input, textarea, select, [role="button"], [data-word-lookup="disabled"]';
+    this._sentenceLongPressCleanup = bindSentenceLongPress({
+      root: this.articleScroll,
+      shouldIgnore: event => Boolean(event.target?.closest?.(controls)),
+      onLongPress: event => {
+        const pointRange = document.caretRangeFromPoint?.(event.clientX, event.clientY)
+          || (() => {
+            const position = document.caretPositionFromPoint?.(event.clientX, event.clientY);
+            if (!position) return null;
+            const range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+            return range;
+          })();
+        const pointNode = pointRange?.startContainer;
+        const element = pointNode?.nodeType === (globalThis.Node?.TEXT_NODE || 3) ? pointNode.parentElement : pointNode;
+        const block = element?.closest?.('.exam-practice-paragraph[data-selection-source="passage"], .exam-ordering-fixed[data-selection-source="passage"], [data-selection-source="passage"]:not(button)');
+        if (!block || !this.articleScroll.contains(block) || !pointNode || pointNode.nodeType !== (globalThis.Node?.TEXT_NODE || 3)) return;
+        const walker = document.createTreeWalker(block, globalThis.NodeFilter?.SHOW_TEXT || 4);
+        const textNodes = [];
+        let node;
+        while ((node = walker.nextNode())) {
+          if (!node.parentElement?.closest?.(controls)) textNodes.push(node);
+        }
+        const sentence = createSentenceRangeForTextNodes({
+          textNodes,
+          pointNode,
+          pointOffset: pointRange.startOffset,
+          createRange: () => document.createRange()
+        });
+        const selectedText = sentence?.text?.replace(/\s+/g, ' ').trim();
+        if (!sentence || !selectedText || selectedText.length < 4 || !/[A-Za-z]/.test(selectedText)) return;
+        const selection = window.getSelection?.();
+        selection?.removeAllRanges?.();
+        selection?.addRange?.(sentence.range);
+        this.showSentenceAiConfirmation({ text: selectedText, range: sentence.range });
+      }
+    });
+  },
+
+  showSentenceAiConfirmation({ text, range }) {
+    this.clearSentenceAiConfirmation({ clearSelection: false });
+    const rect = range.getBoundingClientRect?.();
+    if (!rect) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'exam-sentence-ai-confirm';
+    button.textContent = '✨ 问 AI';
+    button.style.left = `${Math.max(12, Math.min(rect.left + rect.width / 2, window.innerWidth - 90))}px`;
+    button.style.top = `${Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 56))}px`;
+    button.addEventListener('pointerdown', event => event.preventDefault());
+    button.addEventListener('click', async event => {
+      event.preventDefault();
+      const quote = { selectedText: text, selectedSource: 'passage' };
+      this.clearSentenceAiConfirmation();
+      if (this.unit?.type === 'translation') await this.openTranslationTutor({ quote });
+      else this.examTutorDialog?.open({ ...this.getExamTutorInput(), quote });
+    });
+    document.body.appendChild(button);
+    this._sentenceAiConfirm = button;
+    this._sentenceConfirmOutside = event => {
+      if (button.contains(event.target)) return;
+      this.clearSentenceAiConfirmation();
+    };
+    this._sentenceConfirmBindTimer = setTimeout(() => {
+      this._sentenceConfirmBindTimer = null;
+      if (this._sentenceAiConfirm === button) {
+        document.addEventListener('pointerdown', this._sentenceConfirmOutside);
+      }
+    }, 0);
+  },
+
+  clearSentenceAiConfirmation({ clearSelection = true } = {}) {
+    if (this._sentenceConfirmBindTimer) clearTimeout(this._sentenceConfirmBindTimer);
+    this._sentenceConfirmBindTimer = null;
+    if (this._sentenceConfirmOutside) document.removeEventListener('pointerdown', this._sentenceConfirmOutside);
+    this._sentenceConfirmOutside = null;
+    this._sentenceAiConfirm?.remove();
+    this._sentenceAiConfirm = null;
+    if (clearSelection) window.getSelection?.()?.removeAllRanges?.();
   },
 
   replaceMenuWithBack() {
@@ -367,9 +468,15 @@ export const ExamPracticeView = {
 
     add(this.container.querySelector('#examSheetPrev'), 'click', () => this.goToQuestion(this.currentIndex - 1));
     add(this.container.querySelector('#examSheetNext'), 'click', () => this.goToQuestion(this.currentIndex + 1));
+    add(this.wordLookupToggle, 'click', () => this.toggleWordLookup());
+    add(this.sheetProgress, 'click', () => this.showAnswerCard());
     add(this.container.querySelector('#examUncertainBtn'), 'click', () => this.toggleUncertain());
     add(this.container.querySelector('#examBookmarkBtn'), 'click', () => this.toggleBookmark());
     add(this.container.querySelector('#examSubmitBtn'), 'click', () => this.requestSubmit());
+    add(window, 'orientationchange', () => {
+      this.closeAnswerCard({ restoreFocus: false });
+      this.clearSentenceAiConfirmation();
+    });
 
     this._dispose = () => {
       if (this._drag) {
@@ -381,6 +488,23 @@ export const ExamPracticeView = {
       this._disposed = true;
       onCleanup.forEach(remove => remove());
     };
+  },
+
+  toggleWordLookup() {
+    if (this.isExplanation) return;
+    this.wordLookupEnabled = !this.wordLookupEnabled;
+    this.updateWordLookupToggle();
+    Tooltip.hide();
+    void Config.set('exam_word_lookup_enabled', String(this.wordLookupEnabled));
+  },
+
+  updateWordLookupToggle() {
+    const toggle = this.wordLookupToggle || this.container?.querySelector('#examWordLookupToggle');
+    if (!toggle) return;
+    const enabled = Boolean(this.wordLookupEnabled);
+    toggle.classList.toggle('is-active', enabled);
+    toggle.setAttribute('aria-checked', String(enabled));
+    toggle.setAttribute('aria-label', `点词翻译：${enabled ? '开' : '关'}`);
   },
 
   bindExplanationEvents() {
@@ -517,7 +641,11 @@ export const ExamPracticeView = {
     const response = question ? this.responses.get(question.questionKey) : null;
     if (!this.sheetProgress) return;
     const answered = this.unit.type === 'translation' ? Boolean(response?.value?.text?.trim()) : Boolean(response?.answer);
-    this.sheetProgress.textContent = `${this.currentIndex + 1} / ${this.questions.length} · ${answered ? '已答' : '未答'}${response?.uncertain ? ' · ?' : ''}`;
+    const model = buildAnswerCardModel({ attempt: this.attempt, units: this.units, responses: this.responses, currentQuestionKey: question?.questionKey });
+    const position = this.isFullPaper ? model.currentPosition : this.currentIndex + 1;
+    const total = this.isFullPaper ? model.total : this.questions.length;
+    this.sheetProgress.textContent = `${position} / ${total} · ${answered ? '已答' : '未答'}${response?.uncertain ? ' · ?' : ''}`;
+    this.sheetProgress.setAttribute('aria-label', `打开答题卡，当前第 ${position} 题，共 ${total} 题，${answered ? '已答' : '未答'}`);
     this.updateSubmitButton();
   },
 
@@ -696,7 +824,7 @@ export const ExamPracticeView = {
   selectAnswer(answerKey) {
     const question = this.questions[this.currentIndex];
     if (this.unit.type === 'translation') return;
-    if (this.unit.type === 'paragraph_ordering') {
+    if (['paragraph_ordering', 'matching'].includes(this.unit.type)) {
       const fixedKeys = new Set((this.unit.fixedPlacements || []).map(item => item.candidateKey));
       const candidateKeys = new Set((this.unit.candidates || []).map(candidate => candidate.candidateKey));
       if (fixedKeys.has(answerKey) || !candidateKeys.has(answerKey)) return;
@@ -795,6 +923,7 @@ export const ExamPracticeView = {
   },
 
   goToQuestion(index) {
+    this.clearSentenceAiConfirmation?.();
     if (this.isFullPaper && (index < 0 || index >= this.questions.length)) {
       const unitIndex = this.units.findIndex(unit => unit.unitKey === this.unit.unitKey);
       if (index < 0 && unitIndex > 0) {
@@ -817,6 +946,89 @@ export const ExamPracticeView = {
     this.renderArticle();
     this.renderQuestion();
     this.scheduleAutosave();
+  },
+
+  goToQuestionKey(questionKey) {
+    const unitIndex = this.units.findIndex(unit => this.getQuestionsForUnit(unit).some(question => question.questionKey === questionKey));
+    if (unitIndex < 0) return false;
+    const questions = this.getQuestionsForUnit(this.units[unitIndex]);
+    const questionIndex = questions.findIndex(question => question.questionKey === questionKey);
+    if (questionIndex < 0) return false;
+    if (this.units[unitIndex].unitKey === this.unit.unitKey) {
+      this.goToQuestion(questionIndex);
+      return true;
+    }
+    return this.goToUnit(unitIndex, questionIndex);
+  },
+
+  showAnswerCard() {
+    if (this.isExplanation || this._answerCardOverlay) return;
+    const model = buildAnswerCardModel({
+      attempt: this.attempt,
+      units: this.units,
+      responses: this.responses,
+      currentQuestionKey: this.questions[this.currentIndex]?.questionKey
+    });
+    const overlay = document.createElement('div');
+    overlay.id = 'examAnswerCardOverlay';
+    overlay.className = 'modal-overlay exam-answer-card-overlay';
+    overlay.innerHTML = renderAnswerCardHtml(model);
+    document.body.appendChild(overlay);
+    document.body.classList.add('exam-answer-card-open');
+    this._answerCardOverlay = overlay;
+    this._answerCardReturnFocus = document.activeElement;
+    overlay.querySelector('#examAnswerCardClose')?.addEventListener('click', () => this.closeAnswerCard());
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) this.closeAnswerCard();
+      const questionKey = event.target.closest?.('[data-answer-question]')?.dataset.answerQuestion;
+      if (questionKey) {
+        this.closeAnswerCard({ restoreFocus: false });
+        this.goToQuestionKey(questionKey);
+        this.sheetProgress?.focus();
+      }
+    });
+    overlay.querySelector('#examAnswerCardSubmit')?.addEventListener('click', () => {
+      this.closeAnswerCard({ restoreFocus: false });
+      this.requestSubmit({ allowFromAnywhere: true });
+    });
+    overlay.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.closeAnswerCard();
+        return;
+      }
+      if (event.key === 'Tab') {
+        const focusable = [...overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      const buttons = [...overlay.querySelectorAll('[data-answer-question]')];
+      const index = buttons.indexOf(document.activeElement);
+      if (index < 0) return;
+      event.preventDefault();
+      const delta = ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1;
+      buttons[(index + delta + buttons.length) % buttons.length]?.focus();
+    });
+    (overlay.querySelector('.is-current') || overlay.querySelector('[data-answer-question]') || overlay.querySelector('#examAnswerCardClose'))?.focus();
+  },
+
+  closeAnswerCard({ restoreFocus = true } = {}) {
+    if (!this._answerCardOverlay) return;
+    this._answerCardOverlay.remove();
+    this._answerCardOverlay = null;
+    document.body.classList.remove('exam-answer-card-open');
+    if (restoreFocus) this._answerCardReturnFocus?.focus?.();
+    this._answerCardReturnFocus = null;
   },
 
   startDrag(event) {
@@ -888,8 +1100,8 @@ export const ExamPracticeView = {
     });
   },
 
-  requestSubmit() {
-    if (!this.isAtFinalQuestion()) return;
+  requestSubmit({ allowFromAnywhere = false } = {}) {
+    if (!allowFromAnywhere && !this.isAtFinalQuestion()) return;
     const submitQuestions = this.isFullPaper ? this.allQuestions : this.questions;
     const unanswered = submitQuestions.filter(question => {
       const response = this.responses.get(question.questionKey);

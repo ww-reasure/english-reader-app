@@ -22,7 +22,7 @@ export class ExamPracticeService {
     reviewEligibleQuestionKeys = null,
     forceShuffle = false
   }) {
-    if (!['normal', 'result_retry', 'review_center_due'].includes(practiceOrigin)) {
+    if (!['normal', 'result_retry', 'review_center_due', 'review_center_manual'].includes(practiceOrigin)) {
       throw new Error('practiceOrigin 无效');
     }
     const paper = await this.contentRepository.getFullPaper({ examId, bankId, paperKey });
@@ -47,8 +47,9 @@ export class ExamPracticeService {
     });
     const shouldShuffle = forceShuffle || mode === 'wrong_review' || priorSubmitted.length > 0;
     const optionShuffleSeed = shouldShuffle ? createShuffleSeed() : null;
-    const optionOrders = unit.type === 'paragraph_ordering' ? null : buildOptionOrders(selected, optionShuffleSeed);
-    const candidateOrder = unit.type === 'paragraph_ordering'
+    const usesCandidates = ['paragraph_ordering', 'matching'].includes(unit.type);
+    const optionOrders = usesCandidates ? null : buildOptionOrders(selected, optionShuffleSeed);
+    const candidateOrder = usesCandidates
       ? buildCandidateOrder(unit.candidates, optionShuffleSeed)
       : null;
     const attempt = createAttempt({
@@ -60,7 +61,7 @@ export class ExamPracticeService {
       mode,
       practiceOrigin,
       scopeQuestionKeys: mode === 'wrong_review' ? uniqueKeys : null,
-      reviewEligibleQuestionKeys: practiceOrigin === 'review_center_due' ? uniqueKeys : reviewEligibleQuestionKeys,
+      reviewEligibleQuestionKeys: ['review_center_due', 'review_center_manual'].includes(practiceOrigin) ? uniqueKeys : reviewEligibleQuestionKeys,
       questionKeys: uniqueKeys,
       optionOrders,
       candidateOrder,
@@ -85,6 +86,7 @@ export class ExamPracticeService {
       ['cloze_choice', 0],
       ['reading_mcq', 1],
       ['paragraph_ordering', 2],
+      ['matching', 2],
       ['translation', 3]
     ]);
     const units = (paper.units || [])
@@ -107,7 +109,7 @@ export class ExamPracticeService {
     const passageScrollAnchors = {};
     for (const unit of units) {
       const selected = unit.questions;
-      if (unit.type === 'paragraph_ordering') {
+      if (['paragraph_ordering', 'matching'].includes(unit.type)) {
         candidateOrders[unit.unitKey] = buildCandidateOrder(unit.candidates, optionShuffleSeed);
       } else {
         Object.assign(optionOrders, buildOptionOrders(selected, optionShuffleSeed));
@@ -142,14 +144,14 @@ export class ExamPracticeService {
     return attempt;
   }
 
-  async startReviewCenterAttempt({ examId, bankId, packageId, paperKey, unitKey, questionKeys, now = Date.now() }) {
-    const dueStates = await this.stateRepository.listDueWrongStates({ examId, bankId, now });
-    const dueByKey = new Map(dueStates
+  async startReviewCenterAttempt({ examId, bankId, packageId, paperKey, unitKey, questionKeys }) {
+    const activeStates = await this.stateRepository.listWrongStates({ examId, bankId, status: 'active' });
+    const activeByKey = new Map(activeStates
       .filter(state => state.paperKey === paperKey && state.unitKey === unitKey)
       .map(state => [state.questionKey, state]));
     const uniqueKeys = [...new Set(questionKeys || [])];
-    if (!uniqueKeys.length || uniqueKeys.some(questionKey => !dueByKey.has(questionKey))) {
-      throw new Error('选中的题目已不在待复习队列');
+    if (!uniqueKeys.length || uniqueKeys.some(questionKey => !activeByKey.has(questionKey))) {
+      throw new Error('选中的题目已不在错题本');
     }
     return this.startAttempt({
       examId,
@@ -158,7 +160,7 @@ export class ExamPracticeService {
       paperKey,
       unitKey,
       mode: 'wrong_review',
-      practiceOrigin: 'review_center_due',
+      practiceOrigin: 'review_center_manual',
       scopeQuestionKeys: uniqueKeys,
       reviewEligibleQuestionKeys: uniqueKeys,
       forceShuffle: true
@@ -230,7 +232,7 @@ export class ExamPracticeService {
           });
     }
     for (const candidateUnit of units) {
-      if (candidateUnit.type === 'paragraph_ordering') {
+      if (['paragraph_ordering', 'matching'].includes(candidateUnit.type)) {
         assertOrderingResponses(candidateUnit, responsesWithSnapshots.filter(response => unitByQuestion.get(response.questionKey)?.unitKey === candidateUnit.unitKey));
       }
     }

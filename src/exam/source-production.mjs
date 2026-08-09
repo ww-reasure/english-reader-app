@@ -44,14 +44,14 @@ export function detectPartBVariant(markdown) {
     : source;
   if (/paragraphs?\s+are\s+given\s+in\s+a\s+wrong\s+order/iu.test(partB)
     || /reorgan(?:i|z)e\s+these\s+paragraphs/iu.test(partB)
+    || /fill\s+(?:them|the\s+paragraphs?)\s+into\s+the\s+numbered\s+(?:boxes|blanks?).*coherent\s+text/isu.test(partB)
     || /段落排序/u.test(partB)) {
     return 'paragraph_ordering';
   }
-  if (/match(?:ing)?\s+(?:each|the)\s+paragraph|correct\s+heading/iu.test(partB)
-    || /匹配|小标题|7\s*选\s*5/u.test(partB)
-    || candidateKeys.length === 7) {
-    return 'unsupported_matching';
-  }
+  if (/best\s+statement.*(?:summari[sz]e|sum\s+up)|opinions?.*best\s+statement|comments?.*statements?\s+summari/isu.test(partB)) return 'statement_matching';
+  if (/sentences?\s+have\s+been\s+removed|fit\s+into\s+each\s+of\s+the\s+numbered\s+blanks?/iu.test(partB)) return 'sentence_insertion';
+  if (/match(?:ing)?\s+(?:each|the)\s+paragraph|correct\s+(?:sub)?heading|most\s+suitable\s+subheading/iu.test(partB)
+    || /小标题匹配/u.test(partB)) return 'heading_matching';
   return 'unknown';
 }
 
@@ -138,12 +138,12 @@ export function compareSourceToCanonicalPaper({ paper, sourceSummary }) {
     differences.push(`reading ranges mismatch: paper=${JSON.stringify(readingRanges)} source=${JSON.stringify(sourceSummary?.readingQuestionRanges || [])}`);
   }
 
-  const partB = (paper?.units || []).find(unit => unit.type === 'paragraph_ordering');
+  const partB = (paper?.units || []).find(unit => ['paragraph_ordering', 'matching'].includes(unit.type));
   const sourcePartBVariant = sourceSummary?.partB?.variant || 'unknown';
   if (sourcePartBVariant.startsWith('unsupported_')) {
     if (partB) differences.push(`Part B unsupported variant must not be imported: ${sourcePartBVariant}`);
   } else {
-    const partBVariant = partB ? 'paragraph_ordering' : 'unknown';
+    const partBVariant = partB?.type === 'matching' ? partB.matchingVariant : partB ? 'paragraph_ordering' : 'unknown';
     if (partBVariant !== sourcePartBVariant) {
       differences.push(`Part B variant mismatch: paper=${partBVariant} source=${sourcePartBVariant}`);
     }

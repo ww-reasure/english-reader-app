@@ -144,7 +144,7 @@ function assertQuestion(question, errors) {
     if (isNonEmptyString(question.answer) && optionKeys.size && !optionKeys.has(question.answer)) {
       errors.push(`${label}.answer 不在 options 中：${question.answer}`);
     }
-  } else if (question.type === 'paragraph_ordering_slot') {
+  } else if (question.type === 'paragraph_ordering_slot' || question.type === 'matching_slot') {
     if (!Number.isSafeInteger(question.slotNumber) || question.slotNumber <= 0) {
       errors.push(`${label}.slotNumber 必须为正整数`);
     }
@@ -178,6 +178,44 @@ function assertQuestion(question, errors) {
     }
   } else if (question.optionAnalysis !== undefined && question.optionAnalysis !== null && !Array.isArray(question.optionAnalysis)) {
     errors.push(`${label}.optionAnalysis 必须是数组`);
+  }
+}
+
+function assertMatchingUnit(unit, errors) {
+  const label = `unit.${unit.unitKey || '<missing>'}`;
+  if (!['sentence_insertion', 'heading_matching', 'statement_matching'].includes(unit.matchingVariant)) {
+    errors.push(`${label}.matchingVariant 无效`);
+  }
+  assertParagraphArray(unit.passage, `${label}.passage`, errors);
+  const candidates = Array.isArray(unit.candidates) ? unit.candidates : [];
+  if (candidates.length !== 7) errors.push(`${label}.candidates 必须恰好包含 7 项`);
+  const candidateKeys = new Set();
+  candidates.forEach((candidate, index) => {
+    const key = String(candidate?.candidateKey || '');
+    if (!/^[A-G]$/.test(key)) errors.push(`${label}.candidates[${index}].candidateKey 必须是 A-G`);
+    else if (candidateKeys.has(key)) errors.push(`${label}.candidates.candidateKey 重复：${key}`);
+    else candidateKeys.add(key);
+    if (!isNonEmptyString(candidate?.text)) errors.push(`${label}.candidates[${index}].text 必须是非空字符串`);
+  });
+  const questions = Array.isArray(unit.questions) ? unit.questions : [];
+  const slots = Array.isArray(unit.slots) ? unit.slots : [];
+  if (questions.length !== 5 || slots.length !== 5) errors.push(`${label} 必须包含 5 个 matching slot`);
+  const usedAnswers = new Set();
+  for (const question of questions) {
+    assertQuestion(question, errors);
+    if (question.type !== 'matching_slot') errors.push(`${label}.questions 类型必须为 matching_slot`);
+    if (usedAnswers.has(question.answer)) errors.push(`${label}.answer 候选不可重复使用：${question.answer}`);
+    usedAnswers.add(question.answer);
+    if (!candidateKeys.has(question.answer)) errors.push(`${label}.answer 不在 candidates 中：${question.answer}`);
+    if (!slots.some(slot => slot.questionKey === question.questionKey && slot.slotNumber === question.slotNumber)) {
+      errors.push(`${label}.question ${question.questionKey} 未映射到 slot`);
+    }
+  }
+  for (const slot of slots) {
+    const marker = `[${slot.slotNumber}]`;
+    if (!(unit.passage || []).some(item => String(item.text || '').includes(marker))) {
+      errors.push(`${label}.slot ${slot.slotNumber} 在 passage 中缺少占位标记`);
+    }
   }
 }
 
@@ -419,6 +457,7 @@ function assertUnit(unit, errors) {
   if (unit.type === 'reading_mcq') assertReadingMcqUnit(unit, errors);
   else if (unit.type === 'cloze_choice') assertClozeUnit(unit, errors);
   else if (unit.type === 'paragraph_ordering') assertOrderingUnit(unit, errors);
+  else if (unit.type === 'matching') assertMatchingUnit(unit, errors);
   else if (unit.type === 'translation') assertTranslationUnit(unit, errors);
 }
 

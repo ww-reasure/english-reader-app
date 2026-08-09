@@ -211,6 +211,23 @@ function buildCanonicalPaper({ meta, title, units }) {
     };
   };
 
+  const buildMatchingUnit = unit => ({
+    unitKey: unit.meta.unitKey,
+    type: unit.meta.type,
+    displayTitle: unit.meta.displayTitle || unit.displayTitle,
+    matchingVariant: unit.meta.matchingVariant,
+    ...(unit.directions.trim() ? { directions: unit.directions.trim() } : {}),
+    passage: unit.passage,
+    translation: unit.translation,
+    candidates: unit.candidates,
+    ...(unit.candidateTranslations.length ? { candidateTranslations: unit.candidateTranslations } : {}),
+    slots: (unit.meta.slots || []).map((slotNumber, position) => {
+      const question = unit.questions.find(item => item.slotNumber === Number(slotNumber));
+      return { slotNumber: Number(slotNumber), position, questionKey: question?.meta?.questionKey || null };
+    }),
+    questions: unit.questions.map(buildQuestion)
+  });
+
   const paper = {
     schemaVersion: EXAM_CANONICAL_SCHEMA_VERSION,
     examId: meta.examId,
@@ -235,6 +252,7 @@ function buildCanonicalPaper({ meta, title, units }) {
       if (unit.directions.trim()) base.directions = unit.directions.trim();
       if (unit.candidateTranslations.length) base.candidateTranslations = unit.candidateTranslations;
       if (unit.meta.type === 'paragraph_ordering') return buildOrderingUnit(unit);
+      if (unit.meta.type === 'matching') return buildMatchingUnit(unit);
       return {
         ...base,
         questions: unit.questions.map(buildQuestion)

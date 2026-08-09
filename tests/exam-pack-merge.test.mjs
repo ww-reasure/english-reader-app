@@ -147,3 +147,27 @@ test('buildYearPack accepts only a QA-declared unsupported Part B omission', asy
   assert.equal(pack.papers[0].paperKey, 'kaoyan_en1_2024');
   assert.equal(pack.papers[0].units.length, 6);
 });
+
+test('batch rebuild replaces all requested legacy years while preserving the protected 2026 paper', async () => {
+  const { existsSync } = await import('node:fs');
+  if (!existsSync('private_exam_sources/markdown/kaoyan-en1/2025') || !existsSync('private_exam_sources/markdown/kaoyan-en1/2024')) return;
+  const { mkdtemp, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { rebuildKaoyanEn1Packs } = await import('../scripts/merge-kaoyan-en1-packs.mjs');
+  const tempDir = await mkdtemp(join(tmpdir(), 'kaoyan-en1-batch-'));
+  const existingPath = 'public/exam-packs/private/local.kaoyan.en1.json';
+  const existing = JSON.parse(await readFile(existingPath, 'utf8'));
+  const old2026Hash = await hashPaper(existing.papers.find(paper => paper.paperKey === 'kaoyan_en1_2026'));
+  const rebuilt = await rebuildKaoyanEn1Packs({
+    existingPath,
+    sourceRoot: 'private_exam_sources/markdown/kaoyan-en1',
+    years: [2025, 2024],
+    outputPath: join(tempDir, 'local.kaoyan.en1.json'),
+    indexPath: join(tempDir, 'index.json'),
+    packageVersion: '1.1.1'
+  });
+  assert.deepEqual(rebuilt.papers.map(paper => paper.paperKey), ['kaoyan_en1_2026', 'kaoyan_en1_2025', 'kaoyan_en1_2024']);
+  assert.equal(rebuilt.manifest.packageVersion, '1.1.1');
+  assert.equal(await hashPaper(rebuilt.papers[0]), old2026Hash);
+});

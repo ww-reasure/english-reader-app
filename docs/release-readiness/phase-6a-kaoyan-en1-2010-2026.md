@@ -94,8 +94,8 @@
 - Branch：`feat/english-practice-machine`
 - Worktree：dirty；不擅自删除已有 staged、unstaged、untracked 或 Git ignored 私有资料
 - 私有 pack：`public/exam-packs/private/local.kaoyan.en1.json`
-- 私有 pack SHA-256：`07A9F70D6C103B24549AE5722B52CDB93EE70CA110F6232A95D0547953F7C5B5`
-- packageVersion：`1.1.0`
+- 私有 pack SHA-256：`5ED25282664D6EAFD9F94827ED524B9FD5EB9F74A92379FA2D658F26F0584BA3`
+- packageVersion：`1.1.1`
 - DB：v17
 
 2010–2026 已完成。本轮停止，不继续推测或导入 inventory 之外的更早年份；如需 2009 或 matching Part B renderer，等待新的源文件和明确授权。

@@ -6,10 +6,19 @@ import { buildExamPackFromMarkdown, createExamPack } from '../src/exam/pack.mjs'
 import { installExamPack } from '../src/exam/pack-installer.mjs';
 import { parseExamMarkdown } from '../src/exam/parser.mjs';
 import { ExamRepository } from '../src/exam/repository.mjs';
+import { getExamPackInstallOptions } from '../src/exam/pack-install-policy.mjs';
 
 const fixtureUrl = new URL('./fixtures/exam-md-minimal.md', import.meta.url);
 const generatedAt = '2026-08-07T00:00:00.000Z';
 let sequence = 0;
+
+function getAll(db, storeName) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(storeName).objectStore(storeName).getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
 
 function openCustomV14(name) {
   return new Promise((resolve, reject) => {
@@ -164,4 +173,75 @@ test('rejects reusing the same bankId for a different exam', async () => {
   const otherPack = await buildExamPackFromMarkdown(otherExamMarkdown, { generatedAt, displayName: 'Synthetic CET4' });
   await assert.rejects(installExamPack(openDb, otherPack), /bankId 必须全局唯一/);
   db.close();
+});
+
+test('a known contaminated pack hash can reset only that bank test state during upgrade', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  module.DB.DB_NAME = `EnglishReaderExamStateReset-${process.pid}-${sequence++}`;
+  const db = await module.DB.open();
+  const openDb = () => Promise.resolve(db);
+  const markdown = await readFile(fixtureUrl, 'utf8');
+  const original = await buildExamPackFromMarkdown(markdown, { generatedAt, displayName: 'Synthetic' });
+  await installExamPack(openDb, original);
+
+  const affected = {
+    examAttempts: { attemptId: 'affected-attempt', examId: 'kaoyan_en1', bankId: 'synthetic_kaoyan_bank', packageId: original.manifest.packageId },
+    examResponses: { responseId: 'affected-response', attemptId: 'affected-attempt', examId: 'kaoyan_en1', bankId: 'synthetic_kaoyan_bank', packageId: original.manifest.packageId },
+    examWrongStates: { key: 'synthetic_kaoyan_bank:q21', examId: 'kaoyan_en1', bankId: 'synthetic_kaoyan_bank', questionKey: 'q21' },
+    examBookmarks: { key: 'synthetic_kaoyan_bank:q21', examId: 'kaoyan_en1', bankId: 'synthetic_kaoyan_bank', questionKey: 'q21' },
+    examTranslationReviews: { key: 'synthetic_kaoyan_bank:q46', examId: 'kaoyan_en1', bankId: 'synthetic_kaoyan_bank', questionKey: 'q46' }
+  };
+  const unrelated = {
+    examAttempts: { attemptId: 'unrelated-attempt', examId: 'kaoyan_en1', bankId: 'other_bank', packageId: 'other.package' },
+    examResponses: { responseId: 'unrelated-response', attemptId: 'unrelated-attempt', examId: 'kaoyan_en1', bankId: 'other_bank', packageId: 'other.package' },
+    examWrongStates: { key: 'other_bank:q21', examId: 'kaoyan_en1', bankId: 'other_bank', questionKey: 'q21' },
+    examBookmarks: { key: 'other_bank:q21', examId: 'kaoyan_en1', bankId: 'other_bank', questionKey: 'q21' },
+    examTranslationReviews: { key: 'other_bank:q46', examId: 'kaoyan_en1', bankId: 'other_bank', questionKey: 'q46' }
+  };
+  const stateStores = Object.keys(affected);
+  const tx = db.transaction(stateStores, 'readwrite');
+  for (const storeName of stateStores) {
+    tx.objectStore(storeName).put(affected[storeName]);
+    tx.objectStore(storeName).put(unrelated[storeName]);
+  }
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+
+  const paper = structuredClone(parseExamMarkdown(markdown));
+  paper.units[0].questions[0].explanation = 'Clean replacement';
+  const upgradedPack = await createExamPack({
+    meta: {
+      packageId: original.manifest.packageId,
+      packageVersion: '1.0.1',
+      examId: original.manifest.examId,
+      bankId: original.manifest.bankId,
+      displayName: original.manifest.displayName
+    },
+    papers: [paper],
+    generatedAt
+  });
+
+  const result = await installExamPack(openDb, upgradedPack, {
+    resetStateForContentHashes: [original.manifest.contentHash]
+  });
+  assert.equal(result.stateReset, true);
+  for (const storeName of stateStores) {
+    const rows = await getAll(db, storeName);
+    assert.equal(rows.length, 1, `${storeName} should retain only unrelated state`);
+    assert.equal(rows[0].bankId, 'other_bank');
+  }
+  db.close();
+});
+
+test('only the known contaminated private English I pack opts into state reset', () => {
+  assert.deepEqual(getExamPackInstallOptions({ manifest: { packageId: 'local.kaoyan.en1' } }), {
+    resetStateForContentHashes: ['sha256:752e40ea4ed8c853da2aeea135e92f60e4b9c9b5f76707b5612ee93fd3d12a44']
+  });
+  assert.deepEqual(getExamPackInstallOptions({ manifest: { packageId: 'synthetic.kaoyan.en1' } }), {
+    resetStateForContentHashes: []
+  });
 });

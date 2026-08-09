@@ -43,7 +43,7 @@ async function collectSourceEvidence({ sourcePath, year }) {
   return candidates;
 }
 
-export async function runYearConversion({ sourcePath, outputDir, year = 2025, packageVersion = '1.1.0' } = {}) {
+export async function runYearConversion({ sourcePath, outputDir, year = 2025, packageVersion = '1.1.2' } = {}) {
   const resolvedSourcePath = sourcePath || `D:/资料/english/md/考研英语一${year}年真题及答案解析（整卷）.md`;
   const source = await readFile(resolve(resolvedSourcePath), 'utf8');
   const result = convertYearSource({ source, year: Number(year), packageVersion });
@@ -92,7 +92,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     sourcePath: readArg('source'),
     outputDir: readArg('output-dir'),
     year: Number(readArg('year') || 2025),
-    packageVersion: readArg('package-version') || '1.1.0'
+    packageVersion: readArg('package-version') || '1.1.2'
   }).then(result => {
     process.stdout.write(JSON.stringify({
       year: result.meta.year,

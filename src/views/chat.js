@@ -36,12 +36,16 @@ import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.m
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
+import { createExamServices } from '../exam/create-services.js';
+import { createExamLearningOverviewProvider } from '../exam/learning-overview-provider.mjs';
 
 const conversationStore = new ConversationStore();
+const examLearningProvider = createExamLearningOverviewProvider({ services: createExamServices() });
 const learningAgent = new LearningAgent({
   db: DB,
   srs: SpacedRepetition,
   examCorpus: ExamCorpus,
+  examLearningProvider,
   targetTrack: () => Config.get('exam_level') || ''
 });
 const contextBuilder = new ContextBuilder({ capabilityIndex: AppCapabilityRegistry.compactIndex() });

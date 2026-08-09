@@ -132,7 +132,7 @@ export const ExamResultView = {
         const status = response?.unanswered ? '未答' : response?.correct ? '正确' : '错误';
         const detailId = `examDetail${question.questionKey}`;
         const label = renderer.questionLabel(question, index);
-        const stem = unit.type === 'paragraph_ordering'
+        const stem = ['paragraph_ordering', 'matching'].includes(unit.type)
           ? `${label} 号位置`
           : question.stem || `${label}`;
         const tutorLabel = response?.correct ? '✨ AI分析这道题' : '✨ AI分析我为什么会错';

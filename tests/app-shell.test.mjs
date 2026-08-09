@@ -9,19 +9,19 @@ async function loadShell() {
 
 test('maps article routes to the bookshelf drawer item', async () => {
   const { AppShell } = await loadShell();
-  assert.equal(AppShell.getRouteMeta('#/reading/42').navKey, 'reading-list');
+  assert.deepEqual(AppShell.getRouteMeta('#/reading/42'), { navKey: 'reading-list', title: '阅读', headerMode: 'back', tabletLayout: 'focus' });
   assert.equal(AppShell.getRouteMeta('#/history').title, '阅读记录');
 });
 
 test('maps the exam route to a dedicated drawer item', async () => {
   const { AppShell } = await loadShell();
-  assert.deepEqual(AppShell.getRouteMeta('#/exam'), { navKey: 'exam', title: '真题训练', headerMode: 'drawer' });
+  assert.deepEqual(AppShell.getRouteMeta('#/exam'), { navKey: 'exam', title: '真题训练', headerMode: 'drawer', tabletLayout: 'rail' });
 });
 
 test('maps practice and result routes to the exam drawer item', async () => {
   const { AppShell } = await loadShell();
-  assert.deepEqual(AppShell.getRouteMeta('#/exam/practice/attempt_1'), { navKey: 'exam', title: '真题练习', headerMode: 'back' });
-  assert.deepEqual(AppShell.getRouteMeta('#/exam/result/attempt_1'), { navKey: 'exam', title: '练习结果', headerMode: 'back' });
+  assert.deepEqual(AppShell.getRouteMeta('#/exam/practice/attempt_1'), { navKey: 'exam', title: '真题练习', headerMode: 'back', tabletLayout: 'focus' });
+  assert.deepEqual(AppShell.getRouteMeta('#/exam/result/attempt_1'), { navKey: 'exam', title: '练习结果', headerMode: 'back', tabletLayout: 'focus' });
 });
 
 test('catalog, review and history use back navigation instead of the global drawer', async () => {
@@ -35,7 +35,7 @@ test('keeps flashcard review in the standard English Learning header', async () 
   const { AppShell } = await loadShell();
   const meta = AppShell.getRouteMeta('#/flashcard');
 
-  assert.deepEqual(meta, { navKey: 'vocab', title: '单词复习' });
+  assert.deepEqual(meta, { navKey: 'vocab', title: '单词复习', headerMode: 'back', tabletLayout: 'focus' });
 });
 
 test('reserves the clear-context header action for the chat route', async () => {

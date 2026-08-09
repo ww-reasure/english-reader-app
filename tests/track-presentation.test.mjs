@@ -135,6 +135,8 @@ test('learning profile counts historical graduate reading in the general graduat
     const formatDate = ${formatDate.toString()};
     const esc = ${esc.toString()};
     const SpacedRepetition = { getDueCount: () => 0 };
+    const createExamServices = () => ({});
+    const createExamLearningOverviewProvider = () => ({ getOverview: async () => ({ status: 'unavailable', availableYears: [], totals: { completedAttempts: 0, objectiveAccuracy: null, objectiveAnswered: 0, translationSegments: 0, activeDurationMs: 0 }, byType: [], trend: [], review: { activeWrong: 0, dueWrong: 0, masteredWrong: 0, translationNeedsReview: 0 }, recentAttempts: [] }) });
     const resolveArticleTrack = article => { const raw = article.examType === '英语一' ? 'kaoyan1' : article.examType === '英语二' ? 'kaoyan2' : article.targetTrack || article.difficulty || 'unknown'; return { targetTrack: raw === 'graduate' ? 'kaoyan-general' : raw }; };
     ${analyticsRuntime}
     ${runtime}

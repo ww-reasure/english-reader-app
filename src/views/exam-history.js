@@ -1,6 +1,7 @@
 import { createExamServices } from '../exam/create-services.js';
 import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { installExamPack } from '../exam/pack-installer.mjs';
+import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
 import { esc } from '../helpers.js';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
 
@@ -11,7 +12,8 @@ async function installPrivatePacks(services) {
   for (const entry of index.packs || []) {
     const packResponse = await fetch(entry.path);
     if (!packResponse.ok) continue;
-    await installExamPack(services.openDb, await packResponse.json());
+    const pack = await packResponse.json();
+    await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack));
   }
 }
 

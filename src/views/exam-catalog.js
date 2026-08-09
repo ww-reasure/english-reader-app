@@ -3,6 +3,7 @@ import { buildExamCatalog, selectRandomPaper, selectRandomUnit } from '../exam/c
 import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
 import { installExamPack } from '../exam/pack-installer.mjs';
+import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
 import { esc } from '../helpers.js';
 
 async function installPrivatePacks(services) {
@@ -12,7 +13,8 @@ async function installPrivatePacks(services) {
   for (const entry of index.packs || []) {
     const packResponse = await fetch(entry.path);
     if (!packResponse.ok) continue;
-    await installExamPack(services.openDb, await packResponse.json());
+    const pack = await packResponse.json();
+    await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack));
   }
 }
 
@@ -34,6 +36,7 @@ async function loadPapers(services) {
 function unitLabel(unit) {
   if (unit.type === 'cloze_choice') return '完形填空';
   if (unit.type === 'paragraph_ordering') return '段落排序';
+  if (unit.type === 'matching') return ({ sentence_insertion: '句子插入', heading_matching: '小标题匹配', statement_matching: '观点匹配' }[unit.matchingVariant] || '匹配题');
   if (unit.type === 'translation') return '翻译';
   return unit.displayTitle ? `阅读理解 ${unit.displayTitle}` : '阅读理解';
 }
@@ -67,6 +70,7 @@ function unitHtml(unit, progressByUnit) {
 function fullPaperUnitLabel(unit) {
   if (unit.type === 'cloze_choice') return 'Section I · 完形填空';
   if (unit.type === 'paragraph_ordering') return 'Section II Part B · 段落排序';
+  if (unit.type === 'matching') return `Section II Part B · ${unitLabel(unit)}`;
   if (unit.type === 'translation') return 'Section II Part C · 翻译';
   return `Section II · ${unit.displayTitle || '阅读理解'}`;
 }

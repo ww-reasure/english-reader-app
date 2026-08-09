@@ -26,7 +26,7 @@ export function addWrongState({ now, attempt, questionKey }) {
     lastWrongAt: now,
     lastReviewedAt: null,
     lastReviewAttemptId: null,
-    nextDueAt: now + FIRST_REVIEW_DELAY_MS,
+    nextDueAt: null,
     independentCorrectStreak: 0,
     lastIndependentCorrectAt: null,
     wrongCount: 1,
@@ -45,7 +45,7 @@ export function reactivateWrongState({ state, now, attemptId = null, reviewed = 
     lastWrongAt: now,
     lastReviewedAt: reviewed ? now : state.lastReviewedAt ?? null,
     lastReviewAttemptId: reviewed ? attemptId : state.lastReviewAttemptId ?? null,
-    nextDueAt: now + FIRST_REVIEW_DELAY_MS,
+    nextDueAt: null,
     wrongCount: (Number(state.wrongCount) || 0) + 1,
     reviewCount: (Number(state.reviewCount) || 0) + (reviewed ? 1 : 0),
     masteredAt: null,
@@ -59,23 +59,23 @@ export function readdMasteredWrongState({ state, now }) {
     status: 'active',
     independentCorrectStreak: 0,
     lastIndependentCorrectAt: null,
-    nextDueAt: now + FIRST_REVIEW_DELAY_MS,
+    nextDueAt: null,
     masteredAt: null,
     updatedAt: now
   };
 }
 
-function eligibleDueReview({ state, attempt, questionKey, now }) {
-  return attempt?.practiceOrigin === 'review_center_due'
+function eligibleManualReview({ state, attempt, questionKey }) {
+  return ['review_center_manual', 'review_center_due'].includes(attempt?.practiceOrigin)
+    && attempt?.status === 'submitted'
     && Array.isArray(attempt.reviewEligibleQuestionKeys)
     && attempt.reviewEligibleQuestionKeys.includes(questionKey)
-    && state?.lastReviewAttemptId !== attempt.attemptId
-    && isObjectiveDue(state, now);
+    && state?.lastReviewAttemptId !== attempt.attemptId;
 }
 
 export function transitionObjectiveReview({ state, attempt, response, now }) {
   if (!state || !response || response.questionKey !== state.questionKey) return state;
-  const isEligible = eligibleDueReview({ state, attempt, questionKey: response.questionKey, now });
+  const isEligible = eligibleManualReview({ state, attempt, questionKey: response.questionKey });
   if (response.unanswered) return state;
 
   if (response.correct === false) {
@@ -102,17 +102,13 @@ export function transitionObjectiveReview({ state, attempt, response, now }) {
   if (nextStreak >= 2) {
     return { ...base, status: 'mastered', masteredAt: now, nextDueAt: null };
   }
-  return { ...base, status: 'active', nextDueAt: now + SECOND_REVIEW_DELAY_MS, masteredAt: null };
+  return { ...base, status: 'active', nextDueAt: null, masteredAt: null };
 }
 
 export function scheduleTranslationReview({ existing = null, attempt, questionKey, status, now }) {
   const firstMarkedAt = existing?.firstMarkedAt || existing?.createdAt || now;
   const createdAt = existing?.createdAt || now;
-  const nextDueAt = status === 'needs_review'
-    ? now
-    : status === 'mostly_mastered'
-      ? now + TRANSLATION_MOSTLY_MASTERED_DELAY_MS
-      : null;
+  const nextDueAt = null;
   return {
     ...(existing || {}),
     key: existing?.key || stateKey(attempt, questionKey),

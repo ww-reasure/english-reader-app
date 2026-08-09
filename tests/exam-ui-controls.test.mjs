@@ -22,7 +22,7 @@ test('exam bottom navigation is shared by the three top-level exam pages only', 
   for (const source of [catalogSource, practiceSource, resultSource]) assert.doesNotMatch(source, /renderExamBottomNav/);
 });
 
-test('practice controls expose a lower peek snap and submit only at the absolute final question', async () => {
+test('practice controls expose a lower peek snap while the inline submit stays at the absolute final question', async () => {
   const [source, css] = await Promise.all([
     read('src/views/exam-practice.js'),
     read('css/style.css')
@@ -36,7 +36,8 @@ test('practice controls expose a lower peek snap and submit only at the absolute
   assert.match(source, /isFinalPracticeQuestion/);
   assert.match(source, /examSubmitBtn/);
   assert.match(source, /submitButton\.hidden/);
-  assert.match(source, /if \(!this\.isAtFinalQuestion\(\)\) return/);
+  assert.match(source, /if \(!allowFromAnywhere && !this\.isAtFinalQuestion\(\)\) return/);
+  assert.match(source, /requestSubmit\(\{ allowFromAnywhere: true \}\)/);
   assert.match(source, /Math\.max\(SNAP_HEIGHTS\.peek,/);
   assert.match(css, /\.exam-sheet\.is-peek/);
   assert.match(css, /\.exam-sheet\.is-peek[^}]*min-height:\s*96px/);
@@ -51,7 +52,19 @@ test('practice keeps submit in the sheet header while the footer stays focused o
   const footerStart = draft.indexOf('exam-sheet-footer');
   const footer = draft.slice(footerStart, footerStart + 600);
   assert.doesNotMatch(footer, /examSubmitBtn/);
-  assert.doesNotMatch(draft, /examWordLookupToggle/);
+  assert.match(draft, /id="examWordLookupToggle"/);
+  assert.match(draft, /role="switch"/);
+  assert.match(draft, /点词翻译/);
+});
+
+test('practice exposes a right-side word lookup switch that persists the current preference', async () => {
+  const source = await read('src/views/exam-practice.js');
+
+  assert.match(source, /examWordLookupToggle/);
+  assert.match(source, /toggleWordLookup()/);
+  assert.match(source, /Config\.set\('exam_word_lookup_enabled'/);
+  assert.match(source, /aria-checked/);
+  assert.match(source, /Tooltip\.hide\(\)/);
 });
 
 test('exam home sends full-paper practice through the year catalogue', async () => {
@@ -86,4 +99,16 @@ test('only the exam desktop exposes a compact bank switcher', async () => {
   assert.doesNotMatch(catalogSource, /examCatalogBankPicker/);
   assert.doesNotMatch(catalogSource, /exam-bank-picker-source/);
   assert.doesNotMatch(catalogSource, /headerActions\.replaceChildren/);
+});
+
+test('every private exam pack entry point applies the shared installation migration policy', async () => {
+  const sources = await Promise.all([
+    read('src/views/exam-home.js'),
+    read('src/views/exam-catalog.js'),
+    read('src/views/exam-history.js')
+  ]);
+  for (const source of sources) {
+    assert.match(source, /getExamPackInstallOptions/);
+    assert.match(source, /installExamPack\([^\n]+getExamPackInstallOptions\(pack\)\)/);
+  }
 });

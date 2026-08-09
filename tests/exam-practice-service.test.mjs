@@ -149,7 +149,7 @@ test('redo wrong creates a new attempt scoped to this attempt wrong keys', async
   services.db.close();
 });
 
-test('Review Center starts only currently due questions with explicit review origin metadata', async () => {
+test('Review Center starts any active wrong question immediately with manual review metadata', async () => {
   const services = await createServices();
   const now = 1_700_000_000_000;
   const originalNow = Date.now;
@@ -161,13 +161,12 @@ test('Review Center starts only currently due questions with explicit review ori
     await services.practiceService.submit({ examId: request.examId, attemptId: first.attemptId, responses: wrong, activeDurationMs: 100 });
     await services.practiceService.addWrongQuestions({ examId: request.examId, attemptId: first.attemptId, questionKeys: ['synthetic_kaoyan_2026_q21'] });
 
-    Date.now = () => now + 24 * 60 * 60 * 1000;
     const review = await services.practiceService.startReviewCenterAttempt({
       ...request,
       questionKeys: ['synthetic_kaoyan_2026_q21']
     });
     assert.equal(review.mode, 'wrong_review');
-    assert.equal(review.practiceOrigin, 'review_center_due');
+    assert.equal(review.practiceOrigin, 'review_center_manual');
     assert.deepEqual(review.reviewEligibleQuestionKeys, ['synthetic_kaoyan_2026_q21']);
   } finally {
     Date.now = originalNow;
@@ -175,7 +174,7 @@ test('Review Center starts only currently due questions with explicit review ori
   }
 });
 
-test('only due Review Center correct answers advance mastery and a later wrong reactivates the tracked state', async () => {
+test('each submitted manual Review Center answer advances mastery and a later wrong reactivates the tracked state', async () => {
   const services = await createServices();
   const start = 1_700_000_000_000;
   const originalNow = Date.now;
@@ -192,20 +191,19 @@ test('only due Review Center correct answers advance mastery and a later wrong r
     await answer(initial, 'A');
     await services.practiceService.addWrongQuestions({ examId: request.examId, attemptId: initial.attemptId, questionKeys: [q21Key] });
 
-    Date.now = () => start + 24 * 60 * 60 * 1000;
     const firstDue = await services.practiceService.startReviewCenterAttempt({ ...request, questionKeys: [q21Key] });
     await answer(firstDue, 'B');
     let state = await services.stateRepository.getWrongState({ examId: request.examId, bankId: request.bankId, questionKey: q21Key });
     assert.equal(state.independentCorrectStreak, 1);
     assert.equal(state.reviewCount, 1);
-    assert.equal(state.nextDueAt, Date.now() + 3 * 24 * 60 * 60 * 1000);
+    assert.equal(state.nextDueAt, null);
 
     const ordinary = await services.practiceService.startAttempt(request);
     await answer(ordinary, 'B');
     state = await services.stateRepository.getWrongState({ examId: request.examId, bankId: request.bankId, questionKey: q21Key });
     assert.equal(state.independentCorrectStreak, 1);
 
-    Date.now = () => start + 4 * 24 * 60 * 60 * 1000;
+    Date.now = () => start + 1;
     const secondDue = await services.practiceService.startReviewCenterAttempt({ ...request, questionKeys: [q21Key] });
     await answer(secondDue, 'B');
     state = await services.stateRepository.getWrongState({ examId: request.examId, bankId: request.bankId, questionKey: q21Key });
@@ -219,7 +217,7 @@ test('only due Review Center correct answers advance mastery and a later wrong r
     assert.equal(state.status, 'active');
     assert.equal(state.independentCorrectStreak, 0);
     assert.equal(state.masteredAt, null);
-    assert.equal(state.nextDueAt, Date.now() + 24 * 60 * 60 * 1000);
+    assert.equal(state.nextDueAt, null);
   } finally {
     Date.now = originalNow;
     services.db.close();

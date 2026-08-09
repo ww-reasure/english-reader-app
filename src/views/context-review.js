@@ -11,6 +11,8 @@ import { WordStudyDetail } from '../components/word-study-detail.js';
 import { Config } from '../config.js';
 import { createLexiconLoader } from '../lexicon-runtime.mjs';
 import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
+import { getTrackLabel, requiresTargetTrackSelection } from '../learning-track.mjs';
+import { makeContextReviewCacheKey } from '../components/context-review-runtime.mjs';
 
 const ACTIVE_SESSION_ID = 'context-review-active';
 const TODAY_KEY = 'todayReviewedWords';
@@ -72,10 +74,25 @@ function renderContextSource(item) {
     article: '我的书架',
     example: '既有例句',
     ai: 'AI 定制例句',
-    cache: '本地语境缓存'
+    cache: '本地缓存'
   };
   const detail = [item.paperLabel, item.positionLabel].filter(Boolean).join(' · ');
-  return `来源：${esc(labels[item.source] || labels.cache)}${detail ? `<small>${esc(detail)}</small>` : ''}`;
+  const challengeLabels = { support: '巩固', standard: '对标', stretch: '加压' };
+  const trackLabel = getTrackLabel(item.examTrack || item.sourceTrack || item.targetTrack || 'cet4');
+  const original = String(item.originalDifficultyProfileKey || '').split(':');
+  const legacyOriginal = original[0] === 'context-v1';
+  const originalTrack = legacyOriginal && original.length >= 3 ? getTrackLabel(original[1]) : '';
+  const originalChallenge = legacyOriginal
+    ? challengeLabels[original[2]]
+    : challengeLabels[original[1]];
+  const originalCoverageKey = legacyOriginal ? original[3] : original[2];
+  const originalCoverage = /^c\d+$/.test(originalCoverageKey || '') ? ` · 覆盖率 ${originalCoverageKey.slice(1)}%` : '';
+  const difficultyLabel = item.difficultyStatus === 'authentic'
+    ? `${trackLabel}原句`
+    : item.difficultyStatus === 'offline-fallback'
+      ? `本地缓存 · 原设定${originalTrack ? ` ${originalTrack}${originalChallenge ? ` · ${originalChallenge}` : ''}${originalCoverage}` : ''}`
+      : `${challengeLabels[item.challenge] || '对标'}${Number.isFinite(Number(item.coverage)) ? ` · 覆盖率 ${Number(item.coverage)}%` : ''}`;
+  return `来源：${esc(labels[item.source] || labels.cache)}<small>${esc(difficultyLabel)}${detail ? ` · ${esc(detail)}` : ''}</small>`;
 }
 
 export const ContextReviewView = {
@@ -107,20 +124,29 @@ export const ContextReviewView = {
     this.notice = '';
     this.pendingEvidence = null;
     this.controller = new AbortController();
-    container.innerHTML = '<main class="app-standard-page context-review-page context-review-content" data-context-review-content="loading"><div class="context-review-loading"><span></span><p>正在准备语境句子…</p><small>优先使用目标考试真题正文、书架与既有例句</small></div></main>';
+    container.innerHTML = '<main class="app-standard-page context-review-page context-review-content" data-context-review-content="loading"><div class="context-review-loading"><span></span><p>正在准备语境句子…</p><small>优先使用目标考试真题原句，缺失时按当前难度补全</small></div></main>';
     try {
       const restored = await DB.getContextReviewSession(ACTIVE_SESSION_ID);
       if (restored?.items?.length) {
         this.session = restored;
+        this.session.sourceTrack ||= this.session.targetTrack || '';
+        this.session.targetTrack ||= this.session.sourceTrack;
         this.currentIndex = Math.max(0, Number(restored.currentIndex) || 0);
         this.counts = { ...this.counts, ...(restored.counts || {}) };
         this.pendingEvidence = restored.pendingEvidence || null;
       } else {
+        const sourceTrack = Config.get('exam_level');
+        if (requiresTargetTrackSelection(sourceTrack, Config.get('target_track_selection_required'))) {
+          this.renderTargetTrackRequired();
+          return;
+        }
         const words = await ReviewQueue.getDueWords({ limit: 10 });
         this.session = await ContextReview.prepare({
           words,
           limit: 10,
-          targetTrack: Config.get('exam_level') || 'general',
+          sourceTrack,
+          challenge: Config.get('reading_mode') || 'standard',
+          coverage: Config.get('coverage'),
           signal: this.controller.signal
         });
         if (words.length && !this.session.items.length) {
@@ -137,6 +163,10 @@ export const ContextReviewView = {
     }
   },
 
+  renderTargetTrackRequired() {
+    this.container.innerHTML = `<main class="app-standard-page context-review-page context-review-content" data-context-review-content="target-required"><section class="flashcard-empty-sheet context-review-detail-pane"><p class="page-eyebrow">CONTEXT REVIEW</p><h2>请先选择目标考试导向</h2><p>语境复习会优先匹配所选考试的真题原句。选择目标后，句子难度仍只按设置中的阅读匹配方式和材料覆盖率生成。</p><a class="btn btn-primary" href="#/settings">前往设置选择目标考试</a><a class="btn btn-outline" href="#/flashcard">返回复习方式</a></section></main>`;
+  },
+
   async showCurrent() {
     this.hideTooltip();
     while (this.currentIndex < (this.session?.items?.length || 0)) {
@@ -145,7 +175,9 @@ export const ContextReviewView = {
       if (checked.current) {
         item.word = checked.word;
         item.lastUsedAt = Date.now();
-        void DB.saveContextReviewSentences([item]).catch(() => {});
+        if (item.difficultyStatus !== 'offline-fallback') {
+          void DB.saveContextReviewSentences([item]).catch(() => {});
+        }
         break;
       }
       this.commitPendingKnowledgeEvidence();
@@ -332,7 +364,9 @@ export const ContextReviewView = {
     this.translationLoading = false;
     if (translation) {
       item.translationZh = translation;
-      await DB.saveContextReviewSentences([{ ...item, key: item.key || `context-v1:${item.wordId}:${item.sentence.toLowerCase()}`, lastUsedAt: Date.now() }]).catch(() => {});
+      if (item.difficultyStatus !== 'offline-fallback') {
+        await DB.saveContextReviewSentences([{ ...item, key: item.key || makeContextReviewCacheKey(item), lastUsedAt: Date.now() }]).catch(() => {});
+      }
     }
     this.renderCard();
   },

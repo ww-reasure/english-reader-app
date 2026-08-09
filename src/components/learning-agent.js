@@ -16,6 +16,14 @@ export const LEARNING_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_exam_learning_overview',
+      description: '只读查询真题练习表现、趋势和复习摘要。仅当用户明确提到某一年时传入 year。',
+      parameters: { type: 'object', properties: { year: { type: 'integer', minimum: 2000, maximum: 2100 } } }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_learning_overview',
       description: '读取学习概览',
       parameters: { type: 'object', properties: {} }
@@ -56,21 +64,32 @@ export const LEARNING_TOOLS = [
 ];
 
 export class LearningAgent {
-  constructor({ db, srs, examCorpus = null, targetTrack = () => '', now = () => Date.now() }) {
+  constructor({ db, srs, examCorpus = null, examLearningProvider = null, targetTrack = () => '', now = () => Date.now() }) {
     this.db = db;
     this.srs = srs;
     this.examCorpus = examCorpus;
+    this.examLearningProvider = examLearningProvider;
     this.targetTrack = targetTrack;
     this.now = now;
   }
 
   async execute(name, args = {}) {
     if (name === 'get_learning_overview') return this.getLearningOverview();
+    if (name === 'get_exam_learning_overview') return this.getExamLearningOverview(args);
     if (name === 'find_learning_words') return this.findLearningWords(args.query);
     if (name === 'list_saved_articles') return this.listSavedArticles(args);
     if (name === 'get_review_queue') return this.getReviewQueue();
     if (name === 'get_exam_learning_priorities') return this.getExamLearningPriorities();
     throw new Error('Tool not allowed: ' + name);
+  }
+
+  async getExamLearningOverview({ year } = {}) {
+    if (!this.examLearningProvider?.getOverview) {
+      return { source: 'exam_learning_overview', status: 'unavailable', availableYears: [], recentAttempts: [], wrongSummary: [] };
+    }
+    const query = { recentLimit: 5, wrongLimit: 5 };
+    if (Number.isInteger(Number(year))) query.year = Number(year);
+    return this.examLearningProvider.getOverview(query);
   }
 
   async getLearningOverview() {

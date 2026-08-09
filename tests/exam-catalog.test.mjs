@@ -53,6 +53,17 @@ test('a year with one unit is marked for direct entry', () => {
   assert.equal(catalog[0].expandable, true);
 });
 
+test('Part B catalog includes ordering and matching units through one entry', () => {
+  const catalog = buildExamCatalog([{
+    paperKey: 'paper-2024', year: 2024, units: [
+      { unitKey: 'ordering', type: 'paragraph_ordering', questions: [{}] },
+      { unitKey: 'matching', type: 'matching', matchingVariant: 'statement_matching', questions: [{}] },
+      { unitKey: 'reading', type: 'reading_mcq', questions: [{}] }
+    ]
+  }], { unitType: 'part_b' });
+  assert.deepEqual(catalog[0].units.map(unit => unit.unitKey), ['ordering', 'matching']);
+});
+
 test('full-paper year selection keeps the paper together and expands multi-section years only', () => {
   const catalog = buildExamCatalog(papers, { kind: 'full_paper' });
 

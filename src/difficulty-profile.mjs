@@ -19,34 +19,52 @@ export const CHALLENGE_DETAILS = Object.freeze({
 const PROFILES = {
   cet4: {
     support: { wordRange: { min: 240, max: 320 }, sentenceRange: { min: 10, max: 17 }, academicTarget: '约 5–7% 学术词（生成后待校验）' },
-    standard: { wordRange: { min: 320, max: 420 }, sentenceRange: { min: 14, max: 22 }, academicTarget: '约 6–7% 学术词（生成后待校验）' },
-    stretch: { wordRange: { min: 380, max: 480 }, sentenceRange: { min: 18, max: 27 }, academicTarget: '约 7–8% 学术词（生成后待校验）' }
+    standard: { wordRange: { min: 320, max: 380 }, sentenceRange: { min: 18, max: 21 }, academicTarget: '约 5.5–7.5% 学术词（生成后待校验）' },
+    stretch: { wordRange: { min: 380, max: 440 }, sentenceRange: { min: 20, max: 24 }, academicTarget: '约 6.5–8% 学术词（生成后待校验）' }
   },
   cet6: {
-    support: { wordRange: { min: 300, max: 420 }, sentenceRange: { min: 14, max: 22 }, academicTarget: '约 6–7% 学术词（生成后待校验）' },
-    standard: { wordRange: { min: 380, max: 500 }, sentenceRange: { min: 18, max: 27 }, academicTarget: '约 7–8% 学术词（生成后待校验）' },
-    stretch: { wordRange: { min: 450, max: 560 }, sentenceRange: { min: 22, max: 32 }, academicTarget: '约 8–9% 学术词（生成后待校验）' }
+    support: { wordRange: { min: 280, max: 360 }, sentenceRange: { min: 15, max: 19 }, academicTarget: '约 5.5–7% 学术词（生成后待校验）' },
+    standard: { wordRange: { min: 360, max: 430 }, sentenceRange: { min: 19, max: 22 }, academicTarget: '约 6.5–8.5% 学术词（生成后待校验）' },
+    stretch: { wordRange: { min: 430, max: 500 }, sentenceRange: { min: 21, max: 25 }, academicTarget: '约 7–9% 学术词（生成后待校验）' }
   },
   graduate: {
-    support: { wordRange: { min: 340, max: 460 }, sentenceRange: { min: 16, max: 25 }, academicTarget: '考研导向学术语篇（生成后待校验）' },
-    standard: { wordRange: { min: 420, max: 560 }, sentenceRange: { min: 20, max: 30 }, academicTarget: '考研导向学术语篇（生成后待校验）' },
-      stretch: { wordRange: { min: 500, max: 650 }, sentenceRange: { min: 24, max: 35 }, academicTarget: '考研导向学术语篇（生成后待校验）' }
+    support: { wordRange: { min: 340, max: 400 }, sentenceRange: { min: 16, max: 20 }, academicTarget: '考研导向学术语篇（生成后待校验）' },
+    standard: { wordRange: { min: 400, max: 480 }, sentenceRange: { min: 20, max: 23 }, academicTarget: '考研导向学术语篇（生成后待校验）' },
+    stretch: { wordRange: { min: 480, max: 540 }, sentenceRange: { min: 22, max: 26 }, academicTarget: '考研导向学术语篇（生成后待校验）' }
   }
   ,
   // The two graduate tracks deliberately have independent ranges and
   // syntactic baselines.  `graduate` above is compatibility-only for older
   // saved articles; new generation uses one of these tracks.
   kaoyan1: {
-    support: { wordRange: { min: 340, max: 460 }, sentenceRange: { min: 17, max: 26 }, academicTarget: '英语一导向学术语篇（生成后待校验）' },
-    standard: { wordRange: { min: 420, max: 560 }, sentenceRange: { min: 21, max: 31 }, academicTarget: '英语一导向学术语篇（生成后待校验）' },
-    stretch: { wordRange: { min: 500, max: 650 }, sentenceRange: { min: 25, max: 36 }, academicTarget: '英语一导向学术语篇（生成后待校验）' }
+    support: { wordRange: { min: 340, max: 400 }, sentenceRange: { min: 16, max: 20 }, academicTarget: '约 5.5–7.5% 学术词（生成后待校验）' },
+    standard: { wordRange: { min: 400, max: 480 }, sentenceRange: { min: 20, max: 23 }, academicTarget: '约 6.5–9% 学术词（生成后待校验）' },
+    stretch: { wordRange: { min: 480, max: 540 }, sentenceRange: { min: 22, max: 26 }, academicTarget: '约 7.5–9.5% 学术词（生成后待校验）' }
   },
   kaoyan2: {
-    support: { wordRange: { min: 320, max: 440 }, sentenceRange: { min: 16, max: 24 }, academicTarget: '英语二导向学术语篇（生成后待校验）' },
-    standard: { wordRange: { min: 380, max: 520 }, sentenceRange: { min: 19, max: 28 }, academicTarget: '英语二导向学术语篇（生成后待校验）' },
-    stretch: { wordRange: { min: 460, max: 600 }, sentenceRange: { min: 22, max: 33 }, academicTarget: '英语二导向学术语篇（生成后待校验）' }
+    support: { wordRange: { min: 320, max: 380 }, sentenceRange: { min: 15, max: 19 }, academicTarget: '约 5–6.5% 学术词（生成后待校验）' },
+    standard: { wordRange: { min: 380, max: 450 }, sentenceRange: { min: 19, max: 22 }, academicTarget: '约 5.5–7.5% 学术词（生成后待校验）' },
+    stretch: { wordRange: { min: 450, max: 520 }, sentenceRange: { min: 21, max: 25 }, academicTarget: '约 6.5–8% 学术词（生成后待校验）' }
   }
 };
+
+const CONTEXT_SENTENCE_RANGES = Object.freeze({
+  support: { min: 8, max: 15 },
+  standard: { min: 11, max: 19 },
+  stretch: { min: 14, max: 22 }
+});
+
+const CONTEXT_ACADEMIC_TARGETS = Object.freeze({
+  support: '低',
+  standard: '适中',
+  stretch: '适中偏高'
+});
+
+const CONTEXT_SYNTAX_CAPS = Object.freeze({
+  support: { subordinateMarkers: 1, passiveMarkers: 0, nonFiniteMarkers: 1 },
+  standard: { subordinateMarkers: 1, passiveMarkers: 1, nonFiniteMarkers: 1 },
+  stretch: { subordinateMarkers: 2, passiveMarkers: 1, nonFiniteMarkers: 2 }
+});
 
 // These values are prompt/observation strategy ranges. They are deliberately
 // not represented as historical-exam or corpus-derived syntax baselines: the
@@ -98,8 +116,8 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const canonical = value => String(value || '').trim().toLowerCase();
 
 export function getDifficultyProfile(track = 'cet4', challenge = 'standard') {
-  const normalizedTrack = TRACKS.has(track) ? normalizeStoredTrack(track) : 'cet4';
-  const normalizedChallenge = CHALLENGES.has(challenge) ? challenge : 'standard';
+  const normalizedTrack = normalizeStoredTrack(canonical(track));
+  const normalizedChallenge = CHALLENGES.has(canonical(challenge)) ? canonical(challenge) : 'standard';
   const challengeDetails = CHALLENGE_DETAILS[normalizedChallenge];
   const syntaxValidation = createProvisionalSyntaxValidation(normalizedTrack, normalizedChallenge);
   return {
@@ -162,6 +180,36 @@ export function normalizeGenerationRequest({ track, challenge, wordCount } = {})
     challenge: profile.challenge,
     wordCount: clamp(Number.isFinite(requested) ? requested : midpoint, profile.wordRange.min, profile.wordRange.max),
     profile
+  };
+}
+
+/**
+ * Context review is deliberately a smaller projection of the same global
+ * target. The learning word is required but excluded from the surrounding
+ * vocabulary coverage expectation, so difficult words remain reviewable in
+ * an otherwise readable sentence.
+ */
+export function resolveContextDifficultyProfile(challenge = 'standard', coverage = undefined) {
+  const normalizedChallenge = CHALLENGES.has(canonical(challenge)) ? canonical(challenge) : 'standard';
+  const coveragePreference = normalizeCoveragePreference(normalizedChallenge, coverage);
+  const sentenceRange = CONTEXT_SENTENCE_RANGES[normalizedChallenge] || CONTEXT_SENTENCE_RANGES.standard;
+  const syntaxCaps = CONTEXT_SYNTAX_CAPS[normalizedChallenge] || CONTEXT_SYNTAX_CAPS.standard;
+  const modeGuidance = {
+    support: '优先使用高覆盖率常用词和直接语序。',
+    standard: '保持自然、清晰的说明或评论语境。',
+    stretch: '在不堆砌生词的前提下加入更紧凑的论证和句法关系。'
+  }[normalizedChallenge] || '';
+
+  return {
+    key: `context-v2:${normalizedChallenge}:c${coveragePreference.coverage}`,
+    challenge: normalizedChallenge,
+    sentenceRange: { ...sentenceRange },
+    coverageRange: { ...coveragePreference.range },
+    coverage: coveragePreference.coverage,
+    academicTarget: CONTEXT_ACADEMIC_TARGETS[normalizedChallenge] || CONTEXT_ACADEMIC_TARGETS.standard,
+    syntaxCaps: { ...syntaxCaps },
+    targetWordExcluded: true,
+    promptGuidance: modeGuidance
   };
 }
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactVersion": "oewn-core-definitions-v1",
-  "generatedAt": "2026-07-27T13:48:50.457Z",
+  "generatedAt": "2026-08-09T08:57:56.635Z",
   "coreLexiconVersion": "2026.07.27-core.6",
   "source": {
     "id": "oewn-2025-json",
@@ -14,7 +14,7 @@
     "byteSize": 9986555,
     "attribution": "Open English WordNet Community, derived from Princeton WordNet, licensed CC BY 4.0. This app publishes a filtered derivative containing only exact active-core lemma/POS English definition structure."
   },
-  "entryCount": 20859,
+  "entryCount": 20915,
   "entries": [
     {
       "lemma": "aaa",
@@ -3327,6 +3327,17 @@
           "id": "acres%1:21:00::",
           "synsetId": "13267561-n",
           "definitionEn": "extensive landed property (especially in the country) retained by the owner for their own use"
+        }
+      ]
+    },
+    {
+      "lemma": "acrobat",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "acrobat%1:18:00::",
+          "synsetId": "09783804-n",
+          "definitionEn": "an athlete who performs acts requiring skill and agility and coordination"
         }
       ]
     },
@@ -10805,6 +10816,22 @@
       ]
     },
     {
+      "lemma": "amiable",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "amiable%5:00:00:friendly:01",
+          "synsetId": "01078866-s",
+          "definitionEn": "diffusing warmth and friendliness"
+        },
+        {
+          "id": "amiable%5:00:00:good-natured:00",
+          "synsetId": "01137732-s",
+          "definitionEn": "disposed to please"
+        }
+      ]
+    },
+    {
       "lemma": "amino",
       "pos": "adjective",
       "senses": [
@@ -13861,6 +13888,38 @@
       ]
     },
     {
+      "lemma": "appall",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "appall%2:37:10::",
+          "synsetId": "01786469-v",
+          "definitionEn": "fill with apprehension or alarm; cause to be unpleasantly surprised"
+        },
+        {
+          "id": "appall%2:37:00::",
+          "synsetId": "01814414-v",
+          "definitionEn": "strike with disgust or revulsion"
+        }
+      ]
+    },
+    {
+      "lemma": "appal",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "appal%2:37:01::",
+          "synsetId": "01786469-v",
+          "definitionEn": "fill with apprehension or alarm; cause to be unpleasantly surprised"
+        },
+        {
+          "id": "appal%2:37:00::",
+          "synsetId": "01814414-v",
+          "definitionEn": "strike with disgust or revulsion"
+        }
+      ]
+    },
+    {
       "lemma": "apparatus",
       "pos": "noun",
       "senses": [
@@ -15330,6 +15389,17 @@
           "id": "arched%3:01:00::",
           "synsetId": "02649715-a",
           "definitionEn": "constructed with or in the form of an arch or arches"
+        }
+      ]
+    },
+    {
+      "lemma": "archeology",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "archeology%1:09:00::",
+          "synsetId": "06153532-n",
+          "definitionEn": "the branch of anthropology that studies prehistoric people and their cultures"
         }
       ]
     },
@@ -49142,6 +49212,28 @@
       ]
     },
     {
+      "lemma": "caress",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "caress%1:04:00::",
+          "synsetId": "00145598-n",
+          "definitionEn": "a gentle affectionate stroking (or something resembling it)"
+        }
+      ]
+    },
+    {
+      "lemma": "caress",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "caress%2:35:00::",
+          "synsetId": "01228779-v",
+          "definitionEn": "touch or stroke lightly in a loving or endearing manner"
+        }
+      ]
+    },
+    {
       "lemma": "caretaker",
       "pos": "noun",
       "senses": [
@@ -58836,6 +58928,22 @@
           "id": "civilisation%1:22:00::",
           "synsetId": "13470143-n",
           "definitionEn": "the social process whereby societies achieve an advanced stage of development and organization"
+        }
+      ]
+    },
+    {
+      "lemma": "civilise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "civilise%2:30:01::",
+          "synsetId": "00412237-v",
+          "definitionEn": "raise from a barbaric to a civilized state"
+        },
+        {
+          "id": "civilise%2:41:00::",
+          "synsetId": "02393545-v",
+          "definitionEn": "teach or refine to be discriminative in taste or judgment"
         }
       ]
     },
@@ -80917,6 +81025,17 @@
       ]
     },
     {
+      "lemma": "credential",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "credential%1:10:00::",
+          "synsetId": "06483016-n",
+          "definitionEn": "a document attesting to the truth of certain stated facts"
+        }
+      ]
+    },
+    {
       "lemma": "credentials",
       "pos": "noun",
       "senses": [
@@ -92678,6 +92797,22 @@
       ]
     },
     {
+      "lemma": "deplore",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "deplore%2:32:00::",
+          "synsetId": "00827994-v",
+          "definitionEn": "express strong condemnation of"
+        },
+        {
+          "id": "deplore%2:32:01::",
+          "synsetId": "00913303-v",
+          "definitionEn": "regret strongly"
+        }
+      ]
+    },
+    {
       "lemma": "deployment",
       "pos": "noun",
       "senses": [
@@ -94062,6 +94197,43 @@
           "id": "despair%2:37:00::",
           "synsetId": "01814900-v",
           "definitionEn": "abandon hope; give up hope; lose heart"
+        }
+      ]
+    },
+    {
+      "lemma": "despatch",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "despatch%1:04:00::",
+          "synsetId": "00062110-n",
+          "definitionEn": "the act of sending off something"
+        },
+        {
+          "id": "despatch%1:04:01::",
+          "synsetId": "00223115-n",
+          "definitionEn": "killing a person or animal"
+        },
+        {
+          "id": "despatch%1:07:00::",
+          "synsetId": "05066981-n",
+          "definitionEn": "the property of being prompt and efficient"
+        },
+        {
+          "id": "despatch%1:10:00::",
+          "synsetId": "06695539-n",
+          "definitionEn": "an official report (usually sent in haste)"
+        }
+      ]
+    },
+    {
+      "lemma": "despatch",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "despatch%2:38:00::",
+          "synsetId": "01958986-v",
+          "definitionEn": "send away towards a designated goal"
         }
       ]
     },
@@ -105712,6 +105884,17 @@
       ]
     },
     {
+      "lemma": "doze",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "doze%1:04:00::",
+          "synsetId": "00860527-n",
+          "definitionEn": "a light fitful sleep"
+        }
+      ]
+    },
+    {
       "lemma": "dozens",
       "pos": "noun",
       "senses": [
@@ -105719,6 +105902,17 @@
           "id": "dozens%1:23:00::",
           "synsetId": "13799721-n",
           "definitionEn": "a large number or amount"
+        }
+      ]
+    },
+    {
+      "lemma": "doze",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "doze%2:29:00::",
+          "synsetId": "00015296-v",
+          "definitionEn": "sleep lightly or for a short period of time"
         }
       ]
     },
@@ -109796,6 +109990,17 @@
       ]
     },
     {
+      "lemma": "dynamical",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "dynamical%3:00:00::",
+          "synsetId": "00811761-a",
+          "definitionEn": "characterized by action or forcefulness or force of personality"
+        }
+      ]
+    },
+    {
       "lemma": "dynamic",
       "pos": "noun",
       "senses": [
@@ -110758,6 +110963,43 @@
           "id": "eat%2:37:00::",
           "synsetId": "01770125-v",
           "definitionEn": "worry or cause anxiety in a persistent way"
+        }
+      ]
+    },
+    {
+      "lemma": "ebb",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "ebb%1:11:00::",
+          "synsetId": "07416747-n",
+          "definitionEn": "the outward flow of the tide"
+        },
+        {
+          "id": "ebb%1:22:01::",
+          "synsetId": "13491694-n",
+          "definitionEn": "a gradual decline (in size or strength or power or number)"
+        }
+      ]
+    },
+    {
+      "lemma": "ebb",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "ebb%2:30:01::",
+          "synsetId": "00571984-v",
+          "definitionEn": "fall away or decline"
+        },
+        {
+          "id": "ebb%2:33:00::",
+          "synsetId": "01130064-v",
+          "definitionEn": "hem in fish with stakes and nets so as to prevent them from going back into the sea with the ebb"
+        },
+        {
+          "id": "ebb%2:38:00::",
+          "synsetId": "01907928-v",
+          "definitionEn": "flow back or recede"
         }
       ]
     },
@@ -115109,6 +115351,17 @@
           "id": "encrypt%2:32:00::",
           "synsetId": "00996121-v",
           "definitionEn": "convert ordinary language into code"
+        }
+      ]
+    },
+    {
+      "lemma": "encyclopaedia",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "encyclopaedia%1:10:00::",
+          "synsetId": "06439057-n",
+          "definitionEn": "a reference work (often in several volumes) containing articles on various topics (often arranged in alphabetical order) dealing with the entire range of human knowledge or with some particular specialty"
         }
       ]
     },
@@ -127020,6 +127273,22 @@
           "id": "fantastic%5:00:00:unrealistic:00",
           "synsetId": "01949349-s",
           "definitionEn": "fanciful and unrealistic; foolish"
+        }
+      ]
+    },
+    {
+      "lemma": "fantastical",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "fantastical%5:00:00:strange:00",
+          "synsetId": "00970835-s",
+          "definitionEn": "ludicrously odd"
+        },
+        {
+          "id": "fantastical%5:00:00:unreal:00",
+          "synsetId": "01943396-s",
+          "definitionEn": "existing in fancy only"
         }
       ]
     },
@@ -144966,6 +145235,38 @@
       ]
     },
     {
+      "lemma": "gallop",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "gallop%1:04:00::",
+          "synsetId": "00289515-n",
+          "definitionEn": "a fast gait of a horse; a two-beat stride during which all four legs are off the ground simultaneously"
+        }
+      ]
+    },
+    {
+      "lemma": "gallop",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "gallop%2:38:00::",
+          "synsetId": "01963786-v",
+          "definitionEn": "ride at a galloping pace"
+        },
+        {
+          "id": "gallop%2:38:03::",
+          "synsetId": "01964155-v",
+          "definitionEn": "cause to move at full gallop"
+        },
+        {
+          "id": "gallop%2:38:01::",
+          "synsetId": "01964502-v",
+          "definitionEn": "go at galloping speed"
+        }
+      ]
+    },
+    {
       "lemma": "galloway",
       "pos": "noun",
       "senses": [
@@ -145687,6 +145988,17 @@
           "id": "gas%1:27:03::",
           "synsetId": "14984229-n",
           "definitionEn": "a fossil fuel in the gaseous state; used for cooking and heating homes"
+        }
+      ]
+    },
+    {
+      "lemma": "gasolene",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "gasolene%1:27:00::",
+          "synsetId": "14711074-n",
+          "definitionEn": "a volatile flammable mixture of hydrocarbons (hexane and heptane and octane etc.) derived from petroleum; used mainly as a fuel in internal-combustion engines"
         }
       ]
     },
@@ -146488,6 +146800,32 @@
           "id": "general%5:00:00:imprecise:00",
           "synsetId": "01845578-s",
           "definitionEn": "somewhat indefinite"
+        }
+      ]
+    },
+    {
+      "lemma": "generalise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "generalise%2:29:00::",
+          "synsetId": "00104219-v",
+          "definitionEn": "become systemic and spread throughout the body"
+        },
+        {
+          "id": "generalise%2:32:04::",
+          "synsetId": "00972247-v",
+          "definitionEn": "cater to popular taste to make popular and present to the general public; bring into general or common use"
+        },
+        {
+          "id": "generalise%2:32:01::",
+          "synsetId": "01024429-v",
+          "definitionEn": "draw from specific cases for more general cases"
+        },
+        {
+          "id": "generalise%2:32:00::",
+          "synsetId": "01024915-v",
+          "definitionEn": "speak or write in generalities"
         }
       ]
     },
@@ -150545,6 +150883,17 @@
       "senses": [
         {
           "id": "goodbye%1:10:00::",
+          "synsetId": "06642117-n",
+          "definitionEn": "a farewell remark"
+        }
+      ]
+    },
+    {
+      "lemma": "goodby",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "goodby%1:10:00::",
           "synsetId": "06642117-n",
           "definitionEn": "a farewell remark"
         }
@@ -163087,6 +163436,28 @@
       ]
     },
     {
+      "lemma": "highjack",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "highjack%1:04:00::",
+          "synsetId": "00771433-n",
+          "definitionEn": "seizure of a vehicle in transit either to rob it or divert it to an alternate destination"
+        }
+      ]
+    },
+    {
+      "lemma": "highjack",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "highjack%2:35:00::",
+          "synsetId": "01474455-v",
+          "definitionEn": "take arbitrarily or by force"
+        }
+      ]
+    },
+    {
       "lemma": "highland",
       "pos": "adjective",
       "senses": [
@@ -167646,6 +168017,17 @@
           "id": "housewife%1:18:00::",
           "synsetId": "10209395-n",
           "definitionEn": "a wife who manages a household while her husband earns the family income"
+        }
+      ]
+    },
+    {
+      "lemma": "housework",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "housework%1:04:00::",
+          "synsetId": "00581998-n",
+          "definitionEn": "the work of cleaning and running a house"
         }
       ]
     },
@@ -175743,6 +176125,22 @@
       ]
     },
     {
+      "lemma": "industrialise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "industrialise%2:30:00::",
+          "synsetId": "00501437-v",
+          "definitionEn": "develop industry; become industrial"
+        },
+        {
+          "id": "industrialise%2:30:01::",
+          "synsetId": "00578056-v",
+          "definitionEn": "organize (the production of something) into an industry"
+        }
+      ]
+    },
+    {
       "lemma": "industrialization",
       "pos": "noun",
       "senses": [
@@ -178975,6 +179373,27 @@
       ]
     },
     {
+      "lemma": "instalment",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "instalment%1:04:00::",
+          "synsetId": "00241805-n",
+          "definitionEn": "the act of installing something (as equipment)"
+        },
+        {
+          "id": "instalment%1:10:01::",
+          "synsetId": "06403409-n",
+          "definitionEn": "a part of a published serial"
+        },
+        {
+          "id": "instalment%1:10:00::",
+          "synsetId": "06634278-n",
+          "definitionEn": "a part of a broadcast serial"
+        }
+      ]
+    },
+    {
       "lemma": "instance",
       "pos": "noun",
       "senses": [
@@ -182000,6 +182419,32 @@
       ]
     },
     {
+      "lemma": "intrude",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "intrude%2:32:00::",
+          "synsetId": "00749763-v",
+          "definitionEn": "thrust oneself in as if by force"
+        },
+        {
+          "id": "intrude%2:38:01::",
+          "synsetId": "02022376-v",
+          "definitionEn": "enter uninvited"
+        },
+        {
+          "id": "intrude%2:39:00::",
+          "synsetId": "02173563-v",
+          "definitionEn": "search or inquire in a meddlesome way"
+        },
+        {
+          "id": "intrude%2:41:00::",
+          "synsetId": "02577166-v",
+          "definitionEn": "enter unlawfully on someone's property"
+        }
+      ]
+    },
+    {
       "lemma": "intrusion",
       "pos": "noun",
       "senses": [
@@ -182182,6 +182627,28 @@
           "id": "invaluable%5:00:00:valuable:00",
           "synsetId": "02511316-s",
           "definitionEn": "having incalculable monetary, intellectual, or spiritual worth"
+        }
+      ]
+    },
+    {
+      "lemma": "invariable",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "invariable%3:00:00::",
+          "synsetId": "02515761-a",
+          "definitionEn": "not liable to or capable of change"
+        }
+      ]
+    },
+    {
+      "lemma": "invariable",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "invariable%1:09:00::",
+          "synsetId": "05867520-n",
+          "definitionEn": "a quantity that does not vary"
         }
       ]
     },
@@ -183579,6 +184046,22 @@
           "id": "irreversible%3:00:00::",
           "synsetId": "01763874-a",
           "definitionEn": "incapable of being reversed"
+        }
+      ]
+    },
+    {
+      "lemma": "irrigate",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "irrigate%2:29:00::",
+          "synsetId": "00079704-v",
+          "definitionEn": "supply with a constant flow or sprinkling of some liquid, for the purpose of cooling, cleansing, or disinfecting"
+        },
+        {
+          "id": "irrigate%2:30:00::",
+          "synsetId": "00228662-v",
+          "definitionEn": "supply with water, as with channels or ditches or streams"
         }
       ]
     },
@@ -206249,6 +206732,58 @@
       ]
     },
     {
+      "lemma": "manoeuvre",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "manoeuvre%1:04:01::",
+          "synsetId": "00060372-n",
+          "definitionEn": "an action aimed at evading an opponent"
+        },
+        {
+          "id": "manoeuvre%1:04:00::",
+          "synsetId": "00169058-n",
+          "definitionEn": "a move made to gain a tactical end"
+        },
+        {
+          "id": "manoeuvre%1:04:03::",
+          "synsetId": "00557350-n",
+          "definitionEn": "a deliberate coordinated movement requiring dexterity and skill"
+        },
+        {
+          "id": "manoeuvre%1:04:02::",
+          "synsetId": "00962103-n",
+          "definitionEn": "a military training exercise"
+        },
+        {
+          "id": "manoeuvre%1:09:00::",
+          "synsetId": "05913746-n",
+          "definitionEn": "a plan for attaining a particular goal"
+        }
+      ]
+    },
+    {
+      "lemma": "manoeuvre",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "manoeuvre%2:33:00::",
+          "synsetId": "01112274-v",
+          "definitionEn": "perform a movement in military or naval tactics in order to secure an advantage in attack or defense"
+        },
+        {
+          "id": "manoeuvre%2:38:00::",
+          "synsetId": "01935739-v",
+          "definitionEn": "direct the course; determine the direction of travelling"
+        },
+        {
+          "id": "manoeuvre%2:41:03::",
+          "synsetId": "02374389-v",
+          "definitionEn": "act in order to achieve a certain goal"
+        }
+      ]
+    },
+    {
       "lemma": "manor",
       "pos": "noun",
       "senses": [
@@ -216479,6 +217014,32 @@
       ]
     },
     {
+      "lemma": "mobilise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "mobilise%2:30:00::",
+          "synsetId": "00270891-v",
+          "definitionEn": "cause to move around"
+        },
+        {
+          "id": "mobilise%2:30:02::",
+          "synsetId": "00271014-v",
+          "definitionEn": "make ready for action or use"
+        },
+        {
+          "id": "mobilise%2:33:00::",
+          "synsetId": "01090792-v",
+          "definitionEn": "get ready for war"
+        },
+        {
+          "id": "mobilise%2:33:01::",
+          "synsetId": "01100371-v",
+          "definitionEn": "call to arms; of military personnel"
+        }
+      ]
+    },
+    {
       "lemma": "mobility",
       "pos": "noun",
       "senses": [
@@ -218089,6 +218650,22 @@
           "id": "monopoly%1:26:01::",
           "synsetId": "14467792-n",
           "definitionEn": "(economics) a market in which there are many buyers but only one seller"
+        }
+      ]
+    },
+    {
+      "lemma": "monotonous",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "monotonous%5:00:00:dull:03",
+          "synsetId": "00811387-s",
+          "definitionEn": "tediously repetitious or lacking in variety"
+        },
+        {
+          "id": "monotonous%5:00:00:unmodulated:00",
+          "synsetId": "01545995-s",
+          "definitionEn": "sounded or spoken in a tone unvarying in pitch"
         }
       ]
     },
@@ -230311,6 +230888,27 @@
       ]
     },
     {
+      "lemma": "obstruct",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "obstruct%2:35:00::",
+          "synsetId": "01479113-v",
+          "definitionEn": "block passage through"
+        },
+        {
+          "id": "obstruct%2:39:04::",
+          "synsetId": "02149973-v",
+          "definitionEn": "shut out from view or get in the way so as to hide from sight"
+        },
+        {
+          "id": "obstruct%2:41:00::",
+          "synsetId": "02563025-v",
+          "definitionEn": "hinder or prevent the progress or accomplishment of"
+        }
+      ]
+    },
+    {
       "lemma": "obtain",
       "pos": "verb",
       "senses": [
@@ -238606,6 +239204,22 @@
       ]
     },
     {
+      "lemma": "pail",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "pail%1:06:00::",
+          "synsetId": "02913195-n",
+          "definitionEn": "a roughly cylindrical vessel that is open at the top"
+        },
+        {
+          "id": "pail%1:23:00::",
+          "synsetId": "13790677-n",
+          "definitionEn": "the quantity contained in a pail"
+        }
+      ]
+    },
+    {
       "lemma": "painful",
       "pos": "adjective",
       "senses": [
@@ -241627,6 +242241,17 @@
           "id": "passenger%1:18:00::",
           "synsetId": "10423621-n",
           "definitionEn": "a traveler riding in a vehicle (a boat or bus or car or plane or train etc.) who is not operating it"
+        }
+      ]
+    },
+    {
+      "lemma": "passerby",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "passerby%1:18:00::",
+          "synsetId": "10424417-n",
+          "definitionEn": "a person who passes by casually or by chance"
         }
       ]
     },
@@ -275976,6 +276601,17 @@
       ]
     },
     {
+      "lemma": "recollect",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "recollect%2:31:00::",
+          "synsetId": "00609334-v",
+          "definitionEn": "recall knowledge from memory; have a recollection"
+        }
+      ]
+    },
+    {
       "lemma": "recommendation",
       "pos": "noun",
       "senses": [
@@ -308193,6 +308829,17 @@
       ]
     },
     {
+      "lemma": "shopkeeper",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "shopkeeper%1:18:00::",
+          "synsetId": "10611560-n",
+          "definitionEn": "a merchant who owns or manages a shop"
+        }
+      ]
+    },
+    {
       "lemma": "shop",
       "pos": "noun",
       "senses": [
@@ -316274,6 +316921,17 @@
       ]
     },
     {
+      "lemma": "smog",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "smog%1:26:00::",
+          "synsetId": "14541979-n",
+          "definitionEn": "air pollution by a mixture of smoke and fog"
+        }
+      ]
+    },
+    {
       "lemma": "smoked",
       "pos": "adjective",
       "senses": [
@@ -317492,6 +318150,17 @@
       ]
     },
     {
+      "lemma": "snowstorm",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "snowstorm%1:19:00::",
+          "synsetId": "11529988-n",
+          "definitionEn": "a storm with widespread snowfall accompanied by strong winds"
+        }
+      ]
+    },
+    {
       "lemma": "snow",
       "pos": "verb",
       "senses": [
@@ -318020,6 +318689,33 @@
           "id": "soccer%1:04:00::",
           "synsetId": "00479273-n",
           "definitionEn": "a football game in which two teams of 11 players try to kick or head a ball into the opponents' goal"
+        }
+      ]
+    },
+    {
+      "lemma": "sociable",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "sociable%5:00:00:congenial:00",
+          "synsetId": "00563165-s",
+          "definitionEn": "friendly and pleasant"
+        },
+        {
+          "id": "sociable%3:00:00::",
+          "synsetId": "02264897-a",
+          "definitionEn": "inclined to or conducive to companionship with others"
+        }
+      ]
+    },
+    {
+      "lemma": "sociable",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "sociable%1:14:00::",
+          "synsetId": "08273290-n",
+          "definitionEn": "a party of people assembled to promote sociability and communal activity"
         }
       ]
     },
@@ -337310,6 +338006,22 @@
       ]
     },
     {
+      "lemma": "summarise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "summarise%2:32:00::",
+          "synsetId": "01009951-v",
+          "definitionEn": "give a summary (of)"
+        },
+        {
+          "id": "summarise%2:42:00::",
+          "synsetId": "02758570-v",
+          "definitionEn": "be a summary of"
+        }
+      ]
+    },
+    {
       "lemma": "summarize",
       "pos": "verb",
       "senses": [
@@ -337876,6 +338588,22 @@
           "id": "superficial%3:01:00::",
           "synsetId": "02816313-a",
           "definitionEn": "of, affecting, or being on or near the surface"
+        }
+      ]
+    },
+    {
+      "lemma": "superfluous",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "superfluous%5:00:00:unnecessary:00",
+          "synsetId": "01585713-s",
+          "definitionEn": "more than is needed, desired, or required"
+        },
+        {
+          "id": "superfluous%5:00:00:worthless:00",
+          "synsetId": "02513350-s",
+          "definitionEn": "serving no useful purpose; having no excuse for being"
         }
       ]
     },
@@ -341679,6 +342407,27 @@
           "id": "sympathetic%3:01:00::",
           "synsetId": "03019521-a",
           "definitionEn": "of or relating to the sympathetic nervous system"
+        }
+      ]
+    },
+    {
+      "lemma": "sympathise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "sympathise%2:31:00::",
+          "synsetId": "00595453-v",
+          "definitionEn": "be understanding of"
+        },
+        {
+          "id": "sympathise%2:37:00::",
+          "synsetId": "01826198-v",
+          "definitionEn": "to feel or express sympathy or compassion"
+        },
+        {
+          "id": "sympathise%2:37:01::",
+          "synsetId": "01826674-v",
+          "definitionEn": "share the feelings of; understand the sentiments of"
         }
       ]
     },
@@ -352878,6 +353627,28 @@
           "id": "toilet%1:26:00::",
           "synsetId": "14499576-n",
           "definitionEn": "misfortune resulting in lost effort or money"
+        }
+      ]
+    },
+    {
+      "lemma": "toil",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "toil%1:04:00::",
+          "synsetId": "00621992-n",
+          "definitionEn": "productive work (especially physical work done for wages)"
+        }
+      ]
+    },
+    {
+      "lemma": "toil",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "toil%2:41:00::",
+          "synsetId": "02424873-v",
+          "definitionEn": "work hard"
         }
       ]
     },
@@ -368898,6 +369669,17 @@
           "id": "utilised%5:00:00:used:00",
           "synsetId": "02504948-s",
           "definitionEn": "made useful"
+        }
+      ]
+    },
+    {
+      "lemma": "utilise",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "utilise%2:34:00::",
+          "synsetId": "01161188-v",
+          "definitionEn": "put into service; make work or employ for a particular purpose or for its inherent or natural purpose"
         }
       ]
     },
@@ -386536,6 +387318,50 @@
           "id": "zhou%1:14:00::",
           "synsetId": "08496418-n",
           "definitionEn": "the imperial dynasty of China from 1122 to 221 BC; notable for the rise of Confucianism and Taoism"
+        }
+      ]
+    },
+    {
+      "lemma": "zigzag",
+      "pos": "adjective",
+      "senses": [
+        {
+          "id": "zigzag%5:00:00:crooked:01",
+          "synsetId": "02322131-s",
+          "definitionEn": "having short sharp turns or angles"
+        }
+      ]
+    },
+    {
+      "lemma": "zigzag",
+      "pos": "adverb",
+      "senses": [
+        {
+          "id": "zigzag%4:02:00::",
+          "synsetId": "00500266-r",
+          "definitionEn": "in a zigzag course or on a zigzag path"
+        }
+      ]
+    },
+    {
+      "lemma": "zigzag",
+      "pos": "noun",
+      "senses": [
+        {
+          "id": "zigzag%1:25:00::",
+          "synsetId": "13910012-n",
+          "definitionEn": "an angular shape characterized by sharp turns in alternating directions"
+        }
+      ]
+    },
+    {
+      "lemma": "zigzag",
+      "pos": "verb",
+      "senses": [
+        {
+          "id": "zigzag%2:38:00::",
+          "synsetId": "01995776-v",
+          "definitionEn": "travel along a zigzag path"
         }
       ]
     },

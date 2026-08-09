@@ -39,7 +39,7 @@ export const Router = {
   routeHistory: null,
 
   // Views that have cleanup methods
-  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView', 'ExamHomeView', 'ExamPracticeView', 'ExamResultView', 'ExamReviewView', 'ExamCatalogView', 'ExamHistoryView'],
+  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView', 'StatsView', 'ExamHomeView', 'ExamPracticeView', 'ExamResultView', 'ExamReviewView', 'ExamCatalogView', 'ExamHistoryView'],
 
   // Cleanup current view before navigation
   async cleanupCurrentView() {

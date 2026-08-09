@@ -2,6 +2,7 @@ import { createExamServices } from '../exam/create-services.js';
 import { filterVisibleExamPapers, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
 import { installExamPack } from '../exam/pack-installer.mjs';
+import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
 import { esc } from '../helpers.js';
 
@@ -9,7 +10,7 @@ const EXAM_ID = 'kaoyan_en1';
 const TYPE_CARDS = [
   { type: 'cloze_choice', title: '完形填空', subtitle: 'Section I', icon: 'fa-solid fa-puzzle-piece' },
   { type: 'reading_mcq', title: '阅读理解', subtitle: 'Section II Part A', icon: 'fa-solid fa-book-open' },
-  { type: 'paragraph_ordering', title: '段落排序', subtitle: 'Section II Part B', icon: 'fa-solid fa-list' },
+  { type: 'part_b', title: '阅读新题型 Part B', subtitle: '排序 · 插入 · 匹配', icon: 'fa-solid fa-list' },
   { type: 'translation', title: '翻译', subtitle: 'Section II Part C', icon: 'fa-solid fa-language' }
 ];
 
@@ -21,7 +22,8 @@ async function installPrivatePacks(services) {
   for (const entry of index.packs || []) {
     const packResponse = await fetch(entry.path);
     if (!packResponse.ok) continue;
-    installed.push(await installExamPack(services.openDb, await packResponse.json()));
+    const pack = await packResponse.json();
+    installed.push(await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack)));
   }
   return installed;
 }
@@ -39,6 +41,7 @@ async function loadVisiblePapers(services, records) {
 function unitTitle(unit) {
   if (unit?.type === 'cloze_choice') return '完形填空';
   if (unit?.type === 'paragraph_ordering') return '段落排序';
+  if (unit?.type === 'matching') return ({ sentence_insertion: '句子插入', heading_matching: '小标题匹配', statement_matching: '观点匹配' }[unit.matchingVariant] || 'Part B 匹配');
   if (unit?.type === 'translation') return '翻译';
   return unit?.displayTitle ? `阅读理解 ${unit.displayTitle}` : '阅读理解';
 }

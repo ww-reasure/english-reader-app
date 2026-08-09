@@ -14,28 +14,29 @@ export const AppShell = {
   _setDrawerOpen: null,
 
   getRouteMeta(hash) {
-    if (hash === '#/exam') return { navKey: 'exam', title: '真题训练', headerMode: 'drawer' };
-    if (hash === '#/exam/review') return { navKey: 'exam', title: '错题复习', headerMode: 'back' };
-    if (hash === '#/exam/history') return { navKey: 'exam', title: '学习记录', headerMode: 'back' };
+    if (hash === '#/exam') return { navKey: 'exam', title: '真题训练', headerMode: 'drawer', tabletLayout: 'rail' };
+    if (hash === '#/exam/review') return { navKey: 'exam', title: '错题复习', headerMode: 'back', tabletLayout: 'rail' };
+    if (hash === '#/exam/history') return { navKey: 'exam', title: '学习记录', headerMode: 'back', tabletLayout: 'rail' };
     if (hash.startsWith('#/exam/catalog/')) {
       const type = hash.match(/^#\/exam\/catalog\/([^/]+)/)?.[1];
-      const titles = { full_paper: '整卷练习', cloze_choice: '完形填空', reading_mcq: '阅读理解', paragraph_ordering: '段落排序', translation: '翻译' };
-      return { navKey: 'exam', title: titles[type] || '专项训练', headerMode: 'back' };
+      const titles = { full_paper: '整卷练习', cloze_choice: '完形填空', reading_mcq: '阅读理解', paragraph_ordering: '阅读新题型 Part B', part_b: '阅读新题型 Part B', translation: '翻译' };
+      return { navKey: 'exam', title: titles[type] || '专项训练', headerMode: 'back', tabletLayout: 'rail' };
     }
-    if (hash.startsWith('#/exam/practice/')) return { navKey: 'exam', title: '真题练习', headerMode: 'back' };
-    if (hash.startsWith('#/exam/result/')) return { navKey: 'exam', title: '练习结果', headerMode: 'back' };
-    if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读' };
+    if (hash.startsWith('#/exam/practice/')) return { navKey: 'exam', title: '真题练习', headerMode: 'back', tabletLayout: 'focus' };
+    if (hash.startsWith('#/exam/result/')) return { navKey: 'exam', title: '练习结果', headerMode: 'back', tabletLayout: 'focus' };
+    if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读', headerMode: 'back', tabletLayout: 'focus' };
     if (hash === '#/learn-words' || hash.startsWith('#/flashcard')) {
-      return { navKey: 'vocab', title: hash.startsWith('#/flashcard') ? '单词复习' : '词汇学习' };
+      return { navKey: 'vocab', title: hash.startsWith('#/flashcard') ? '单词复习' : '词汇学习', ...(hash.startsWith('#/flashcard') ? { headerMode: 'back' } : {}), tabletLayout: hash.startsWith('#/flashcard') ? 'focus' : 'rail' };
     }
     if (hash === '#/settings' || hash === '#/assessment' || hash === '#/report' || hash === '#/stats') {
       return {
         navKey: 'profile',
-        title: hash === '#/assessment' ? '水平测评' : hash === '#/report' ? '学习报告' : hash === '#/settings' ? '设置' : '学习档案'
+        title: hash === '#/assessment' ? '水平测评' : hash === '#/report' ? '学习报告' : hash === '#/settings' ? '设置' : '学习档案',
+        tabletLayout: 'rail'
       };
     }
     const match = routes.find(item => item[0] === hash) || routes[0];
-    return { navKey: match[1], title: match[2] };
+    return { navKey: match[1], title: match[2], tabletLayout: 'rail' };
   },
 
   getHeaderActions(navKey) {
@@ -57,17 +58,17 @@ export const AppShell = {
     const kicker = meta.navKey === 'chat' ? 'AI STUDY COACH' : 'ENGLISH LEARNING';
     const headerActions = this.getHeaderActions(meta.navKey);
     const headerMode = meta.headerMode || 'drawer';
-    const isExamDesktop = headerMode === 'drawer';
+    const hasDrawer = meta.tabletLayout === 'rail';
     const examShellVariant = hash === '#/exam' ? ' app-shell--exam-home' : hash.startsWith('#/exam/catalog/') ? ' app-shell--exam-catalog' : '';
     container.innerHTML = `
-      <div class="app-shell app-shell--${pageMode}${meta.navKey === 'exam' ? ' app-shell--exam' : ''}${examShellVariant}">
+      <div class="app-shell app-shell--${pageMode} app-shell--${meta.tabletLayout || 'rail'}${meta.navKey === 'exam' ? ' app-shell--exam' : ''}${examShellVariant}">
         <header class="app-header">
-          ${headerMode === 'back' ? '<button id="appMenuBtn" class="app-icon-button" type="button" aria-label="返回真题训练"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>' : '<button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>'}
+          ${headerMode === 'back' ? `<button id="appMenuBtn" class="app-icon-button" type="button" aria-label="返回${meta.navKey === 'reading-list' ? '书架' : meta.navKey === 'vocab' ? '词汇学习' : '真题训练'}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>` : '<button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>'}
           <div class="app-header-copy"><p class="app-header-kicker">${kicker}</p><h1 class="app-header-title">${meta.title}</h1></div>
           ${headerActions}
         </header>
-        ${isExamDesktop ? '<button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>' : ''}
-        ${isExamDesktop ? `<aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
+        ${hasDrawer ? '<button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>' : ''}
+        ${hasDrawer ? `<aside id="appDrawer" class="app-drawer" aria-label="主要导航" aria-hidden="true">
           <div class="app-drawer-top"><p class="app-drawer-brand">LEARNING NOTEBOOK</p><button id="appDrawerClose" class="app-drawer-close" type="button" aria-label="关闭导航"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="sr-only">关闭导航</span></button></div>
           <nav aria-label="主要导航">${links}</nav>
         </aside>` : ''}
@@ -78,9 +79,9 @@ export const AppShell = {
     const backdrop = document.getElementById('appDrawerBackdrop');
     const menu = document.getElementById('appMenuBtn');
     const close = document.getElementById('appDrawerClose');
-    if (!isExamDesktop) {
+    if (!hasDrawer) {
       menu.addEventListener('click', () => {
-        if (headerMode === 'back') location.hash = '#/exam';
+        if (headerMode === 'back') location.hash = meta.navKey === 'reading-list' ? '#/reading-list' : meta.navKey === 'vocab' ? '#/vocab' : '#/exam';
       });
       return document.getElementById('pageOutlet');
     }
@@ -88,7 +89,7 @@ export const AppShell = {
       ? window.matchMedia('(min-width: 600px)')
       : null;
     this._mediaQuery = mediaQuery;
-    const isPersistent = () => meta.navKey !== 'exam' && (mediaQuery ? mediaQuery.matches : (typeof window !== 'undefined' && window.innerWidth >= 600));
+    const isPersistent = () => meta.tabletLayout === 'rail' && (mediaQuery ? mediaQuery.matches : (typeof window !== 'undefined' && window.innerWidth >= 600));
     const setOpen = (open, { focusMenu = true } = {}) => {
       const persistent = isPersistent();
       if (persistent) open = false;

@@ -13,6 +13,45 @@ import { ExamRepository } from '../src/exam/repository.mjs';
 import { ExamStateRepository } from '../src/exam/state-repository.mjs';
 import { assertOrderingResponses } from '../src/exam/grading.mjs';
 
+function matchingPaper(variant = 'sentence_insertion') {
+  const questions = Array.from({ length: 5 }, (_, index) => ({
+    questionKey: `matching_q${41 + index}`,
+    type: 'matching_slot',
+    points: 2,
+    answer: String.fromCharCode(65 + index),
+    stem: '',
+    options: [],
+    slotNumber: 41 + index
+  }));
+  return {
+    schemaVersion: 1,
+    examId: 'kaoyan_en1', bankId: 'matching_bank', packageId: 'matching.pack', packageVersion: '1.0.0',
+    paperKey: 'matching_2024', year: 2024, title: 'Matching', sourceType: 'past_exam',
+    units: [{
+      unitKey: 'matching_unit', type: 'matching', displayTitle: 'Part B', matchingVariant: variant,
+      passage: questions.map((question, index) => ({ paragraphKey: `P${index + 1}`, text: `Target ${index + 1} [${question.slotNumber}]` })),
+      translation: [],
+      candidates: Array.from({ length: 7 }, (_, index) => ({ candidateKey: String.fromCharCode(65 + index), text: `Candidate ${index + 1}` })),
+      slots: questions.map((question, index) => ({ slotNumber: question.slotNumber, position: index, questionKey: question.questionKey })),
+      questions
+    }]
+  };
+}
+
+test('matching schema accepts five unique slots and seven candidates', () => {
+  assert.doesNotThrow(() => assertCanonicalPaper(matchingPaper()));
+  assert.equal(getExamRenderer('matching').unitType, 'matching');
+});
+
+test('matching schema rejects duplicate answers and missing slot markers', () => {
+  const duplicate = matchingPaper();
+  duplicate.units[0].questions[1].answer = 'A';
+  assert.throws(() => assertCanonicalPaper(duplicate), /重复使用/);
+  const missing = matchingPaper();
+  missing.units[0].passage[0].text = 'Target without marker';
+  assert.throws(() => assertCanonicalPaper(missing), /占位标记/);
+});
+
 const clozeUrl = new URL('./fixtures/exam-md-cloze-minimal.md', import.meta.url);
 const orderingUrl = new URL('./fixtures/exam-md-ordering-minimal.md', import.meta.url);
 const generatedAt = '2026-08-07T00:00:00.000Z';

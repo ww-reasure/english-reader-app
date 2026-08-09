@@ -51,6 +51,25 @@ test('context review unlocks target-word lookup after the answer and translation
   assert.match(source, /if \(!this\.answered\) this\.assistedLookupCount/);
 });
 
+test('context review discloses source difficulty only after an answer', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /difficultyStatus/);
+  assert.match(source, /offline-fallback/);
+  assert.match(source, /AI 定制例句/);
+  assert.match(source, /原设定/);
+  assert.match(source, /answered \? `<div class="context-review-answer/);
+  assert.match(source, /item\.examTrack \|\| item\.sourceTrack/);
+});
+
+test('context review requires an explicit target exam before starting a new session', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /requiresTargetTrackSelection/);
+  assert.match(source, /#\/settings/);
+  assert.match(source, /请先选择目标考试导向/);
+});
+
 test('traditional recall also consumes the shared revision-aware queue', async () => {
   const flashcard = await read('../src/views/flashcard.js');
 

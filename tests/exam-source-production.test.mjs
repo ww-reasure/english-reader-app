@@ -17,10 +17,13 @@ test('stableQuestionKey follows section-specific identity rules', () => {
   assert.throws(() => stableQuestionKey({ year: 2025, section: 'reading', number: 1 }), /范围/);
 });
 
-test('detectPartBVariant recognizes paragraph ordering and unsupported variants', () => {
+test('detectPartBVariant recognizes all supported Part B variants', () => {
   assert.equal(detectPartBVariant('The following paragraphs are given in a wrong order. Choose from A-H.'), 'paragraph_ordering');
-  assert.equal(detectPartBVariant('Match each paragraph with the correct heading A-H.'), 'unsupported_matching');
-  assert.equal(detectPartBVariant('[A] Heading one\n[B] Heading two\n[C] Heading three\n[D] Heading four\n[E] Heading five\n[F] Heading six\n[G] Heading seven'), 'unsupported_matching');
+  assert.equal(detectPartBVariant('choose the best statement from the list A-G to summarize each comment'), 'statement_matching');
+  assert.equal(detectPartBVariant('choose the most suitable one from the list A-G to fit into each of the numbered blanks'), 'sentence_insertion');
+  assert.equal(detectPartBVariant('Match each paragraph with the correct heading A-H.'), 'heading_matching');
+  assert.equal(detectPartBVariant('choose the most suitable subheading from the list A-G for each numbered paragraph'), 'heading_matching');
+  assert.equal(detectPartBVariant('choose the most suitable paragraphs from the list A-G and fill them into the numbered boxes to form a coherent text. Paragraph E has been correctly placed.'), 'paragraph_ordering');
   assert.equal(detectPartBVariant('Section II Part B'), 'unknown');
 });
 

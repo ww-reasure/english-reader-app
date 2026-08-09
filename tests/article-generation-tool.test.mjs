@@ -43,7 +43,7 @@ test('normalizes article tool arguments and saves a card-ready article', async (
 
   assert.equal(calls[0][1], 'cet6');
   assert.equal(calls[0][2].length, 80);
-  assert.equal(calls[0][4], 500);
+  assert.equal(calls[0][4], 430);
   assert.equal(calls[0][5], '学习者：想练习旅行词汇');
   assert.equal(saved.length, 1);
   assert.equal(result.article.id, 42);

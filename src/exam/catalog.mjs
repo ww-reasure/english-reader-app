@@ -6,7 +6,9 @@
 
 function asUnits(paper, unitType) {
   return (paper?.units || [])
-    .filter(unit => !unitType || unit.type === unitType)
+    .filter(unit => !unitType || (unitType === 'part_b'
+      ? ['paragraph_ordering', 'matching'].includes(unit.type)
+      : unit.type === unitType))
     .filter(unit => Array.isArray(unit.questions) && unit.questions.length)
     .map(unit => ({
       ...unit,

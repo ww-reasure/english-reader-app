@@ -13,7 +13,7 @@ test('shared reading-style lookup accepts a dynamic enabled predicate', async ()
   assert.match(source, /if \(!isEnabled\(\)\) return/);
 });
 
-test('the global settings page owns the practice-only lookup preference', async () => {
+test('global settings and the practice shortcut share the lookup preference', async () => {
   const [settingsSource, practiceSource, storageSource] = await Promise.all([
     readFile(new URL('../src/views/settings.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8'),
@@ -23,7 +23,9 @@ test('the global settings page owns the practice-only lookup preference', async 
   assert.match(settingsSource, /role="switch"/);
   assert.match(settingsSource, /Config\.set\(['"]exam_word_lookup_enabled['"]/);
   assert.match(storageSource, /'exam_word_lookup_enabled'/);
-  assert.doesNotMatch(practiceSource, /examWordLookupToggle/);
+  assert.match(practiceSource, /examWordLookupToggle/);
+  assert.match(practiceSource, /toggleWordLookup\(\)/);
+  assert.match(practiceSource, /Config\.set\(['"]exam_word_lookup_enabled['"]/);
   assert.match(practiceSource, /Config\.get\(['"]exam_word_lookup_enabled['"]\)\s*!==\s*['"]false['"]/);
   assert.match(practiceSource, /isEnabled:\s*this\.isExplanation\s*\?\s*\(\)\s*=>\s*true\s*:\s*\(\)\s*=>\s*this\.wordLookupEnabled/);
   assert.match(practiceSource, /allowAskAI:\s*true/);

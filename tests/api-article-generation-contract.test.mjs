@@ -26,8 +26,8 @@ test('keeps user preference separate from the authoritative spec and measured va
   const preference = '请写一篇四级旅行阅读，180 词。';
   const correction = [
     '上次生成未通过难度校验。请保留主题，但完整重写文章并严格满足以下要求：',
-    '- 实际总字数：287 词；要求：320-420 词。',
-    '- 实际平均句长：9.5 词；要求：14-22 词。',
+    '- 实际总字数：287 词；要求：320-380 词。',
+    '- 实际平均句长：9.5 词；要求：18-21 词。',
     '- 缺失目标词：journey。'
   ].join('\n');
   let request;
@@ -64,10 +64,10 @@ test('keeps user preference separate from the authoritative spec and measured va
   assert.match(userContent, /难度档案：CET4/);
   assert.match(userContent, /挑战度：standard/);
   assert.match(userContent, /目标字数：320 词/);
-  assert.match(userContent, /硬性总字数范围：320-420 词/);
+  assert.match(userContent, /硬性总字数范围：320-380 词/);
   assert.match(userContent, /若用户偏好中的难度或字数与本规格冲突，以本规格为准/);
   assert.match(userContent, /上次生成的实测校验结果/);
-  assert.match(userContent, /实际总字数：287 词；要求：320-420 词/);
+  assert.match(userContent, /实际总字数：287 词；要求：320-380 词/);
   assert.equal(userContent.split('上次生成未通过难度校验').length - 1, 1);
 });
 

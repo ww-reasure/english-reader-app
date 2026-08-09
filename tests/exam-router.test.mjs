@@ -20,11 +20,12 @@ test('router registers #/exam while keeping #/chat as the home route', async () 
   assert.match(source, /case hash === '#\/chat'/);
 });
 
-test('Review Center is grouped by unit and starts an explicitly due review attempt', async () => {
+test('Review Center groups by unit and allows autonomous review with full details', async () => {
   const source = await readFile(new URL('../src/views/exam-review.js', import.meta.url), 'utf8');
   assert.match(source, /startReviewCenterAttempt/);
-  assert.match(source, /reviewEligibleQuestionKeys/);
-  assert.match(source, /今日待复习/);
+  assert.match(source, /review_center_manual/);
+  assert.match(source, /data-review-question-detail/);
+  assert.match(source, /bindReadingStyleWordLookup/);
   assert.match(source, /翻译/);
 });
 

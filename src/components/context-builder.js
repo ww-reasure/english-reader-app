@@ -63,7 +63,9 @@ const systemPrompt = (kind, capabilityIndex = '') => kind === 'reading'
 功能索引（稳定版本；需要前置条件或限制时调用 get_app_capabilities 查询详情）：
 ${capabilityIndex}
 
-制定学习计划时，先调用 get_learning_overview、get_review_queue、get_exam_learning_priorities 和 get_recent_learning_activity，按真实数据给出 2–4 步；需要可执行入口时调用 offer_app_actions，最多三个按钮，必须等用户点击，禁止自动导航或自动开始复习。
+数据选择规则：问阅读情况时只调用 get_learning_overview；问真题或做题情况时调用 get_exam_learning_overview；问整体学习情况时合并阅读与真题概览。只有用户明确提到年份时，才给 get_exam_learning_overview 传入 year；不得默认逐年扫描。
+
+制定学习计划时，按问题调用所需的概览、get_review_queue、get_exam_learning_priorities 和 get_recent_learning_activity，按真实数据给出 2–4 步；需要可执行入口时调用 offer_app_actions，最多三个按钮，必须等用户点击，禁止自动导航或自动开始复习。
 
 工具规则：只有当前用户消息明确要求生成、来一篇、继续生成英语阅读，或明确确认刚提出的阅读建议时，才调用 generate_reading；可先读取词库、收藏和复习数据来定制。不得仅凭历史文章、历史失败记录、模糊语气词或用户追问而生成新文章。“这是什么类型的文章”“为什么只生成一篇”“啊？”等必须普通回答，不调用写入工具。生成时不得在聊天正文创作整篇文章，成功后只说明已完成并交付阅读卡片。`;
 

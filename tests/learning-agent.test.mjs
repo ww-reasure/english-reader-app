@@ -107,3 +107,26 @@ test('reports target-track true-exam priorities and available examples for plann
   assert.equal(result.highFrequencyUnmastered[0].exampleCount, 2);
   assert.deepEqual(result.duePriorityWords.map(item => item.word), ['frequent']);
 });
+
+test('exposes a bounded read-only exam overview tool and forwards an explicit year', async () => {
+  const { LearningAgent, LEARNING_TOOLS } = await loadAgent();
+  const calls = [];
+  const overview = { source: 'exam_learning_overview', status: 'available', recentAttempts: [], wrongSummary: [] };
+  const agent = new LearningAgent({
+    db: {}, srs: {},
+    examLearningProvider: { getOverview: async args => { calls.push(args); return overview; } }
+  });
+  const definition = LEARNING_TOOLS.find(tool => tool.function.name === 'get_exam_learning_overview');
+  assert.equal(definition.function.parameters.properties.year.type, 'integer');
+  assert.equal(await agent.execute('get_exam_learning_overview', { year: 2023 }), overview);
+  assert.deepEqual(calls, [{ year: 2023, recentLimit: 5, wrongLimit: 5 }]);
+});
+
+test('exam overview tool reports unavailable without mutating or inventing data', async () => {
+  const { LearningAgent } = await loadAgent();
+  const agent = new LearningAgent({ db: {}, srs: {} });
+  assert.deepEqual(await agent.execute('get_exam_learning_overview'), {
+    source: 'exam_learning_overview', status: 'unavailable', availableYears: [],
+    recentAttempts: [], wrongSummary: []
+  });
+});

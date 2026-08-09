@@ -94,23 +94,23 @@ function writeRecords(tx, records) {
   }
 }
 
-function deleteByPackageIndex(tx, storeName, packageId, onDone, onError) {
+function deleteByIndex(tx, storeName, indexName, indexValue, onDone, onError) {
   let request;
   try {
-    request = tx.objectStore(storeName).index('packageId').getAll(packageId);
+    request = tx.objectStore(storeName).index(indexName).getAll(indexValue);
   } catch (error) {
     onError(error);
     return;
   }
   request.onsuccess = () => {
     const store = tx.objectStore(storeName);
-    for (const record of request.result) store.delete(record.contentId);
+    for (const record of request.result) store.delete(record[store.keyPath]);
     onDone();
   };
   request.onerror = () => onError(request.error);
 }
 
-export async function installExamPack(openDb, pack) {
+export async function installExamPack(openDb, pack, { resetStateForContentHashes = [] } = {}) {
   await assertExamPack(pack);
   const db = await openDb();
   const existing = await getByKey(() => Promise.resolve(db), 'examPackMeta', pack.manifest.packageId);
@@ -127,8 +127,19 @@ export async function installExamPack(openDb, pack) {
   }
 
   const records = await buildExamPackRecords(pack);
+  const stateReset = resetStateForContentHashes.includes(existing?.contentHash);
+  const stateScopes = stateReset ? [
+    ['examAttempts', 'packageId', pack.manifest.packageId],
+    ['examResponses', 'packageId', pack.manifest.packageId],
+    ['examWrongStates', 'bankId', pack.manifest.bankId],
+    ['examBookmarks', 'bankId', pack.manifest.bankId],
+    ['examTranslationReviews', 'bankId', pack.manifest.bankId]
+  ] : [];
+  const contentScopes = ['examPapers', 'examUnits', 'examQuestions']
+    .map(storeName => [storeName, 'packageId', pack.manifest.packageId]);
+  const transactionStores = [...EXAM_STORES_V14, ...stateScopes.map(([storeName]) => storeName)];
   await new Promise((resolve, reject) => {
-    const tx = db.transaction(EXAM_STORES_V14, 'readwrite');
+    const tx = db.transaction(transactionStores, 'readwrite');
     let failed = false;
     const fail = error => {
       if (failed) return;
@@ -141,19 +152,21 @@ export async function installExamPack(openDb, pack) {
     tx.onerror = () => fail(tx.error);
     tx.onabort = () => fail(tx.error || new Error('exam pack 原子替换事务已中止'));
 
-    const packageId = pack.manifest.packageId;
-    deleteByPackageIndex(tx, 'examPapers', packageId, () => {
-      deleteByPackageIndex(tx, 'examUnits', packageId, () => {
-        deleteByPackageIndex(tx, 'examQuestions', packageId, () => {
-          tx.objectStore('examPackMeta').delete(packageId);
-          try {
-            writeRecords(tx, records);
-          } catch (error) {
-            fail(error);
-          }
-        }, fail);
-      }, fail);
-    }, fail);
+    const scopes = [...contentScopes, ...stateScopes];
+    const removeNext = index => {
+      if (index >= scopes.length) {
+        tx.objectStore('examPackMeta').delete(pack.manifest.packageId);
+        try {
+          writeRecords(tx, records);
+        } catch (error) {
+          fail(error);
+        }
+        return;
+      }
+      const [storeName, indexName, indexValue] = scopes[index];
+      deleteByIndex(tx, storeName, indexName, indexValue, () => removeNext(index + 1), fail);
+    };
+    removeNext(0);
   });
-  return { status, packageId: pack.manifest.packageId };
+  return { status, packageId: pack.manifest.packageId, stateReset };
 }

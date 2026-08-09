@@ -55,6 +55,54 @@ export async function buildYearPack({ sourceDir, packageVersion = '1.1.0' }) {
   });
 }
 
+export async function rebuildKaoyanEn1Packs({
+  existingPath = `${projectRoot}/public/exam-packs/private/local.kaoyan.en1.json`,
+  sourceRoot = `${projectRoot}/private_exam_sources/markdown/kaoyan-en1`,
+  years = Array.from({ length: 16 }, (_, index) => 2025 - index),
+  outputPath = existingPath,
+  indexPath = `${projectRoot}/public/exam-packs/private/index.json`,
+  packageVersion = '1.1.2'
+} = {}) {
+  const existingPack = JSON.parse(await readFile(resolve(existingPath), 'utf8'));
+  await assertExamPack(existingPack);
+  const protectedPaper = existingPack.papers.find(paper => paper.paperKey === 'kaoyan_en1_2026');
+  if (!protectedPaper) throw new Error('现有 pack 缺少受保护的 2026 paper');
+  const protectedHash = await hashPaper(protectedPaper);
+  let rebuilt = await createExamPack({
+    meta: {
+      packageId: existingPack.manifest.packageId,
+      packageVersion,
+      examId: existingPack.manifest.examId,
+      bankId: existingPack.manifest.bankId,
+      displayName: existingPack.manifest.displayName
+    },
+    papers: [protectedPaper]
+  });
+  for (const year of years) {
+    const incomingPack = await buildYearPack({ sourceDir: resolve(sourceRoot, String(year)), packageVersion });
+    rebuilt = await mergeExamPacks({ existingPack: rebuilt, incomingPack, packageVersion });
+  }
+  await assertExamPack(rebuilt);
+  const rebuiltProtected = rebuilt.papers.find(paper => paper.paperKey === protectedPaper.paperKey);
+  if (await hashPaper(rebuiltProtected) !== protectedHash) throw new Error('2026 paper hash 被改变，拒绝写入');
+  await safeWriteJson(outputPath, rebuilt);
+
+  let index = { schemaVersion: 1, packs: [] };
+  try { index = JSON.parse(await readFile(resolve(indexPath), 'utf8')); } catch {}
+  const packs = [
+    ...(Array.isArray(index.packs) ? index.packs : []).filter(item => item.packageId !== rebuilt.manifest.packageId),
+    { packageId: rebuilt.manifest.packageId, path: `/exam-packs/private/${rebuilt.manifest.packageId}.json` }
+  ];
+  await safeWriteJson(indexPath, { schemaVersion: 1, packs });
+  process.stdout.write(JSON.stringify({
+    outputPath: resolve(outputPath),
+    packageVersion: rebuilt.manifest.packageVersion,
+    papers: rebuilt.papers.length,
+    preserved2026Hash: protectedHash
+  }, null, 2) + '\n');
+  return rebuilt;
+}
+
 export async function mergeKaoyanEn1Packs({
   existingPath = `${projectRoot}/public/exam-packs/private/local.kaoyan.en1.json`,
   sourceDir = `${projectRoot}/private_exam_sources/markdown/kaoyan-en1/2025`,
@@ -104,12 +152,14 @@ export async function mergeKaoyanEn1Packs({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  mergeKaoyanEn1Packs({
+  const command = process.argv.includes('--rebuild-all') ? rebuildKaoyanEn1Packs : mergeKaoyanEn1Packs;
+  command({
     existingPath: readArg('existing') || undefined,
     sourceDir: readArg('source-dir') || undefined,
+    sourceRoot: readArg('source-root') || undefined,
     outputPath: readArg('output') || undefined,
     indexPath: readArg('index') || undefined,
-    packageVersion: readArg('package-version') || '1.1.0',
+    packageVersion: readArg('package-version') || (process.argv.includes('--rebuild-all') ? '1.1.2' : '1.1.0'),
     rebuildIncoming: process.argv.includes('--rebuild-incoming')
   }).catch(error => {
     process.stderr.write(`${error?.stack || error}\n`);
