@@ -8,7 +8,7 @@ test('chat view uses one composer for learning chat and article generation', asy
   assert.match(source, /isGenerationAuthorized/);
   assert.doesNotMatch(source, /if \(classifyComposerIntent\(value\) === 'generate'\)/);
   assert.match(source, /buildGenerationContext/);
-  assert.match(source, /问问题，或说“生成一篇/);
+  assert.match(source, /问学习问题，或生成英语阅读/);
   assert.match(source, /ChatService/);
   assert.match(source, /import \{ LEARNING_TOOLS, LearningAgent \} from '\.\.\/components\/learning-agent\.js';/);
   assert.match(source, /appClearContextBtn/);

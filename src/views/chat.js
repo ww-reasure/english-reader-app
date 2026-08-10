@@ -223,7 +223,7 @@ export const ChatView = {
           </div>
           <div class="chat-input-row">
             <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
-            <textarea id="promptInput" name="learningPrompt" placeholder="问问题，或说“生成一篇关于……”" aria-label="学习问题" rows="1"></textarea>
+            <textarea id="promptInput" name="learningPrompt" placeholder="问学习问题，或生成英语阅读" aria-label="学习问题或阅读生成要求" rows="1"></textarea>
             <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
           </div>
         </footer>
