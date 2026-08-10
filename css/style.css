@@ -230,6 +230,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .modal-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; margin-top:22px; }
 .api-tutorial { border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
 .api-tutorial-toggle { padding:12px 0; color:var(--signal); font-size:13px; font-weight:750; cursor:pointer; }
+.tavily-key-row { display:flex; gap:8px; align-items:center; }
+.tavily-key-row input { flex:1; min-width:0; }
+.settings-form-status { margin:8px 0 0; font-size:13px; color:var(--muted); }
+.settings-form-status.is-success { color:var(--pine); }
+.settings-form-status.is-error { color:var(--danger, #b3261e); }
+.badge-research { background:var(--signal); color:var(--paper); }
 .api-tutorial-content { padding:0 0 12px; }
 .api-tutorial-step,.api-tutorial-note { font-size:13px; color:var(--ink-soft); line-height:1.65; }
 

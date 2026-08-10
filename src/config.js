@@ -26,6 +26,8 @@ export const Config = {
   defaults: {
     // api_onboarding_seen is persisted with the rest of the secure settings.
     api_key: '',
+    tavily_api_key: '',
+    web_research_mode: 'deepseek_native',
     [API_ONBOARDING_SEEN_KEY]: 'false',
     base_url: 'https://api.deepseek.com/v1',
     model: 'deepseek-v4-flash',

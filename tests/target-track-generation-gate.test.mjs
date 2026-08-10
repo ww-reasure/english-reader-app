@@ -26,7 +26,7 @@ test('every article-writing entry point routes an unselected target through cali
     for (const entry of view.entries) {
       const start = source.indexOf(entry);
       assert.ok(start >= 0, `${view.file} must keep ${entry} as a distinct generation entry point`);
-      const entryBody = source.slice(start, start + 4000);
+      const entryBody = source.slice(start, start + 6000);
       const gateIndex = entryBody.indexOf('ensureTargetTrackBeforeGeneration()');
       assert.ok(gateIndex >= 0, `${entry} must gate before any article write`);
 

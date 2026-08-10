@@ -2,6 +2,15 @@ import { LEARNING_TOOLS } from './learning-agent.js';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
 const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
+const TIMELY_QUERY_PATTERNS = [
+  /新闻|时讯|资讯|热点|快讯|突发|头条|实时|时事|今日|今天|最新|最近|近日|近期|当前|进展|动态|大事|天气|预报/,
+  /\b(news|headline|breaking|latest|today|current|recent|update|live|weather|what happened)\b/i
+];
+const isTimelyQuery = message => {
+  const text = String(message || '').trim();
+  if (!text) return false;
+  return TIMELY_QUERY_PATTERNS.some(pattern => pattern.test(text));
+};
 const generationToolFailure = () => ({
   type: 'generation_failure',
   failure: { message: '文章定制暂时失败，请重新生成。', reason: 'tool_error' }
@@ -25,11 +34,12 @@ const assistantToolMessage = reply => ({
 });
 
 export class ChatService {
-  constructor({ api, agent, builder, telemetry = null }) {
+  constructor({ api, agent, builder, telemetry = null, webResearch = null }) {
     this.api = api;
     this.agent = agent;
     this.builder = builder;
     this.telemetry = telemetry;
+    this.webResearch = webResearch;
     this.controllers = new Map();
   }
 
@@ -43,6 +53,25 @@ export class ChatService {
     const controller = new AbortController();
     this.controllers.set(sessionKey, controller);
     const requestId = `${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const plan = kind === 'home' && this.webResearch?.resolve
+      ? this.webResearch.resolve()
+      : { native: false, tavily: true };
+    const forceFirstSearch = Boolean(plan.native) && isTimelyQuery(userMessage);
+    const baseTools = Array.isArray(tools) ? tools : [];
+    const requestTools = plan.native
+      ? [...baseTools.filter(tool => tool?.function?.name !== 'search_web'), { type: 'web_search' }]
+      : plan.tavily
+        ? baseTools
+        : baseTools.filter(tool => tool?.function?.name !== 'search_web');
+    const toItems = this.webResearch?.toItems;
+    const buildArtifact = this.webResearch?.artifact || null;
+    const pushResearchArtifact = (reply, artifacts) => {
+      if (!plan.native || !Array.isArray(reply?.web_search_calls) || !reply.web_search_calls.length) return;
+      if (artifacts.some(item => item?.type === 'research_sources')) return;
+      if (typeof buildArtifact !== 'function') return;
+      const artifact = buildArtifact(reply.web_search_calls);
+      if (artifact) artifacts.push(artifact);
+    };
     const buildMessages = toolResults => this.builder.build({
       kind,
       summary: session.summary,
@@ -52,9 +81,21 @@ export class ChatService {
       pageContext,
       toolResults: toolResults || []
     });
-    const call = async (messages, requestTools, phase) => {
+    const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto') => {
+      if (plan.native) {
+        if (typeof toItems !== 'function') throw new Error('当前联网配置缺少 Responses 消息转换器');
+        const completion = await this.api.responsesCompletion(
+          toItems(messages),
+          { tools: requestToolsForRound || [], signal: controller.signal, toolChoice }
+        );
+        if (kind === 'home' && completion?.usage) {
+          this.telemetry?.record({ requestId, phase, usage: completion.usage });
+        }
+        return completion || { role: 'assistant', content: '' };
+      }
+      const chatTools = (requestToolsForRound || []).filter(tool => tool?.type === 'function');
       const options = {
-        tools: requestTools || [],
+        tools: chatTools,
         signal: controller.signal,
         ...(responseFormat ? { responseFormat } : {}),
         ...(Number.isFinite(temperature) ? { temperature } : {})
@@ -73,7 +114,7 @@ export class ChatService {
       let toolSupport = null;
       let transcript = buildMessages();
       try {
-        reply = await call(transcript, tools, 'initial');
+        reply = await call(transcript, requestTools, 'initial', forceFirstSearch ? { type: 'web_search' } : 'auto');
       } catch (error) {
         if (!toolsUnsupported(error)) throw error;
         toolSupport = 'unsupported';
@@ -82,8 +123,9 @@ export class ChatService {
       }
 
       const artifacts = [];
+      pushResearchArtifact(reply, artifacts);
       const toolRunner = executeTool || (async (name, args) => ({ result: await this.agent.execute(name, args) }));
-      let activeTools = tools;
+      let activeTools = requestTools;
       for (let round = 0; round < 3 && reply.tool_calls?.length; round += 1) {
         const runToolCall = async toolCall => {
           const name = toolCall?.function?.name;
@@ -114,11 +156,12 @@ export class ChatService {
           return completeReply('', artifacts, toolSupport);
         }
         if (generationCall) {
-          activeTools = tools.filter(tool => tool?.function?.name !== 'generate_reading');
+          activeTools = (plan.native ? baseTools : tools).filter(tool => tool?.function?.name !== 'generate_reading');
         }
         transcript = [
           ...transcript,
           assistantToolMessage(generationCall ? { ...reply, tool_calls: callsToRun } : reply),
+          ...(reply.web_search_calls || []).map(item => ({ type: 'web_search_call', ...item })),
           ...toolResults.map(item => ({
             role: 'tool',
             tool_call_id: item.call?.id || '',
@@ -127,6 +170,7 @@ export class ChatService {
           }))
         ];
         reply = await call(transcript, activeTools, `tool_${round + 1}`);
+        pushResearchArtifact(reply, artifacts);
       }
 
       return completeReply(String(reply.content || '').trim() || '我暂时没有生成有效回答，请换一种问法。', artifacts, toolSupport);

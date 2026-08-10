@@ -2,6 +2,7 @@ export const APP_CAPABILITY_CATALOG_VERSION = 1;
 
 const entries = Object.freeze([
   { id: 'learning_chat', name: '学习对话', category: '对话', route: '#/chat', summary: '询问词汇、语法、阅读策略并制定学习计划。', keywords: ['对话', '问答', '计划'], prerequisites: [], limitations: ['不会自动替用户执行学习任务'] },
+  { id: 'web_research', name: '联网检索', category: '对话', route: '#/chat', summary: '按最新资讯或感兴趣的话题联网检索，可据此生成带真实来源的阅读文章。', keywords: ['搜索', '联网', '最新', '资讯', '热点'], prerequisites: ['已配置 Tavily Key'], limitations: ['只显示真实来源，必须由用户确认后生成文章'] },
   { id: 'generate_reading', name: '定制阅读', category: '阅读', route: '#/chat', summary: '按目标考试、材料压力和学习数据生成可点击阅读卡片。', keywords: ['生成', '文章', '阅读'], prerequisites: ['已设置 AI API Key', '已选择目标考试'], limitations: ['必须由当前用户明确要求生成'] },
   { id: 'review_reading', name: '复习阅读', category: '阅读', route: '#/chat', summary: '把今日薄弱词自然放入文章中巩固。', keywords: ['薄弱词', '复习阅读'], prerequisites: ['存在已复习词'], limitations: ['生成结果以阅读卡片交付'] },
   { id: 'reading_library', name: '我的书架', category: '阅读', route: '#/reading-list', summary: '按难度和题材浏览本地及云端文章。', keywords: ['书架', '文章', '筛选'], prerequisites: [], limitations: [] },

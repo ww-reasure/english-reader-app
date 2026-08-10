@@ -38,9 +38,12 @@ import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { createExamServices } from '../exam/create-services.js';
 import { createExamLearningOverviewProvider } from '../exam/learning-overview-provider.mjs';
+import { buildResearchBrief, createWebResearch, normalizeResearchSources } from '../components/web-research.mjs';
+import { buildNativeResearchArtifact, messagesToResponsesItems, resolveWebResearchPlan } from '../components/deepseek-responses.mjs';
 
 const conversationStore = new ConversationStore();
 const examLearningProvider = createExamLearningOverviewProvider({ services: createExamServices() });
+const webResearch = createWebResearch({ config: Config });
 const learningAgent = new LearningAgent({
   db: DB,
   srs: SpacedRepetition,
@@ -49,7 +52,17 @@ const learningAgent = new LearningAgent({
   targetTrack: () => Config.get('exam_level') || ''
 });
 const contextBuilder = new ContextBuilder({ capabilityIndex: AppCapabilityRegistry.compactIndex() });
-const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder, telemetry: HomeAgentUsageTelemetry });
+const homeWebResearch = {
+  resolve: () => resolveWebResearchPlan({
+    mode: Config.get('web_research_mode'),
+    model: Config.get('model'),
+    baseUrl: Config.get('base_url'),
+    tavilyKey: Config.get('tavily_api_key')
+  }),
+  toItems: messagesToResponsesItems,
+  artifact: buildNativeResearchArtifact
+};
+const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder, telemetry: HomeAgentUsageTelemetry, webResearch: homeWebResearch });
 const articleQualityService = getSharedArticleQualityService({ api: API, db: DB });
 const articleGenerationTool = new ArticleGenerationTool({
   api: API,
@@ -63,6 +76,22 @@ const generationPolicyFor = challenge => buildArticleGenerationPolicy({
   challenge,
   coverage: Config.get('coverage')
 });
+const SEARCH_WEB_TOOL = {
+  type: 'function',
+  function: {
+    name: 'search_web',
+    description: '联网检索最新资讯或外部事实。仅在用户询问最新事件、需要核实时效信息，或表达结合近期热点阅读的兴趣时调用；普通词汇、语法和复习问题不要联网。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索主题' },
+        recencyDays: { type: 'integer', minimum: 1, maximum: 30, description: '只取最近几天内的结果' },
+        domains: { type: 'array', items: { type: 'string' }, maxItems: 5, description: '限定来源域名' }
+      },
+      required: ['query']
+    }
+  }
+};
 const RECENT_HOME_ACTIVITY_TOOL = {
   type: 'function',
   function: {
@@ -74,10 +103,14 @@ const RECENT_HOME_ACTIVITY_TOOL = {
     }
   }
 };
-const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_HOME_ACTIVITY_TOOL, GENERATE_READING_TOOL];
+const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_HOME_ACTIVITY_TOOL, SEARCH_WEB_TOOL, GENERATE_READING_TOOL];
 const homeRequestGate = new HomeRequestGate();
 let generationFailureSequence = 0;
 const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
+const redactAgentSecrets = value => String(value || '')
+  .replace(/(sk-[A-Za-z0-9_\-]{8,})/g, 'sk-***')
+  .replace(/(tvly-[A-Za-z0-9_\-]{8,})/g, 'tvly-***');
+
 const cancelledRequest = () => {
   const error = new Error('请求已取消');
   error.name = 'AbortError';
@@ -160,6 +193,7 @@ export const ChatView = {
   _clearContextHandler: null,
   _generationPreviewQueue: new Map(),
   _generationPreviewTimer: null,
+  _searchCallCounts: new Map(),
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -276,6 +310,8 @@ export const ChatView = {
           this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
         } else if (message.kind === 'app_actions') {
           this.addAppActionsToDOM(message.actions || []);
+        } else if (message.kind === 'research_sources') {
+          this.addResearchSourcesToDOM(message.research || message);
         } else if (message.kind === 'activity') {
           // Activity events are model context, not duplicate visible chat bubbles.
         } else {
@@ -495,6 +531,9 @@ export const ChatView = {
           personalization: generationPolicy.personalization,
           validationOptions: generationPolicy.validationOptions,
           articleFields: { generationJobId: job.id },
+          researchSources: payload.researchSources,
+          researchSearchedAt: payload.researchSearchedAt,
+          researchBrief: payload.researchBrief || '',
           signal: runtime.signal,
           isActive: runtime.isCurrent,
           onProgress: progress => runtime.updateProgress(progress.phase),
@@ -834,15 +873,31 @@ export const ChatView = {
         if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
           this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, value));
         }
+        if (artifact.type === 'research_sources') {
+          this.addResearchSources(artifact);
+          this.recordNativeResearchActivity(artifact);
+        }
         if (artifact.type === 'app_actions' && artifact.actions?.length) {
           this.addAppActions(artifact.actions);
         }
       });
+
     } catch (error) {
       if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
-      this.appendConversation({ role: 'assistant', kind: 'error', content: '暂时无法回答，请稍后重试。' });
+      const rawMessage = String(error?.message || '').trim();
+      if (/请求已取消|AbortError/i.test(rawMessage)) {
+        this.appendConversation({ role: 'assistant', kind: 'error', content: '请求已取消。' });
+        return;
+      }
+      console.error('[home-agent] request failed', error);
+      const reason = redactAgentSecrets(rawMessage).slice(0, 240);
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。'
+      });
     }
   },
 
@@ -869,6 +924,62 @@ export const ChatView = {
           source: 'recent_learning_activity',
           activities: conversationStore.getRecentActivities('home', args.limit || 50)
         }
+      };
+    }
+    if (name === 'search_web') {
+      const searchCalls = (this._searchCallCounts.get(requestVersion) || 0) + 1;
+      this._searchCallCounts.set(requestVersion, searchCalls);
+      if (this._searchCallCounts.size > 20) {
+        const firstKey = this._searchCallCounts.keys().next().value;
+        this._searchCallCounts.delete(firstKey);
+      }
+      if (searchCalls > 2) {
+        return { result: { source: 'web_research', status: 'search_limit', query, searchedAt: Date.now(), sources: [] } };
+      }
+      const query = String(args.query || '').trim();
+      const startedAt = Date.now();
+      const result = await webResearch.search({
+        query,
+        recencyDays: args.recencyDays,
+        domains: args.domains,
+        signal
+      });
+      const artifact = {
+        type: 'research_sources',
+        status: result.status,
+        query,
+        recencyDays: Number(result.recencyDays) || 0,
+        searchedAt: result.searchedAt || Date.now(),
+        reason: result.reason || '',
+        sources: result.sources || []
+      };
+      if (result.status === 'ok' || result.status === 'no_results') {
+        this.recordHomeActivity({
+          type: 'web_research',
+          status: result.status === 'ok' ? 'success' : 'no_results',
+          startedAt,
+          query,
+          resultCount: (result.sources || []).length,
+          domains: [...new Set((result.sources || []).map(source => source.domain).filter(Boolean))].slice(0, 5)
+        });
+      } else if (result.status === 'error') {
+        this.recordHomeActivity({
+          type: 'web_research',
+          status: 'failed',
+          startedAt,
+          query,
+          failureReason: result.reason || 'network'
+        });
+      }
+      return {
+        result: {
+          source: 'web_research',
+          status: result.status,
+          query,
+          searchedAt: artifact.searchedAt,
+          sources: result.sources || []
+        },
+        artifact
       };
     }
     if (name !== 'generate_reading') {
@@ -898,6 +1009,15 @@ export const ChatView = {
     }
     const topic = String(args.topic || this.getTopic() || 'general').trim() || 'general';
     const generationPolicy = generationPolicyFor(generation.challenge);
+    const researchSources = normalizeResearchSources(args.researchSources);
+    const researchQuery = String(args.researchQuery || '').trim();
+    const researchBrief = (researchQuery || researchSources.length)
+      ? buildResearchBrief({ query: researchQuery || topic, sources: researchSources })
+      : '';
+    const researchLearningContext = [
+      this.buildGenerationContext({ excludeUserMessage: generation.request }),
+      researchBrief ? `\n\n【联网检索资料（仅作事实参考，请原创改写，不得照抄来源原句）】\n${researchBrief}` : ''
+    ].filter(Boolean).join('\n').slice(-2400);
 
     if (generation.adjustment) this.addMessage('system', generationAdjustmentMessage(generation.adjustment));
     const job = await this.startHomeGenerationJob({
@@ -906,7 +1026,10 @@ export const ChatView = {
         generation,
         topic,
         startedAt: Date.now(),
-        learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
+        learningContext: researchLearningContext,
+        researchSources,
+        researchSearchedAt: Date.now(),
+        researchBrief,
         generationPolicy
       }
     });
@@ -977,7 +1100,7 @@ export const ChatView = {
   },
 
   // Handle article generation
-  async handleGenerate({ prompt: providedPrompt, alreadyAdded = false, providedGeneration = null, topicOverride = '', suppressAdjustmentNotice = false, requestVersion = null, retryFailureId = '' } = {}) {
+  async handleGenerate({ prompt: providedPrompt, alreadyAdded = false, providedGeneration = null, topicOverride = '', suppressAdjustmentNotice = false, requestVersion = null, retryFailureId = '', researchSources = null, researchQuery = '', researchSearchedAt = 0 } = {}) {
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
@@ -1002,6 +1125,15 @@ export const ChatView = {
     this.commitGenerationTargetSelection(generation);
     const difficulty = generation.difficulty;
     const topic = topicOverride || this.getTopic();
+    const safeResearchSources = normalizeResearchSources(researchSources || null);
+    const researchQueryText = String(researchQuery || '').trim();
+    const researchBrief = (researchQueryText || safeResearchSources.length)
+      ? buildResearchBrief({ query: researchQueryText || topic, sources: safeResearchSources })
+      : '';
+    const researchLearningContext = [
+      this.buildGenerationContext({ excludeUserMessage: generation.request }),
+      researchBrief ? `\n\n【联网检索资料（仅作事实参考，请原创改写，不得照抄来源原句）】\n${researchBrief}` : ''
+    ].filter(Boolean).join('\n').slice(-2400);
     const generationPolicy = generationPolicyFor(generation.challenge);
 
     if (!alreadyAdded) {
@@ -1031,7 +1163,10 @@ export const ChatView = {
           topic,
           startedAt,
           retryFailureId,
-          learningContext: this.buildGenerationContext({ excludeUserMessage: generation.request }),
+          learningContext: researchLearningContext,
+          researchSources: safeResearchSources,
+          researchSearchedAt: Number(researchSearchedAt) || 0,
+          researchBrief,
           generationPolicy
         }
       });
@@ -1157,6 +1292,8 @@ export const ChatView = {
       this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
     } else if (message.kind === 'app_actions') {
       this.addAppActionsToDOM(message.actions || []);
+        } else if (message.kind === 'research_sources') {
+          this.addResearchSourcesToDOM(message.research || message);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       this.addMessageToDOM(type, message.content);
@@ -1180,6 +1317,19 @@ export const ChatView = {
       startedAt,
       completedAt,
       elapsedMs: Math.max(0, completedAt - startedAt)
+    });
+  },
+
+  recordNativeResearchActivity(research = {}) {
+    if (!research || research.native !== true) return;
+    const sources = Array.isArray(research.sources) ? research.sources : [];
+    this.recordHomeActivity({
+      type: 'web_research',
+      status: research.status === 'ok' || research.status === 'searched' ? 'success' : research.status === 'no_results' ? 'no_results' : 'failed',
+      startedAt: Date.now() - 800,
+      query: String(research.query || '联网检索').slice(0, 160),
+      resultCount: sources.length,
+      domains: [...new Set(sources.map(source => source.domain).filter(Boolean))].slice(0, 5)
     });
   },
 
@@ -1300,6 +1450,55 @@ export const ChatView = {
     div.innerHTML = `<nav class="app-action-card" aria-label="建议的学习操作">
       ${actions.slice(0, 3).map(action => `<a class="app-action-link" href="${esc(action.route)}"><span>${esc(action.label)}</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>`).join('')}
     </nav>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  addResearchSources(research = {}) {
+    this.appendConversation({ role: 'assistant', kind: 'research_sources', research });
+  },
+
+  addResearchSourcesToDOM(research = {}) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'message ai-message research-sources-message';
+    if (research.status === 'missing_key') {
+      div.innerHTML = `<section class="research-sources-card" aria-label="联网检索">
+        <div class="research-sources-head"><i class="fa-solid fa-globe" aria-hidden="true"></i><strong>联网检索</strong><span>需要 Tavily Key</span></div>
+        <p class="research-sources-empty">配置联网检索 Key 后，首页 Agent 才能查询最新资讯并保留真实来源。关闭后不影响现有学习功能。</p>
+        <div class="research-sources-actions"><a class="btn btn-outline btn-sm" href="#/settings">去设置</a><button class="btn btn-outline btn-sm research-sources-dismiss" type="button">暂不需要</button></div>
+      </section>`;
+    } else if (research.status === 'searched') {
+      div.innerHTML = `<section class="research-sources-card" aria-label="联网检索">
+        <div class="research-sources-head"><i class="fa-solid fa-globe" aria-hidden="true"></i><strong>联网检索</strong><span>${esc(research.query || '')}</span></div>
+        <p class="research-sources-empty">已联网检索完成，真实来源已列在上方回答中。</p>
+      </section>`;
+    } else if (research.status === 'error' || research.status === 'no_results') {
+      const message = research.status === 'no_results' ? '没有检索到可靠结果，未使用联网资料。' : '联网检索暂时失败，未使用联网资料。';
+      div.innerHTML = `<section class="research-sources-card" aria-label="联网检索"><p class="research-sources-empty">${esc(message)}</p></section>`;
+    } else {
+      const sources = Array.isArray(research.sources) ? research.sources.slice(0, 5) : [];
+      div.innerHTML = `<section class="research-sources-card" aria-label="联网检索">
+        <div class="research-sources-head"><i class="fa-solid fa-globe" aria-hidden="true"></i><strong>联网检索</strong><span>${esc(research.query || '')}</span></div>
+        <ul class="research-sources-list">
+          ${sources.map(source => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title || source.domain)}</a><small>${esc(source.domain)}${source.publishedAt ? ` · ${esc(source.publishedAt)}` : ''}</small></li>`).join('')}
+        </ul>
+        ${sources.length ? '<button class="btn btn-primary btn-sm research-generate-btn" type="button">据此生成阅读</button>' : ''}
+      </section>`;
+      const generate = div.querySelector('.research-generate-btn');
+      generate?.addEventListener('click', () => {
+        if (generate.disabled) return;
+        generate.disabled = true;
+        void this.handleGenerate({
+          researchSources: sources,
+          researchQuery: research.query,
+          researchSearchedAt: research.searchedAt
+        }).finally(() => { generate.disabled = false; });
+      });
+    }
+    const dismiss = div.querySelector('.research-sources-dismiss');
+    dismiss?.addEventListener('click', () => div.remove());
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
   },

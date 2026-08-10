@@ -1,4 +1,5 @@
 import { normalizeGenerationRequest, validateArticle } from '../difficulty-profile.mjs';
+import { normalizeResearchSources } from './web-research.mjs';
 
 const DIFFICULTIES = new Set(['cet4', 'cet6', 'kaoyan1', 'kaoyan2', 'graduate']);
 export const MAX_TARGET_WORDS = 8;
@@ -415,6 +416,10 @@ const controlledArticleFields = fields => {
   if (Array.isArray(fields.usedWords)) selected.usedWords = normalizeTargetWords(fields.usedWords);
   const generationJobId = String(fields.generationJobId || '').trim();
   if (generationJobId) selected.generationJobId = generationJobId.slice(0, 96);
+  const researchSources = Array.isArray(fields.researchSources) ? normalizeResearchSources(fields.researchSources) : [];
+  if (researchSources.length) selected.researchSources = researchSources;
+  const researchSearchedAt = Number(fields.researchSearchedAt);
+  if (Number.isFinite(researchSearchedAt) && researchSearchedAt > 0) selected.researchSearchedAt = researchSearchedAt;
   return selected;
 };
 
@@ -481,7 +486,24 @@ export const GENERATE_READING_TOOL = {
         request: { type: 'string', description: '用户的阅读生成要求' },
         topic: { type: 'string', description: '文章主题，可省略' },
         difficulty: { type: 'string', enum: ['cet4', 'cet6', 'kaoyan1', 'kaoyan2'], description: '四级、六级、考研英语一或考研英语二' },
-        wordCount: { type: 'integer', minimum: 250, maximum: 600, description: '建议篇幅' }
+        wordCount: { type: 'integer', minimum: 250, maximum: 600, description: '建议篇幅' },
+        researchQuery: { type: 'string', description: '联网检索的主题词（仅使用 search_web 返回的真实检索卡片）' },
+        researchSources: {
+          type: 'array',
+          maxItems: 5,
+          description: '可追溯来源，仅能使用 search_web 返回的真实结果，禁止编造 URL',
+          items: {
+            type: 'object',
+            required: ['title', 'url'],
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              domain: { type: 'string' },
+              publishedAt: { type: 'string' },
+              snippet: { type: 'string' }
+            }
+          }
+        }
       },
       required: ['request']
     }

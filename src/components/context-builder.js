@@ -36,6 +36,16 @@ const formatHomeActivity = message => {
 };
 
 const formatStructuredHomeActivity = activity => {
+  if (activity?.type === 'web_research') {
+    const domains = Array.isArray(activity.domains) ? activity.domains.slice(0, 5).join('、') : '';
+    return [
+      `[活动：web_research / ${clip(activity?.status, 48) || 'unknown'}]`,
+      `检索：${clip(normalizeExcerpt(activity.query), 160) || '未记录主题'}`,
+      `结果数：${Number.isFinite(Number(activity.resultCount)) ? Number(activity.resultCount) : '未知'}`,
+      `来源域：${domains || '未记录'}`,
+      activity?.failureReason ? `失败原因：${clip(normalizeExcerpt(activity.failureReason), 300)}` : ''
+    ].filter(Boolean).join('\n');
+  }
   const articles = Array.isArray(activity?.articles)
     ? activity.articles
     : activity?.article ? [activity.article] : [];
@@ -67,7 +77,11 @@ ${capabilityIndex}
 
 制定学习计划时，按问题调用所需的概览、get_review_queue、get_exam_learning_priorities 和 get_recent_learning_activity，按真实数据给出 2–4 步；需要可执行入口时调用 offer_app_actions，最多三个按钮，必须等用户点击，禁止自动导航或自动开始复习。
 
+联网检索：只有涉及最新资讯、当前事件或需要外部事实核查，或用户明确想结合近期热点阅读时，才使用联网检索（search_web 或服务端 web_search）获取真实来源；普通词汇、语法和复习问题不联网。回答时效性问题必须实际调用 web_search 工具完成检索后再回答，严禁未调用工具却声称“已尝试联网但失败”，也不得仅凭记忆充当实时内容；检索失败或无结果时明确说明“未能联网获取”，不要假装已查询。搜索结果只呈现真实来源；基于检索生成文章必须等用户点击“据此生成阅读”确认，禁止自动保存文章。
+
 工具规则：只有当前用户消息明确要求生成、来一篇、继续生成英语阅读，或明确确认刚提出的阅读建议时，才调用 generate_reading；可先读取词库、收藏和复习数据来定制。不得仅凭历史文章、历史失败记录、模糊语气词或用户追问而生成新文章。“这是什么类型的文章”“为什么只生成一篇”“啊？”等必须普通回答，不调用写入工具。生成时不得在聊天正文创作整篇文章，成功后只说明已完成并交付阅读卡片。`;
+
+
 
 export class ContextBuilder {
   constructor({ capabilityIndex = '' } = {}) {
