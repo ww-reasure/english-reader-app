@@ -44,7 +44,10 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
     "@fortawesome/fontawesome-free": "^7.3.1",
+    "pdf-lib": "^1.17.1",
     "udpipe-wasm": "0.1.0",
     "yauzl": "^2.10.0"
   },

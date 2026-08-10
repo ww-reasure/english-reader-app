@@ -26,6 +26,7 @@ import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
 import { bindReadingStyleWordLookup } from '../components/reading-word-lookup.js';
 import { getContextSentenceAtPoint } from '../components/reading-word-context.mjs';
+import { exportArticlePdf } from '../components/article-pdf.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -112,6 +113,33 @@ export const ReadingView = {
           ${!this.reviewMode ? `<button class="reading-marking-switch ${this.wordMarkingEnabled ? 'is-active' : ''}" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()" role="switch" aria-checked="${this.wordMarkingEnabled}" aria-label="词汇标记：${this.wordMarkingEnabled ? '开' : '关'}"><span>词汇标记</span><i aria-hidden="true"></i></button>` : ''}
         </div>
       </div>`;
+  },
+
+  async exportArticlePdf() {
+    const article = this.articleData || {};
+    if (!String(article.content || '').trim()) {
+      alert('这篇文章没有可导出的正文内容');
+      return;
+    }
+    const button = document.getElementById('exportPdfBtn');
+    const originalLabel = button?.textContent || '导出 PDF';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '导出中…';
+    }
+    try {
+      const track = resolveArticleTrack(article).targetTrack;
+      const result = await exportArticlePdf(article, { track });
+      if (!result.ok) throw new Error(result.error);
+      if (result.platform === 'web') alert('PDF 已生成，开始下载：' + result.fileName);
+    } catch (error) {
+      alert('导出 PDF 失败：' + String(error?.message || error));
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    }
   },
 
   cleanup() {
@@ -272,6 +300,7 @@ export const ReadingView = {
           <div class="reading-action-strip" aria-label="阅读工具">
             <button class="btn btn-outline reading-action-btn" type="button" onclick="ReadingView.toggleTranslation()" id="translateBtn" aria-pressed="false">全文翻译<span class="reading-action-state" aria-hidden="true"></span></button>
             <button class="btn btn-outline" type="button" onclick="ReadingView.openSentenceGuide()">逐句导读</button>
+            <button class="btn btn-outline" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">导出 PDF</button>
             <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
