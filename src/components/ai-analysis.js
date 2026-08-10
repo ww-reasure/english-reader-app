@@ -18,6 +18,8 @@ import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { renderLearningMarkdown } from './rich-text.js';
 import { createSentenceRangeForTextNodes, findSentenceOffsets } from './sentence-selection.mjs';
+import { bindSentenceLongPress } from './sentence-long-press.mjs';
+import { getRangeAtPoint } from './word-point.mjs';
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService({
@@ -31,7 +33,6 @@ const normalizeSelectedExcerpt = value => String(value || '').replace(/\s+/g, ' 
 
 export const AIAnalysis = {
   currentText: '',
-  longPressTimer: null,
   isLongPress: false,
   ignoreNextArticleClick: false,
   analysisCache: new SentenceAnalysisCache(),
@@ -54,6 +55,8 @@ export const AIAnalysis = {
   },
 
   clearArticleContext() {
+    this._longPressCleanup?.();
+    this._longPressCleanup = null;
     this.closeResultModal();
     this.articleContext = null;
     this.hideButton();
@@ -471,21 +474,10 @@ export const AIAnalysis = {
 
   // Auto-select sentence on long press
   handleLongPress(e) {
-    const touch = e.touches[0];
+    const touch = e.touches?.[0] || e;
     if (!touch) return;
 
-    // Get the text node at touch position
-    let range;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(touch.clientX, touch.clientY);
-    } else if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(touch.clientX, touch.clientY);
-      if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.setEnd(pos.offsetNode, pos.offset);
-      }
-    }
+    const range = getRangeAtPoint(touch);
 
     if (!range) return;
 
@@ -518,29 +510,16 @@ export const AIAnalysis = {
 
   // Initialize long-press and selection detection for reading view
   initSelectionDetection(articleBody) {
-    const LONG_PRESS_DURATION = 500; // ms
-
-    // Long press detection for touch devices
-    articleBody.addEventListener('touchstart', (e) => {
-      this.isLongPress = false;
-      this.longPressTimer = setTimeout(() => {
-        this.handleLongPress(e);
-      }, LONG_PRESS_DURATION);
-    }, { passive: true });
-
-    articleBody.addEventListener('touchmove', () => {
-      clearTimeout(this.longPressTimer);
-    }, { passive: true });
-
-    articleBody.addEventListener('touchend', (e) => {
-      clearTimeout(this.longPressTimer);
-
-      // If it was a long press, prevent the click event. 保留一次性 guard，
-      // 由阅读页 click handler 消费，避免 synthetic click 立即隐藏“问 AI”按钮。
-      if (this.isLongPress) {
-        e.preventDefault();
+    this._longPressCleanup?.();
+    this._longPressCleanup = bindSentenceLongPress({
+      root: articleBody,
+      scrollTargets: [document.querySelector('.app-page-outlet')].filter(Boolean),
+      shouldIgnore: event => Boolean(event.target?.closest?.('button, a, input, textarea, select, [role="button"]')),
+      onLongPress: event => {
         this.isLongPress = false;
-      }
+        this.handleLongPress(event);
+      },
+      onLongPressEnd: () => { this.isLongPress = false; }
     });
 
     // Manual selection detection for desktop (mouseup)

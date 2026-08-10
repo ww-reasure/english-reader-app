@@ -1,5 +1,6 @@
 import { API } from '../api.js';
 import { ContextReview } from '../components/context-review.js';
+import { makeContextReviewCacheKey } from '../components/context-review.mjs';
 import { ContextReviewResult, scheduleContextReview } from '../context-review-scheduler.mjs';
 import { DB } from '../db.js';
 import { Dictionary } from '../dictionary.js';
@@ -120,8 +121,10 @@ export const ContextReviewView = {
         this.session = await ContextReview.prepare({
           words,
           limit: 10,
-          targetTrack: Config.get('exam_level') || 'general',
-          signal: this.controller.signal
+        targetTrack: Config.get('exam_level') || 'general',
+        challenge: Config.get('reading_mode') || 'standard',
+        coverage: Config.get('coverage'),
+        signal: this.controller.signal
         });
         if (words.length && !this.session.items.length) {
           throw new Error('没有可用的本地语境句子，在线生成也未完成');
@@ -183,6 +186,7 @@ export const ContextReviewView = {
           <span>${this.currentIndex + 1} / ${this.session.items.length}</span>
         </header>
         <div class="context-review-progress-track"><i style="width:${progress}%"></i></div>
+        <p class="context-review-profile-note">本轮句子按当前目标、阅读难度和覆盖偏好准备；切换设置后会重新匹配。</p>
         <section class="context-review-sheet context-review-detail-pane ${answered ? 'is-answered' : ''}" data-context-review-pane="detail">
           <p class="context-review-instruction">${answered ? `你的判断：${RESULT_LABELS[this.answered]}` : '读句子，判断高亮单词在这里是否认识'}</p>
           <p class="context-review-sentence">${wordTokens(item.sentence, item, answered)}</p>
@@ -332,7 +336,11 @@ export const ContextReviewView = {
     this.translationLoading = false;
     if (translation) {
       item.translationZh = translation;
-      await DB.saveContextReviewSentences([{ ...item, key: item.key || `context-v1:${item.wordId}:${item.sentence.toLowerCase()}`, lastUsedAt: Date.now() }]).catch(() => {});
+      await DB.saveContextReviewSentences([{
+        ...item,
+        key: item.key || makeContextReviewCacheKey(item),
+        lastUsedAt: Date.now()
+      }]).catch(() => {});
     }
     this.renderCard();
   },

@@ -185,6 +185,52 @@ test('avoids a recently used sentence and falls back to it only when no replacem
   assert.equal(offline.items[0].sentence, repeated);
 });
 
+test('does not reuse a context sentence cached for another reading challenge', async () => {
+  const service = createContextReviewService({
+    articles: async () => [],
+    examples: async () => [],
+    loadCached: async () => [
+      {
+        wordId: 7,
+        lemma: 'retain',
+        targetForm: 'retain',
+        sentence: 'Support materials help learners retain familiar words with ease.',
+        translationZh: '巩固材料帮助学习者轻松记住熟悉的单词。',
+        source: 'cache',
+        sourceTrack: 'cet4',
+        targetTrack: 'cet4',
+        difficultyProfileKey: 'context-v2:cet4:support:c98'
+      },
+      {
+        wordId: 7,
+        lemma: 'retain',
+        targetForm: 'retain',
+        sentence: 'A standard review helps learners retain useful vocabulary in context.',
+        translationZh: '标准复习帮助学习者在语境中记住实用词汇。',
+        source: 'cache',
+        sourceTrack: 'cet4',
+        targetTrack: 'cet4',
+        difficultyProfileKey: 'context-v2:cet4:standard:c96'
+      }
+    ],
+    generateBatch: async () => {
+      throw new Error('不应因已有匹配缓存而生成');
+    },
+    saveCached: async items => items,
+    now: () => 100
+  });
+
+  const session = await service.prepare({
+    words: [{ id: 7, word: 'retain', reviewRevision: 1 }],
+    targetTrack: 'cet4',
+    challenge: 'standard',
+    coverage: 96
+  });
+
+  assert.equal(session.items[0].sentence, 'A standard review helps learners retain useful vocabulary in context.');
+  assert.equal(session.items[0].difficultyProfileKey, 'context-v2:cet4:standard:c96');
+});
+
 test('submitting a context result revalidates the shared revision before writing', async () => {
   let writes = 0;
   const service = createContextReviewService({

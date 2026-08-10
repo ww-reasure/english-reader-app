@@ -13,6 +13,7 @@ import { DEFINITION_SCHEMA_VERSION } from './saved-word-definition.mjs';
 import { renderTooltipWordBadges } from './tooltip-metadata.mjs';
 import { WordStudyDetail } from './word-study-detail.js';
 import { WordStudyDetailCache } from './word-study-detail-cache.mjs';
+import { getRangeAtPoint } from './word-point.mjs';
 
 export const Tooltip = {
   session: new TooltipSession(),
@@ -351,21 +352,11 @@ export const Tooltip = {
 
   // Get word at click point using Selection API
   getWordAtPoint(e) {
-    let range;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.setEnd(pos.offsetNode, pos.offset);
-      }
-    }
+    const range = getRangeAtPoint(e);
     if (!range) return null;
 
     const node = range.startContainer;
-    if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+    if (!node || node.nodeType !== (globalThis.Node?.TEXT_NODE || 3)) return null;
 
     const text = node.textContent;
     const offset = range.startOffset;

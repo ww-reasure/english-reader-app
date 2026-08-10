@@ -2,11 +2,11 @@ import { API } from '../api.js';
 import { Config } from '../config.js';
 import { DB } from '../db.js';
 import { getSavableTranslation } from './definition-trust.mjs';
-import { createContextReviewService, validateGeneratedContextReviewSentence } from './context-review.mjs';
+import { createContextReviewService, makeContextReviewCacheKey, validateGeneratedContextReviewSentence } from './context-review.mjs';
 import { ReviewQueue } from '../review-queue.js';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const normalize = value => String(value || '').trim().toLocaleLowerCase('en-US');
 const safeJson = value => {
   try { return JSON.parse(value); } catch { return null; }
@@ -32,7 +32,7 @@ async function saveCached(items = []) {
   const now = Date.now();
   const rows = items.map(item => ({
     ...item,
-    key: item.key || `context-v${CACHE_VERSION}:${item.wordId}:${normalize(item.sentence)}`,
+    key: item.key || makeContextReviewCacheKey(item),
     cacheVersion: CACHE_VERSION,
     savedAt: item.savedAt || now,
     lastUsedAt: item.lastUsedAt || 0
@@ -41,7 +41,7 @@ async function saveCached(items = []) {
   return DB.saveContextReviewSentences(rows);
 }
 
-async function generateBatch(words, { targetTrack = '', signal = null } = {}) {
+async function generateBatch(words, { targetTrack = '', difficultyProfile = null, signal = null } = {}) {
   if (!words.length || !Config.hasApiKey()) return [];
   const rows = words.map(word => ({
     wordId: word.id,
@@ -54,7 +54,7 @@ async function generateBatch(words, { targetTrack = '', signal = null } = {}) {
     messages: [
       {
         role: 'system',
-        content: `你是英语语境复习材料编辑。仅返回 JSON {"items":[{"wordId":1,"lemma":"word","targetForm":"word","sentence":"...","translationZh":"...","senseIndex":0}]}。每个输入词生成一句 9-22 词的自然英文句子；句中必须使用输入的 lemma 原形，targetForm 与 lemma 完全相同。不得在英文句中写中文、括号释义或直接解释目标词。translationZh 必须是自然中文整句翻译，senseIndex 只能选择给定候选索引。除目标词外尽量使用不高于 ${targetTrack || '通用英语'} 的常用词，避免罕见专名。`
+        content: `你是英语语境复习材料编辑。仅返回 JSON {"items":[{"wordId":1,"lemma":"word","targetForm":"word","sentence":"...","translationZh":"...","senseIndex":0}]}。每个输入词生成一句 9-22 词的自然英文句子；句中必须使用输入的 lemma 原形，targetForm 与 lemma 完全相同。不得在英文句中写中文、括号释义或直接解释目标词。translationZh 必须是自然中文整句翻译，senseIndex 只能选择给定候选索引。除目标词外尽量使用不高于 ${targetTrack || '通用英语'} 的常用词，避免罕见专名。当前材料档案：${difficultyProfile?.challenge || 'standard'}，目标覆盖率 ${difficultyProfile?.coverage || 96}%。`
       },
       { role: 'user', content: JSON.stringify({ words: rows }) }
     ],

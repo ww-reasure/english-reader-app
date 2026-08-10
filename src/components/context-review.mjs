@@ -1,4 +1,5 @@
 import { scheduleContextReview } from '../context-review-scheduler.mjs';
+import { getDifficultyProfile, normalizeCoveragePreference } from '../difficulty-profile.mjs';
 
 const normalizeWord = value => String(value || '').trim().toLocaleLowerCase('en-US');
 const normalizeSpace = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -7,6 +8,49 @@ const escapeRegExp = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 const sentenceWords = sentence => sentence.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || [];
 const containsTarget = (sentence, target) => new RegExp(`(^|[^A-Za-z])${escapeRegExp(target)}(?=$|[^A-Za-z])`, 'iu').test(sentence);
 const RECENT_SENTENCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const CONTEXT_CACHE_VERSION = 2;
+
+function resolveContextDifficultyProfile(targetTrack = '', challenge = 'standard', coverage) {
+  const materialProfile = getDifficultyProfile(normalizeWord(targetTrack) || 'cet4', challenge);
+  const coveragePreference = normalizeCoveragePreference(materialProfile.challenge, coverage);
+  return {
+    track: materialProfile.track,
+    challenge: coveragePreference.challenge,
+    coverage: coveragePreference.coverage,
+    key: `context-v${CONTEXT_CACHE_VERSION}:${materialProfile.track}:${coveragePreference.challenge}:c${coveragePreference.coverage}`
+  };
+}
+
+export function makeContextReviewCacheKey(item = {}) {
+  return `context-v${CONTEXT_CACHE_VERSION}:${Number(item.wordId) || 0}:${normalizeSpace(item.difficultyProfileKey)}:${normalizeSentenceKey(item.sentence)}`;
+}
+
+function withProfile(item, difficultyProfile, source = item?.source) {
+  return {
+    ...item,
+    source,
+    sourceTrack: normalizeWord(item?.sourceTrack || item?.targetTrack || difficultyProfile.track),
+    targetTrack: difficultyProfile.track,
+    difficultyProfileKey: difficultyProfile.key,
+    difficultyStatus: 'profiled'
+  };
+}
+
+function matchesProfile(item, difficultyProfile) {
+  return normalizeWord(item?.sourceTrack || item?.targetTrack) === difficultyProfile.track
+    && normalizeSpace(item?.difficultyProfileKey) === difficultyProfile.key;
+}
+
+function asOfflineFallback(item, difficultyProfile) {
+  return {
+    ...item,
+    source: 'cache',
+    sourceTrack: difficultyProfile.track,
+    targetTrack: difficultyProfile.track,
+    difficultyStatus: 'offline-fallback',
+    originalDifficultyProfileKey: item?.difficultyProfileKey || ''
+  };
+}
 
 export function normalizeContextReviewSentence(value = {}) {
   const wordId = Number(value.wordId);
@@ -35,6 +79,11 @@ export function normalizeContextReviewSentence(value = {}) {
     ...(normalizeSpace(value.paperLabel) ? { paperLabel: normalizeSpace(value.paperLabel) } : {}),
     ...(normalizeSpace(value.positionLabel) ? { positionLabel: normalizeSpace(value.positionLabel) } : {}),
     ...(normalizeSpace(value.sourceUrl) ? { sourceUrl: normalizeSpace(value.sourceUrl) } : {}),
+    ...(normalizeSpace(value.sourceTrack) ? { sourceTrack: normalizeSpace(value.sourceTrack) } : {}),
+    ...(normalizeSpace(value.targetTrack) ? { targetTrack: normalizeSpace(value.targetTrack) } : {}),
+    ...(normalizeSpace(value.difficultyProfileKey) ? { difficultyProfileKey: normalizeSpace(value.difficultyProfileKey) } : {}),
+    ...(normalizeSpace(value.difficultyStatus) ? { difficultyStatus: normalizeSpace(value.difficultyStatus) } : {}),
+    ...(normalizeSpace(value.originalDifficultyProfileKey) ? { originalDifficultyProfileKey: normalizeSpace(value.originalDifficultyProfileKey) } : {}),
     ...(normalizeSpace(value.examTrack) ? { examTrack: normalizeSpace(value.examTrack) } : {}),
     ...(Number.isInteger(Number(value.year)) ? { year: Number(value.year) } : {})
   };
@@ -66,34 +115,43 @@ function splitSentences(text) {
     .match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(normalizeSpace).filter(Boolean) || [];
 }
 
-function localCandidateFor(word, articles, examples, excludedSentences = new Set()) {
+function localCandidateFor(word, articles, examples, difficultyProfile, excludedSentences = new Set()) {
   const lemma = normalizeWord(word.word);
   for (const article of articles) {
+    const declaredTrack = normalizeWord(article?.sourceTrack || article?.targetTrack || article?.difficulty);
+    const declaredChallenge = normalizeWord(article?.challenge);
+    if ((declaredTrack && declaredTrack !== difficultyProfile.track)
+      || (declaredChallenge && declaredChallenge !== difficultyProfile.challenge)) continue;
     for (const sentence of splitSentences(article?.content)) {
-      const candidate = normalizeContextReviewSentence({
+      const candidate = normalizeContextReviewSentence(withProfile({
         wordId: word.id,
         lemma,
         sentence,
         targetForm: lemma,
         source: 'article'
-      });
+      }, difficultyProfile));
       if (candidate && !excludedSentences.has(normalizeSentenceKey(candidate.sentence))) return candidate;
     }
   }
-  for (const sentence of examples) {
-    const candidate = normalizeContextReviewSentence({
+  for (const example of examples) {
+    const sentence = typeof example === 'string' ? example : example?.sentence;
+    const declaredTrack = normalizeWord(example?.sourceTrack || example?.targetTrack);
+    const declaredProfile = normalizeSpace(example?.difficultyProfileKey);
+    if ((declaredTrack && declaredTrack !== difficultyProfile.track)
+      || (declaredProfile && declaredProfile !== difficultyProfile.key)) continue;
+    const candidate = normalizeContextReviewSentence(withProfile({
       wordId: word.id,
       lemma,
       sentence,
       targetForm: lemma,
       source: 'example'
-    });
+    }, difficultyProfile));
     if (candidate && !excludedSentences.has(normalizeSentenceKey(candidate.sentence))) return candidate;
   }
   return null;
 }
 
-function examCandidateFor(word, rows, sourceKind, excludedSentences = new Set()) {
+function examCandidateFor(word, rows, sourceKind, targetTrack, excludedSentences = new Set()) {
   const lemma = normalizeWord(word.word);
   for (const row of Array.isArray(rows) ? rows : []) {
     if (row?.sourceKind !== sourceKind) continue;
@@ -108,6 +166,10 @@ function examCandidateFor(word, rows, sourceKind, excludedSentences = new Set())
       paperLabel: row.paperLabel,
       positionLabel: row.positionLabel,
       sourceUrl: row.sourceUrl,
+      sourceTrack: targetTrack,
+      targetTrack,
+      difficultyStatus: 'authentic',
+      difficultyProfileKey: `authentic-v1:${targetTrack}`,
       examTrack: row.examTrack,
       year: row.year
     });
@@ -128,10 +190,14 @@ export function createContextReviewService({
   now = () => Date.now()
 } = {}) {
   return {
-    async prepare({ words = [], limit = 10, targetTrack = '', signal = null } = {}) {
+    async prepare({ words = [], limit = 10, targetTrack = '', challenge = 'standard', coverage = undefined, signal = null } = {}) {
       const selected = (Array.isArray(words) ? words : []).slice(0, Math.max(0, Number(limit) || 0));
       if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
-      const [articleRows, cachedRows] = await Promise.all([articles(), loadCached({ targetTrack, words: selected })]);
+      const difficultyProfile = resolveContextDifficultyProfile(targetTrack, challenge, coverage);
+      const [articleRows, cachedRows] = await Promise.all([
+        articles(),
+        loadCached({ targetTrack: difficultyProfile.track, sourceTrack: difficultyProfile.track, difficultyProfile, words: selected })
+      ]);
       const preparedAt = now();
       const cached = new Map();
       for (const row of Array.isArray(cachedRows) ? cachedRows : []) {
@@ -141,7 +207,8 @@ export function createContextReviewService({
         items.push({
           ...normalized,
           key: row.key,
-          targetTrack: row.targetTrack || '',
+          sourceTrack: normalizeWord(row.sourceTrack || row.targetTrack),
+          targetTrack: normalizeWord(row.targetTrack || row.sourceTrack),
           lastUsedAt: Math.max(0, Number(row.lastUsedAt) || 0)
         });
         cached.set(normalized.wordId, items);
@@ -154,36 +221,53 @@ export function createContextReviewService({
         const recentSentences = new Set(candidates
           .filter(item => item.lastUsedAt && preparedAt - item.lastUsedAt < RECENT_SENTENCE_COOLDOWN_MS)
           .map(item => normalizeSentenceKey(item.sentence)));
-        const examRows = await examExamples(normalizeWord(word.word), targetTrack);
-        const examPassage = examCandidateFor(word, examRows, 'passage', recentSentences);
+        const examRows = await examExamples(normalizeWord(word.word), difficultyProfile.track);
+        const examPassage = examCandidateFor(word, examRows, 'passage', difficultyProfile.track, recentSentences);
         if (examPassage) {
           byWordId.set(Number(word.id), examPassage);
           continue;
         }
+        const exactCached = candidates.find(item => matchesProfile(item, difficultyProfile)
+          && !recentSentences.has(normalizeSentenceKey(item.sentence)));
+        if (exactCached) {
+          byWordId.set(Number(word.id), exactCached);
+          continue;
+        }
         const exampleRows = await examples(normalizeWord(word.word));
-        const local = localCandidateFor(word, articleRows, exampleRows, recentSentences);
+        const local = localCandidateFor(word, articleRows, exampleRows, difficultyProfile, recentSentences);
         if (local) {
           byWordId.set(Number(word.id), local);
           continue;
         }
         if (questionStemCount < 2) {
-          const examQuestion = examCandidateFor(word, examRows, 'question', recentSentences);
+          const examQuestion = examCandidateFor(word, examRows, 'question', difficultyProfile.track, recentSentences);
           if (examQuestion) {
             byWordId.set(Number(word.id), examQuestion);
             questionStemCount += 1;
             continue;
           }
         }
-        const cachedItem = candidates.find(item => item.targetTrack === targetTrack && !recentSentences.has(normalizeSentenceKey(item.sentence)))
-          || candidates.find(item => !recentSentences.has(normalizeSentenceKey(item.sentence)));
-        if (cachedItem) byWordId.set(Number(word.id), cachedItem);
       }
 
       const missing = selected.filter(word => !byWordId.has(Number(word.id)));
+      let generationFailed = false;
       if (missing.length) {
-        const generated = await generateBatch(missing, { targetTrack, signal });
+        let generated = [];
+        try {
+          generated = await generateBatch(missing, {
+            targetTrack: difficultyProfile.track,
+            sourceTrack: difficultyProfile.track,
+            challenge: difficultyProfile.challenge,
+            coverage: difficultyProfile.coverage,
+            difficultyProfile,
+            signal
+          });
+        } catch (error) {
+          if (signal?.aborted || error?.name === 'AbortError') throw error;
+          generationFailed = true;
+        }
         for (const row of Array.isArray(generated) ? generated : []) {
-          const normalized = normalizeContextReviewSentence(row);
+          const normalized = normalizeContextReviewSentence(withProfile({ ...row, source: 'ai' }, difficultyProfile));
           if (normalized && missing.some(word => Number(word.id) === normalized.wordId)) {
             byWordId.set(normalized.wordId, normalized);
           }
@@ -197,26 +281,42 @@ export function createContextReviewService({
         const wordId = Number(word.id);
         if (byWordId.has(wordId)) continue;
         const candidates = cached.get(wordId) || [];
-        const fallback = candidates.find(item => item.targetTrack === targetTrack) || candidates[0];
-        if (fallback) byWordId.set(wordId, fallback);
+        // Older cached rows predate explicit track/profile metadata. They are
+        // never a preferred match, but remain an honest offline fallback for
+        // the learner's current session. Explicitly profiled rows must still
+        // match the requested track so profiles never leak into one another.
+        const fallback = candidates.find(item => {
+          const cachedTrack = normalizeWord(item.sourceTrack || item.targetTrack);
+          return !cachedTrack || cachedTrack === difficultyProfile.track;
+        });
+        if (fallback) byWordId.set(wordId, asOfflineFallback(fallback, difficultyProfile));
       }
 
       const items = selected.map(word => {
         const sentence = byWordId.get(Number(word.id));
         return sentence ? {
           ...sentence,
-          targetTrack,
+          sourceTrack: difficultyProfile.track,
+          targetTrack: difficultyProfile.track,
+          challenge: difficultyProfile.challenge,
+          coverage: difficultyProfile.coverage,
           expectedRevision: Math.max(0, Math.trunc(Number(word.reviewRevision) || 0)),
           word: { ...word }
         } : null;
       }).filter(Boolean);
-      if (items.length) await saveCached(items);
+      const persistable = items.filter(item => item.difficultyStatus !== 'offline-fallback');
+      if (persistable.length) await saveCached(persistable);
       return {
         id: `context-review:${now()}`,
-        targetTrack,
+        sourceTrack: difficultyProfile.track,
+        targetTrack: difficultyProfile.track,
+        challenge: difficultyProfile.challenge,
+        coverage: difficultyProfile.coverage,
+        difficultyProfileKey: difficultyProfile.key,
         createdAt: now(),
         requestedCount: selected.length,
         missingCount: Math.max(0, selected.length - items.length),
+        generationFailed,
         items
       };
     },
