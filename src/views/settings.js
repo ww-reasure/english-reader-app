@@ -9,6 +9,8 @@ import { AudioCache } from '../audio-cache.js';
 import { esc } from '../helpers.js';
 import { listSelectableTracks, normalizeSelectableTrack } from '../learning-track.mjs';
 import { CHALLENGE_DETAILS, normalizeCoveragePreference } from '../difficulty-profile.mjs';
+import { createWebResearch } from '../components/web-research.mjs';
+import { createDeepSeekResponsesClient, isDeepSeekNativeSearchSupported } from '../components/deepseek-responses.mjs';
 
 export const SettingsView = {
   // Render settings page
@@ -211,6 +213,73 @@ export const SettingsView = {
         </div>
 
         <div class="settings-section">
+          <h2 class="settings-section-title">联网检索</h2>
+          <p class="settings-desc">首页 Agent 查询最新资讯或感兴趣的话题时使用联网检索；DeepSeek 原生联网无需额外 Key，Tavily 为可选方案。</p>
+          <div class="form-group">
+            <label for="settingsWebResearchMode">联网检索方式</label>
+            <select id="settingsWebResearchMode" onchange="SettingsView.onWebResearchModeChange()">
+              <option value="deepseek_native" ${Config.get('web_research_mode') === 'deepseek_native' ? 'selected' : ''}>DeepSeek 原生联网（推荐，无需额外 Key）</option>
+              <option value="tavily" ${Config.get('web_research_mode') === 'tavily' ? 'selected' : ''}>Tavily 联网检索（需要 Tavily Key）</option>
+              <option value="off" ${Config.get('web_research_mode') === 'off' ? 'selected' : ''}>关闭联网检索</option>
+            </select>
+            <p id="webResearchModeStatus" class="settings-form-status" role="status"></p>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" id="settingsNativeTestBtn" onclick="SettingsView.testDeepSeekNativeConnection()">测试 DeepSeek 原生联网</button>
+          <p id="deepSeekNativeStatus" class="settings-form-status" role="status"></p>
+          <div class="api-tutorial">
+            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
+              📖 DeepSeek 原生联网说明<span class="api-tutorial-arrow">▼</span>
+            </div>
+            <div class="api-tutorial-content">
+              <div class="api-tutorial-step">
+                <strong>使用条件</strong>
+                <p>模型必须为 deepseek-v4-flash 且 Base URL 为 DeepSeek 官方地址；v4-pro 暂不支持原生联网。</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>工作原理</strong>
+                <p>首页对话走 DeepSeek Responses API，由服务端自动执行联网搜索并返回真实来源，使用你现有的 DeepSeek Key，不需要额外注册。</p>
+              </div>
+              <div class="api-tutorial-note">
+                💡 选择 Tavily 方式时需要在下方填写 Tavily Key；两种方式切换后立即生效，随时可以换回。
+              </div>
+            </div>
+          </div>
+          <div class="tavily-fields" id="tavilyFields">
+          <div class="form-group">
+            <label for="settingsTavilyKey">Tavily API Key</label>
+            <div class="tavily-key-row">
+              <input type="password" id="settingsTavilyKey" value="${esc(Config.get('tavily_api_key'))}" placeholder="tvly-..." autocomplete="off">
+              <button type="button" class="btn btn-outline btn-sm" id="tavilyKeyToggle" onclick="SettingsView.toggleTavilyKeyVisibility()">显示</button>
+            </div>
+            <p id="tavilyConnectionStatus" class="settings-form-status" role="status"></p>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="SettingsView.testTavilyConnection()">测试连接</button>
+          <div class="api-tutorial">
+            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
+              📖 如何获取 Tavily API Key？<span class="api-tutorial-arrow">▼</span>
+            </div>
+            <div class="api-tutorial-content">
+              <div class="api-tutorial-step">
+                <strong>1. 注册 Tavily</strong>
+                <p>访问 <a href="https://tavily.com" target="_blank" rel="noopener">tavily.com</a>，注册并登录</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>2. 创建 API Key</strong>
+                <p>进入 API Keys 页面，点击「Create API Key」，复制以 tvly- 开头的密钥</p>
+              </div>
+              <div class="api-tutorial-step">
+                <strong>3. 粘贴并测试</strong>
+                <p>把密钥粘贴到上方，点击「测试连接」，确认可用后点「保存设置」</p>
+              </div>
+              <div class="api-tutorial-note">
+                💡 Tavily 只用于联网检索，会产生 Tavily 服务用量，免费额度与价格以 Tavily 官网为准。Key 仅保存在本机安全存储，不会写入文章或对话记录。
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div class="settings-section">
           <h2 class="settings-section-title">🗂 标题翻译缓存</h2>
           <p class="settings-desc">阅读列表的中文标题会保存在本机；最多保留 300 条。</p>
           <div id="titleTranslationCacheInfo" class="audio-cache-info">加载中...</div>
@@ -239,12 +308,76 @@ export const SettingsView = {
     // Load cache info
     this.loadTitleTranslationCacheInfo();
     this.loadAudioCacheInfo();
+    this.onWebResearchModeChange();
   },
 
   // Handle model preset change
   onModelChange() {
     const preset = document.getElementById('settingsModelPreset').value;
     document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
+  },
+
+  // Update the web research mode hint and toggle the Tavily-only fields.
+  onWebResearchModeChange() {
+    const select = document.getElementById('settingsWebResearchMode');
+    if (!select) return;
+    const mode = select.value;
+    const status = document.getElementById('webResearchModeStatus');
+    const tavilyFields = document.getElementById('tavilyFields');
+    const nativeBtn = document.getElementById('settingsNativeTestBtn');
+    const preset = document.getElementById('settingsModelPreset')?.value;
+    const model = preset === 'custom'
+      ? (document.getElementById('settingsModelInput')?.value.trim() || '')
+      : (preset || Config.get('model'));
+    const baseUrl = document.getElementById('settingsBaseUrl')?.value.trim() || Config.get('base_url');
+    const nativeSupported = isDeepSeekNativeSearchSupported({ model, baseUrl });
+    if (status) {
+      if (mode === 'deepseek_native') {
+        status.textContent = nativeSupported
+          ? '当前模型与 Base URL 满足原生联网条件，无需额外 Key。'
+          : '当前模型或 Base URL 不满足原生联网条件（需要 deepseek-v4-flash + DeepSeek 官方地址）；若配置了 Tavily Key 会自动回退。';
+        status.className = 'settings-form-status' + (nativeSupported ? ' is-success' : ' is-error');
+      } else if (mode === 'tavily') {
+        status.textContent = 'Tavily 方式需要下方 Tavily Key；未填 Key 时首页不会联网。';
+        status.className = 'settings-form-status';
+      } else {
+        status.textContent = '已关闭联网检索，首页 Agent 不会调用搜索工具。';
+        status.className = 'settings-form-status';
+      }
+    }
+    if (tavilyFields) tavilyFields.style.display = mode === 'tavily' ? '' : 'none';
+    if (nativeBtn) nativeBtn.style.display = mode === 'deepseek_native' ? '' : 'none';
+  },
+
+  async testDeepSeekNativeConnection() {
+    const status = document.getElementById('deepSeekNativeStatus');
+    if (!status) return;
+    const tempConfig = {
+      get: key => {
+        if (key === 'api_key') return document.getElementById('settingsApiKey')?.value.trim() || '';
+        if (key === 'model') {
+          const preset = document.getElementById('settingsModelPreset')?.value;
+          return preset === 'custom'
+            ? (document.getElementById('settingsModelInput')?.value.trim() || '')
+            : (preset || Config.get('model'));
+        }
+        if (key === 'base_url') return document.getElementById('settingsBaseUrl')?.value.trim() || Config.get('base_url');
+        return '';
+      }
+    };
+    const client = createDeepSeekResponsesClient({ config: tempConfig });
+    status.textContent = '正在测试 DeepSeek 原生联网…';
+    status.className = 'settings-form-status';
+    const result = await client.test();
+    if (result.ok) {
+      status.textContent = result.searched
+        ? '✓ 原生联网正常，已执行真实搜索并返回回答'
+        : 'API 连通，但本次未检测到实际搜索结果，联网功能可能暂不可用';
+      status.className = 'settings-form-status ' + (result.searched ? 'is-success' : 'is-error');
+    } else {
+      status.textContent = '连接失败：' + (result.reason || '未知错误');
+      status.className = 'settings-form-status is-error';
+    }
   },
 
   updateCoverageLabel(value) {
@@ -268,6 +401,35 @@ export const SettingsView = {
     this.updateCoverageLabel(preference.coverage);
   },
 
+  toggleTavilyKeyVisibility() {
+    const input = document.getElementById('settingsTavilyKey');
+    const toggle = document.getElementById('tavilyKeyToggle');
+    if (!input || !toggle) return;
+    const visible = input.type === 'text';
+    input.type = visible ? 'password' : 'text';
+    toggle.textContent = visible ? '显示' : '隐藏';
+  },
+
+  async testTavilyConnection() {
+    const status = document.getElementById('tavilyConnectionStatus');
+    if (!status) return;
+    const inputValue = document.getElementById('settingsTavilyKey')?.value.trim() || '';
+    const service = createWebResearch({
+      config: { get: key => (key === 'tavily_api_key' ? inputValue : '') }
+    });
+    status.textContent = '正在测试连接…';
+    status.className = 'settings-form-status';
+    const result = await service.testConnection();
+    if (result.ok) {
+      status.textContent = '✓ 连接正常，Tavily 可访问';
+      status.className = 'settings-form-status is-success';
+    } else {
+      status.textContent = result.reason === 'missing_key'
+        ? '请先输入 Tavily API Key'
+        : '连接失败，请检查 Key 与网络后重试';
+      status.className = 'settings-form-status is-error';
+    }
+  },
   // Save all settings
   save() {
     const apiKey = document.getElementById('settingsApiKey').value.trim();
@@ -284,6 +446,8 @@ export const SettingsView = {
     Config.set('api_key', apiKey);
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
     Config.set('model', model || 'deepseek-v4-flash');
+    Config.set('tavily_api_key', document.getElementById('settingsTavilyKey').value.trim());
+    Config.set('web_research_mode', document.getElementById('settingsWebResearchMode')?.value || 'deepseek_native');
 
     const targetTrack = document.querySelector('input[name="targetTrack"]:checked')?.value;
     if (!normalizeSelectableTrack(targetTrack)) {

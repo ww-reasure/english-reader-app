@@ -192,6 +192,13 @@ export const ReadingView = {
           <header class="reading-header" data-reading-header="article">
             ${this._renderArticleTitle(article)}
             <div class="reading-action-strip" aria-label="阅读工具">
+          ${Array.isArray(article.researchSources) && article.researchSources.length ? `
+          <details class="reading-research-sources" data-research-sources>
+            <summary><i class="fa-solid fa-globe" aria-hidden="true"></i> 资料来源（联网检索）</summary>
+            <ul>
+              ${article.researchSources.slice(0, 5).map(source => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title || source.domain)}</a><small>${esc(source.domain)}${source.publishedAt ? ` · ${esc(source.publishedAt)}` : ''}</small></li>`).join('')}
+            </ul>
+          </details>` : ''}
               <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
             </div>
           </header>

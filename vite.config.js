@@ -41,5 +41,11 @@ export default defineConfig({
   plugins: [copySrcPlugin()],
   server: {
     port: 3000,
+    // Worktree dev servers resolve npm packages from the parent repository's
+    // node_modules. Allow serving those fonts/assets so Font Awesome icons do
+    // not 403 (which makes every fa-* icon disappear).
+    fs: {
+      allow: ['..', '../..']
+    }
   },
 });

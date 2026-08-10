@@ -64,6 +64,8 @@ export const getDeepSeekRequestControls = (model, { thinking = null, maxTokens =
   return controls;
 };
 
+let deepSeekResponsesClient = null;
+
 const apiUrl = (baseUrl, endpoint) => {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
   const path = String(endpoint || '').startsWith('/') ? endpoint : `/${endpoint}`;
@@ -336,6 +338,16 @@ ${personalizationGuidance}
       message: data.choices?.[0]?.message || { role: 'assistant', content: '' },
       usage: data.usage || null
     };
+  },
+
+  // DeepSeek native web search via the Responses API (deepseek-v4-flash).
+  // Returns the normalized assistant result used by ChatService.
+  async responsesCompletion(items, { tools = [], signal = null, temperature = 0.45, toolChoice = 'auto' } = {}) {
+    if (!deepSeekResponsesClient) {
+      const { createDeepSeekResponsesClient } = await import('./components/deepseek-responses.mjs');
+      deepSeekResponsesClient = createDeepSeekResponsesClient({ config: Config });
+    }
+    return deepSeekResponsesClient.completion(items, { tools, signal, temperature, toolChoice });
   },
 
   // Stream an OpenAI-compatible SSE response. The timeout is idle-based so

@@ -32,6 +32,7 @@ export const HistoryView = {
             <div class="card-header">
               <a href="#/reading/${article.id}" class="card-title">${esc(article.title)}</a>
               <span class="badge badge-${articleTrack.badgeClass}">${esc(articleTrack.primaryLabel)}</span>
+              ${Array.isArray(article.researchSources) && article.researchSources.length ? '<span class="badge badge-research">联网资料</span>' : ''}
             </div>
             <div class="card-meta">
               <span>${article.wordCount} 词</span>

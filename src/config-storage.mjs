@@ -17,7 +17,9 @@ export const CONFIG_STORAGE_KEYS = [
   'assessment_done',
   'assessment_profile',
   'assessment_date',
-  'assessment_vocab'
+  'assessment_vocab',
+  'tavily_api_key',
+  'web_research_mode'
 ];
 
 function readWebSettings(webStorage) {

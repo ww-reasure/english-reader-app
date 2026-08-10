@@ -6,7 +6,11 @@ async function loadTool() {
   const source = await readFile(new URL('../src/components/article-generation-tool.js', import.meta.url), 'utf8');
   const profile = await readFile(new URL('../src/difficulty-profile.mjs', import.meta.url), 'utf8');
   const profileUrl = 'data:text/javascript;base64,' + Buffer.from(profile).toString('base64');
-  const adapted = source.replace("from '../difficulty-profile.mjs'", `from '${profileUrl}'`);
+  const research = await readFile(new URL('../src/components/web-research.mjs', import.meta.url), 'utf8');
+  const researchUrl = 'data:text/javascript;base64,' + Buffer.from(research).toString('base64');
+  const adapted = source
+    .replace("from '../difficulty-profile.mjs'", `from '${profileUrl}'`)
+    .replace("from './web-research.mjs'", `from '${researchUrl}'`);
   return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
 

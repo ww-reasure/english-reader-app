@@ -22,7 +22,7 @@ test('chat generation is owned by the route-independent coordinator', async () =
 test('agent tool execution uses the generation coordinator instead of the chat request signal', async () => {
   const source = (await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
   const start = source.indexOf('async executeHomeTool(');
-  const end = source.indexOf('buildGenerationContext(', start);
+  const end = source.indexOf("if (job.status === 'completed')", start);
   const implementation = source.slice(start, end);
   const coordinatorStart = source.match(/startHomeGenerationJob\(\{ kind, payload, cancelExisting = true \}\) \{([\s\S]*?)\n  \},\n\n  async publishHomeGenerationArticle/);
 
