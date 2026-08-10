@@ -331,8 +331,12 @@ export const ReadingListView = {
         const pastExamLabel = formatPastExamLabel(article);
         const sourceLabel = sourceLabelForArticle(article);
         const showSourceLabel = sourceLabel && !pastExamLabel;
+        const researchBadge = Array.isArray(article.researchSources) && article.researchSources.length
+          ? '<span class="badge badge-research">联网资料</span>'
+          : '';
         const badges = [
-          `<span class="badge article-exam-badge badge-${esc(articleTrack.badgeClass)}">${esc(articleTrack.primaryLabel)}</span>`
+          `<span class="badge article-exam-badge badge-${esc(articleTrack.badgeClass)}">${esc(articleTrack.primaryLabel)}</span>`,
+          researchBadge
         ].filter(Boolean).join('');
         const taxonomyParts = [taxonomy.topic, taxonomy.genre].filter(Boolean);
         const taxonomyHTML = taxonomyParts.length
