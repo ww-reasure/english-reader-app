@@ -344,7 +344,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .reading-header::before { content:"02 / READING"; color:var(--signal); font-family:ui-monospace,monospace; font-size:10px; font-weight:800; letter-spacing:.14em; }
 .reading-meta { display:flex; gap:8px 12px; flex-wrap:wrap; color:var(--muted); font-size:12px; }
 .reading-baseline-label,.article-list-baseline { color:var(--muted); font-size:11px; }
-.reading-action-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:18px; }
+.reading-action-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:18px; }
 .reading-action-strip .btn { display:flex; align-items:center; justify-content:center; min-width:0; min-height:44px; padding:8px 7px; text-align:center; font-size:12px; line-height:1.25; }
 .reading-action-strip .btn.is-active { border-color:var(--signal); background:var(--signal); color:var(--on-accent); }
 .reading-action-state { display:block; max-width:0; overflow:hidden; opacity:0; font-size:0; transition:max-width var(--duration-fast) var(--ease),opacity var(--duration-fast) var(--ease); }

@@ -15,7 +15,7 @@ test('reading header puts favourite and vocabulary marking in compact utilities'
   assert.match(reading, /词汇标记/);
 });
 
-test('reading actions contain only translation, sentence guide and back', async () => {
+test('reading actions keep translation, sentence guide, PDF export and back in one compact strip', async () => {
   const [reading, css] = await Promise.all([
     read('../src/views/reading.js'),
     read('../css/style.css')
@@ -24,11 +24,22 @@ test('reading actions contain only translation, sentence guide and back', async 
   assert.match(reading, /class="reading-action-strip"/);
   assert.match(reading, /全文翻译/);
   assert.match(reading, /逐句导读/);
+  assert.match(reading, /导出 PDF/);
+  assert.match(reading, /id="exportPdfBtn"/);
+  assert.match(reading, /onclick="ReadingView\.exportArticlePdf\(\)"/);
   assert.match(reading, /阅读返回/);
-  assert.match(css, /\.reading-action-strip\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.reading-action-strip\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
   assert.doesNotMatch(css, /@media \(max-width:380px\) \{[^}]*\.reading-actions \.btn \{ flex:1/s);
 });
 
+test('reading export method guards empty articles and reports failures', async () => {
+  const reading = await read('../src/views/reading.js');
+
+  assert.match(reading, /async exportArticlePdf\(\) \{/);
+  assert.match(reading, /这篇文章没有可导出的正文内容/);
+  assert.match(reading, /导出 PDF 失败：/);
+  assert.match(reading, /exportArticlePdf\(article, \{ track }\)/);
+});
 test('reading metadata uses the shared exam track and keeps a distinct vocabulary baseline', async () => {
   const reading = await read('../src/views/reading.js');
 
