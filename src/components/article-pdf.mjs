@@ -13,8 +13,8 @@ const PAGE_WIDTH = 595.28; // A4 width in points
 const PAGE_HEIGHT = 841.89; // A4 height in points
 const MARGIN = 56.7; // ~2cm
 const TITLE_SIZE = 18;
-const META_SIZE = 9.5;
-const BODY_SIZE = 11;
+const META_SIZE = 10;
+const BODY_SIZE = 13;
 const BODY_LINE_HEIGHT = 1.65;
 const FOOTER_SIZE = 9;
 const INK = rgb(0.12, 0.16, 0.15);
@@ -129,6 +129,7 @@ export async function renderArticlePdf(article, { track = '', now = null } = {})
   const times = await doc.embedFont(StandardFonts.TimesRoman);
   const timesBold = await doc.embedFont(StandardFonts.TimesRomanBold);
   const contentWidth = PAGE_WIDTH - MARGIN * 2;
+  const firstLineIndent = BODY_SIZE * 2;
   const bodyStep = BODY_SIZE * BODY_LINE_HEIGHT;
 
   let page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
@@ -177,14 +178,20 @@ export async function renderArticlePdf(article, { track = '', now = null } = {})
   cursorY -= 14;
 
   for (const paragraph of layout.paragraphs) {
-    const lines = wrapText(paragraph, times, BODY_SIZE, contentWidth);
-    for (const line of lines) {
+    const lines = wrapText(paragraph, times, BODY_SIZE, contentWidth - firstLineIndent);
+    lines.forEach((line, lineIndex) => {
       if (line) {
         ensureSpace(bodyStep);
-        page.drawText(line, { x: MARGIN, y: cursorY - BODY_SIZE, size: BODY_SIZE, font: times, color: INK });
+        page.drawText(line, {
+          x: MARGIN + (lineIndex === 0 ? firstLineIndent : 0),
+          y: cursorY - BODY_SIZE,
+          size: BODY_SIZE,
+          font: times,
+          color: INK
+        });
       }
       cursorY -= bodyStep;
-    }
+    });
     cursorY -= bodyStep * 0.55;
   }
 
