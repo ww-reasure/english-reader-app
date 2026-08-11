@@ -133,9 +133,13 @@ function relativeOverdueness(word, now) {
 }
 
 /** Returns due reviews first, then at most `newLimit` unseen words. */
-export function selectReviewQueue(words = [], { now = Date.now(), limit = 20, newLimit = 10 } = {}) {
-  const due = words.filter(word => word.nextReview && number(word.nextReview) <= now)
+export function selectReviewQueue(words = [], { now = Date.now(), limit = 20, newLimit = 10, recoveryFirst = false } = {}) {
+  const inRecovery = word => Math.max(0, Math.trunc(Number(word?.recoveryStage) || 0)) > 0;
+  const due = words.filter(word => inRecovery(word) || (word.nextReview && number(word.nextReview) <= now))
     .sort((a, b) => relativeOverdueness(b, now) - relativeOverdueness(a, now));
+  if (recoveryFirst) {
+    due.sort((a, b) => (inRecovery(b) ? 1 : 0) - (inRecovery(a) ? 1 : 0) || (number(b.nextReview) - number(a.nextReview)));
+  }
   const newWords = words.filter(word => !word.nextReview)
     .slice(0, Math.max(0, newLimit));
 

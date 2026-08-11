@@ -31,6 +31,15 @@ import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
 import { ReviewQueue } from '../review-queue.js';
+import { readPracticeSession } from '../review-practice.mjs';
+import {
+  createSessionQueue,
+  persistSessionQueue,
+  clearSessionQueue,
+  loadSessionQueue,
+  sessionDebtValue
+} from '../review-session.mjs';
+import { settleSessionReview } from '../recovery-scheduler.mjs';
 import { WordPhrases } from '../components/word-phrases.js';
 import { WordSimilar } from '../components/word-similar.js';
 import { renderExamCorpusDetail, selectExamCorpusPresentation } from '../components/exam-corpus-presentation.mjs';
@@ -83,6 +92,8 @@ export const FlashcardView = {
   currentDefinitionLines: [],
   ratingAttempt: null,
   pendingKnowledgeEvidence: null,
+  practiceScope: '',
+  sessionQueue: null,
   studyNotice: '',
   _exampleLookupRoot: null,
   _exampleLookupHandler: null,
@@ -137,11 +148,21 @@ export const FlashcardView = {
   },
 
   // Render flashcard view
-  async render(container) {
+  async render(container, requestedScope = '') {
     this.cleanupExampleWordLookup();
     this.container = container;
-    const allWords = await DB.getAllLearnWords();
-    const dueWords = await ReviewQueue.getDueWords();
+    this.practiceScope = '';
+    const session = requestedScope ? readPracticeSession() : null;
+    let practiceWords = null;
+    if (session && session.scope === requestedScope) {
+      practiceWords = [];
+      for (const wordId of session.wordIds) {
+        const word = await DB.findLearnWordById(wordId);
+        if (word) practiceWords.push({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) });
+      }
+    }
+    const allWords = practiceWords ?? await DB.getAllLearnWords();
+    const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
 
     if (dueWords.length === 0) {
       const totalWords = allWords.length;
@@ -151,11 +172,11 @@ export const FlashcardView = {
           <div class="flashcard-container flashcard-content" data-flashcard-content="empty">
           <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
           <div class="empty-state flashcard-empty-sheet">
-            <p>🎉 暂时没有需要复习的单词</p>
+            <p>${requestedScope && !session ? '这些词还没有进入学习词库，无法专项复习。' : '🎉 暂时没有需要复习的单词'}</p>
             ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个进入长期巩固</p>` : ''}
             <p>去阅读页面收藏新单词，或导入单词到学习词库。</p>
             <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
-              <a href="#/chat" class="btn btn-primary">去阅读</a>
+              <a href="${requestedScope && !session ? '#/vocab' : '#/chat'}" class="btn btn-primary">${requestedScope && !session ? '返回生词本' : '去阅读'}</a>
               <a href="#/learn-words" class="btn btn-outline">学习词库</a>
             </div>
           </div>
@@ -164,6 +185,19 @@ export const FlashcardView = {
       return;
     }
 
+    this.practiceScope = practiceWords ? session.scope : '';
+    if (this.practiceScope) {
+      this.sessionQueue = null;
+    } else {
+      const restored = await loadSessionQueue({ db: DB });
+      if (restored && !restored.isEmpty()) {
+        this.sessionQueue = restored;
+      } else {
+        if (restored) await clearSessionQueue({ db: DB });
+        this.sessionQueue = createSessionQueue(dueWords.map(word => word.id));
+        await this.persistCurrentSession();
+      }
+    }
     this.words = dueWords;
     this.currentIndex = 0;
     this.ratingCounts = { 1: 0, 3: 0, 5: 0 };
@@ -178,24 +212,45 @@ export const FlashcardView = {
     return SpacedRepetition.getDueCount(allWords);
   },
 
+  async persistCurrentSession() {
+    if (this.sessionQueue) await persistSessionQueue(this.sessionQueue, { db: DB });
+  },
+
   // Render a single word at the start of its recall phase.
   async renderCard(container) {
     this.cleanupExampleWordLookup();
     this.cancelCardPronunciation();
-    if (this.currentIndex >= this.words.length) {
+    if (!this.practiceScope && this.sessionQueue) {
+      if (this.sessionQueue.isEmpty()) {
+        this.renderResult(container);
+        return;
+      }
+      const wordId = this.sessionQueue.next();
+      await this.persistCurrentSession();
+      const queuedWord = await DB.findLearnWordById(wordId);
+      if (!queuedWord) {
+        return this.renderCard(container);
+      }
+      const queuedRevision = Math.max(0, Number(queuedWord.reviewRevision) || 0);
+      const bufferRevision = this.sessionQueue.getExpectedRevision(wordId);
+      this.words[this.currentIndex] = { ...queuedWord, expectedRevision: bufferRevision ?? queuedRevision };
+      this.sessionQueue.syncExpectedRevision(wordId, this.words[this.currentIndex].expectedRevision);
+    } else if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
     }
 
     const session = ++this.cardSession;
     let word = this.words[this.currentIndex];
-    const revisionCheck = await ReviewQueue.revalidate({ id: word.id, expectedRevision: word.expectedRevision });
-    if (!revisionCheck.current) {
-      this.currentIndex++;
-      return this.renderCard(container);
+    if (!this.practiceScope) {
+      const revisionCheck = await ReviewQueue.revalidate({ id: word.id, expectedRevision: word.expectedRevision });
+      if (!revisionCheck.current) {
+        this.currentIndex++;
+        return this.renderCard(container);
+      }
+      word = { ...revisionCheck.word, expectedRevision: word.expectedRevision };
+      this.words[this.currentIndex] = word;
     }
-    word = { ...revisionCheck.word, expectedRevision: word.expectedRevision };
-    this.words[this.currentIndex] = word;
     this.reviewState = createReviewState();
     this.studyTab = 'examples';
     this.studyExampleIndex = 0;
@@ -729,12 +784,21 @@ export const FlashcardView = {
   advanceToNextWord() {
     if (!nextWord(this.reviewState)) return;
     this.commitPendingKnowledgeEvidence();
-    this.currentIndex++;
+    if (!this.practiceScope && this.sessionQueue) {
+      this.currentIndex++;
+      void this.persistCurrentSession();
+    } else {
+      this.currentIndex++;
+    }
     this.renderCard(this.container);
   },
 
   restart() {
-    this.render(this.container);
+    if (!this.practiceScope) {
+      void clearSessionQueue({ db: DB });
+      this.sessionQueue = null;
+    }
+    this.render(this.container, this.practiceScope || '');
   },
 
   // Record a rating
@@ -746,15 +810,35 @@ export const FlashcardView = {
       baseline: { ...word },
       initialQuality: quality
     };
-    const srsData = SpacedRepetition.calculateNext(attempt.baseline, quality);
-    const updatedWord = await DB.recordLearnWordReview(word.id, srsData, {
-      rating: quality,
-      source: 'flashcard',
-      sawAnswer: meaningRevealed,
-      attemptId: attempt.id,
-      expectedRevision: word.expectedRevision
-    });
-    Object.assign(word, updatedWord || srsData, { expectedRevision: updatedWord?.reviewRevision ?? word.expectedRevision });
+    if (this.practiceScope) {
+      await DB.recordLearnWordPractice(word.id, {
+        rating: quality,
+        sawAnswer: meaningRevealed,
+        practiceScope: this.practiceScope
+      });
+    } else {
+      const sessionDebt = this.sessionQueue?.getDebt(word.id) || 0;
+      const srsData = settleSessionReview(attempt.baseline, quality, sessionDebt);
+      const updatedWord = await DB.settleSessionReview(word.id, srsData, {
+        rating: quality,
+        source: 'flashcard',
+        sawAnswer: meaningRevealed,
+        attemptId: attempt.id,
+        expectedRevision: word.expectedRevision,
+        sessionDebt
+      });
+      Object.assign(word, updatedWord || srsData, { expectedRevision: updatedWord?.reviewRevision ?? word.expectedRevision });
+      if (this.sessionQueue) {
+        const outcome = this.sessionQueue.rate(word.id, quality, { expectedRevision: word.expectedRevision });
+        await this.persistCurrentSession();
+        if (outcome.reinserted) {
+          this.reviewState = finishRating(this.reviewState);
+          this.renderStudy(this.container);
+          this.loadStudyDetails(this.cardSession);
+          return;
+        }
+      }
+    }
     this.ratingAttempt = attempt;
     this.pendingKnowledgeEvidence = {
       word: word.word,
@@ -790,15 +874,37 @@ export const FlashcardView = {
     this.renderStudy(this.container);
 
     try {
-      const correctedSrs = SpacedRepetition.calculateNext(attempt.baseline, 1);
-      await DB.correctLearnWordReview(word.id, correctedSrs, {
-        attemptId: attempt.id,
-        sawAnswer: true,
-        correctionReason: 'mistaken-known'
-      });
+      if (this.practiceScope) {
+        await DB.recordLearnWordPractice(word.id, {
+          rating: 1,
+          sawAnswer: true,
+          practiceScope: this.practiceScope
+        });
+      } else {
+        const sessionDebt = (this.sessionQueue?.getDebt(word.id) || 0) + sessionDebtValue(1);
+        const correctedSrs = settleSessionReview(attempt.baseline, 1, sessionDebt);
+        const correctedWord = await DB.settleSessionReview(word.id, correctedSrs, {
+          rating: 1,
+          source: 'flashcard',
+          sawAnswer: true,
+          attemptId: attempt.id,
+          expectedRevision: word.expectedRevision,
+          sessionDebt
+        });
+        Object.assign(word, correctedWord || correctedSrs, { expectedRevision: correctedWord?.reviewRevision ?? word.expectedRevision });
+        if (this.sessionQueue) {
+          const outcome = this.sessionQueue.rate(word.id, 1, { expectedRevision: word.expectedRevision });
+          await this.persistCurrentSession();
+          if (outcome.reinserted) {
+            this.reviewState = finishRatingCorrection(this.reviewState);
+            this.studyNotice = '已更正为“忘了”，将隔 3 个词后再次出现。';
+            this.renderStudy(this.container);
+            return;
+          }
+        }
+      }
       if (session !== this.cardSession) return;
 
-      Object.assign(word, correctedSrs);
       this.ratingCounts[5] = Math.max(0, (this.ratingCounts[5] || 0) - 1);
       this.ratingCounts[1] = (this.ratingCounts[1] || 0) + 1;
       const reviewed = this.reviewedWords.find(item => item.attemptId === attempt.id);
@@ -817,7 +923,7 @@ export const FlashcardView = {
         };
       }
       this.reviewState = finishRatingCorrection(this.reviewState);
-      this.studyNotice = '已更正为“忘了”，将在约 10 分钟后再次复习。';
+      this.studyNotice = this.practiceScope ? '已更正为“忘了”。' : '已更正为“忘了”，将隔 3 个词后再次出现。';
       this.renderStudy(this.container);
     } catch {
       if (session !== this.cardSession) return;
@@ -828,6 +934,7 @@ export const FlashcardView = {
   },
 
   commitPendingKnowledgeEvidence() {
+    if (this.practiceScope) return;
     const evidence = this.pendingKnowledgeEvidence;
     this.pendingKnowledgeEvidence = null;
     if (!evidence) return;
@@ -851,6 +958,7 @@ export const FlashcardView = {
     this.cleanupExampleWordLookup();
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
+    const isPractice = Boolean(this.practiceScope);
     // Today's accumulated words (across multiple review sessions)
     const todayWords = this.loadTodayWords();
     const todayTotal = todayWords.length;
@@ -863,7 +971,8 @@ export const FlashcardView = {
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--result" aria-labelledby="flashcardResultTitle">
       <div class="flashcard-container">
         <section class="flashcard-result flashcard-result-sheet">
-          <h2 id="flashcardResultTitle">复习完成</h2>
+          <h2 id="flashcardResultTitle">${isPractice ? '专项练习完成' : '复习完成'}</h2>
+          ${isPractice ? '<p class="flashcard-result-hint">本次为专项练习，结果已记录，但不影响正式复习计划。</p>' : ''}
           <div class="flashcard-result-stats">
             <div class="flashcard-result-stat">
               <span class="flashcard-result-num">${total}</span>
@@ -894,7 +1003,7 @@ export const FlashcardView = {
             📅 今日累计复习：<strong>${todayTotal}</strong> 个单词（本轮 ${this.reviewedWords.length} 个）
           </div>` : ''}
 
-          ${canGenerate ? `
+          ${!isPractice && canGenerate ? `
           <div class="flashcard-result-generate">
             <h3>📝 巩固阅读</h3>
             <p class="flashcard-result-hint">使用今天复习的词汇生成阅读文章，在语境中巩固记忆${todayReinforce.length > 0 ? '（优先使用记不住的词）' : ''}</p>
@@ -904,13 +1013,13 @@ export const FlashcardView = {
               <button class="btn btn-outline" onclick="FlashcardView.generateReviewArticle('weak')">重点巩固（${todayReinforce.length} 个薄弱词）</button>
               ` : ''}
             </div>
-          </div>` : todayTotal > 0 ? `
+          </div>` : !isPractice && todayTotal > 0 ? `
           <div class="flashcard-result-generate">
             <p class="flashcard-result-hint">今日已复习 ${todayTotal} 个词，再复习 ${3 - todayTotal} 个即可生成巩固阅读</p>
           </div>` : ''}
 
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
-            <a href="#/chat" class="btn btn-outline">返回阅读</a>
+            <a href="${isPractice ? '#/vocab' : '#/chat'}" class="btn btn-outline">${isPractice ? '返回生词本' : '返回阅读'}</a>
             <a href="#/learn-words" class="btn btn-outline">词库管理</a>
             <button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>
           </div>
@@ -994,6 +1103,7 @@ export const FlashcardView = {
     this.cancelRootRequest();
     this.cleanupExampleWordLookup();
     this.closeStudyInfo();
+    this.practiceScope = '';
     if (this._studyExampleKeyHandler) {
       document.removeEventListener('keydown', this._studyExampleKeyHandler);
       this._studyExampleKeyHandler = null;

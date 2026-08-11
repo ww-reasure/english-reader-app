@@ -51,7 +51,7 @@ test('the legacy SRS facade delegates scheduling and queue selection to schedule
 
   assert.match(source, /import \{ scheduleReview, selectReviewQueue \} from '\.\/learning-scheduler\.mjs';/);
   assert.match(source, /return scheduleReview\(word, quality\);/);
-  assert.match(source, /return selectReviewQueue\(words, \{ limit \}\);/);
+  assert.match(source, /return selectReviewQueue\(words, \{ limit, \.\.\.options \}\);/);
 });
 
 test('database migration stores immutable review events with the word update', async () => {
@@ -62,14 +62,15 @@ test('database migration stores immutable review events with the word update', a
   assert.ok(Number(version) >= 9, 'review-event migration requires database version 9 or later');
   assert.match(source, /createObjectStore\('reviewEvents'/);
   assert.match(source, /recordLearnWordReview\(id, srsData, event\)/);
+  assert.match(source, /async settleSessionReview\(id, srsData, event(?: = \{\})?\)/);
   assert.match(source, /addReviewEvent\(event\)/);
   assert.match(source, /db\.transaction\(\['learnWords', 'reviewEvents'\], 'readwrite'\)/);
 });
 
-test('flashcard records explicit answer visibility with every score', async () => {
+test('flashcard records explicit answer visibility with every settled score', async () => {
   const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
 
-  assert.match(source, /DB\.recordLearnWordReview\(word\.id, srsData, \{/);
+  assert.match(source, /DB\.settleSessionReview\(word\.id, srsData, \{/);
   assert.match(source, /source:\s*'flashcard'/);
   assert.match(source, /const meaningRevealed = Boolean\(this\.reviewState\.meaningRevealed\);/);
   assert.match(source, /sawAnswer:\s*meaningRevealed/);

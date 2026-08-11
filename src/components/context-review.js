@@ -60,13 +60,14 @@ export const ContextReview = createContextReviewService({
   coordinator: ReviewQueue,
   recordReview: async ({ item, result, schedule, assistedLookupCount }) => {
     const attemptId = `context:${item.wordId}:${Date.now()}`;
-    return DB.recordLearnWordReview(item.wordId, schedule, {
+    return DB.settleSessionReview(item.wordId, schedule, {
       rating: result === 'known' ? 5 : result === 'uncertain' ? 3 : 1,
       source: 'context-review',
       sawAnswer: false,
       contextResult: result,
       assistedLookupCount: Math.max(0, Number(assistedLookupCount) || 0),
       expectedRevision: item.expectedRevision,
+      sessionDebt: result === 'uncertain' ? 1 : result === 'unknown' ? 2 : 0,
       attemptId
     }).then(word => ({ ...word, attemptId }));
   }

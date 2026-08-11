@@ -23,8 +23,8 @@ export const SpacedRepetition = {
     return scheduleReview(word, quality);
   },
 
-  getDueWords(words, limit = 20) {
-    return selectReviewQueue(words, { limit });
+  getDueWords(words, limit = 20, options = {}) {
+    return selectReviewQueue(words, { limit, ...options });
   },
 
   getDueCount(words) {
