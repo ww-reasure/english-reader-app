@@ -102,6 +102,26 @@ test('answer card markup exposes accessible navigation, states, and submit actio
   assert.match(html, /id="examAnswerCardSubmit"/);
 });
 
+test('answer card can render read-only navigation for submitted explanations', () => {
+  const html = renderAnswerCardHtml({
+    total: 2,
+    answered: 2,
+    unanswered: 0,
+    uncertain: 0,
+    groups: [{
+      unitKey: 'reading_text_1',
+      label: '阅读 Text 1',
+      questions: [
+        { questionKey: 'paper_q21', label: '21', answered: true, uncertain: false, current: true },
+        { questionKey: 'paper_q22', label: '22', answered: true, uncertain: false, current: false }
+      ]
+    }]
+  }, { readOnly: true });
+  assert.match(html, /data-answer-question="paper_q22"/);
+  assert.match(html, /解析模式/);
+  assert.doesNotMatch(html, /id="examAnswerCardSubmit"/);
+});
+
 test('full-paper labels fall back to global exam positions for translation segments', () => {
   const translationOnly = [{
     unitKey: 'translation',

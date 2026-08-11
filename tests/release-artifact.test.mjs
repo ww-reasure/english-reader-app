@@ -81,6 +81,31 @@ test('accepts a private QA artifact with every indexed pack', async t => {
   });
 });
 
+test('accepts a private QA artifact with both real packs declared', async t => {
+  const root = await createArtifact({
+    'release-manifest.json': manifest('private-qa'),
+    'exam-packs/private/index.json': {
+      schemaVersion: 1,
+      packs: [
+        { packageId: 'local.kaoyan.en1', path: '/exam-packs/private/local.kaoyan.en1.json' },
+        { packageId: 'local.cet4', path: '/exam-packs/private/local.cet4.json' }
+      ]
+    },
+    'exam-packs/private/local.kaoyan.en1.json': '{}',
+    'exam-packs/private/local.cet4.json': '{}'
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = assertReleaseArtifact({
+    artifactDir: root,
+    flavor: 'private-qa',
+    expectedVersion: version,
+    expectedVersionCode: versionCode
+  });
+
+  assert.deepEqual(result.packs, ['local.kaoyan.en1', 'local.cet4']);
+});
+
 test('rejects a public artifact that contains a private pack', async t => {
   const root = await createArtifact({
     'release-manifest.json': manifest('public', false),

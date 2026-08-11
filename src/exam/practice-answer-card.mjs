@@ -5,9 +5,11 @@ function sourceQuestionNumber(question, fallback = '') {
 }
 
 function groupLabel(unit) {
+  if (unit?.sectionLabel) return unit.sectionLabel;
   if (unit?.displayTitle) return unit.displayTitle;
   if (unit?.type === 'cloze_choice') return '完形填空';
   if (unit?.type === 'reading_mcq') return '阅读理解';
+  if (unit?.type === 'matching') return ({ banked_cloze: '选词填空', long_reading: '长篇阅读' }[unit.matchingVariant] || '阅读新题型 Part B');
   if (['paragraph_ordering', 'matching'].includes(unit?.type)) return '阅读新题型 Part B';
   if (unit?.type === 'translation') return '翻译';
   return '真题训练';
@@ -82,7 +84,7 @@ export function buildAnswerCardModel({ attempt = {}, units = [], responses = new
   };
 }
 
-export function renderAnswerCardHtml(model) {
+export function renderAnswerCardHtml(model, { readOnly = false } = {}) {
   return `<section class="exam-answer-card" role="dialog" aria-modal="true" aria-labelledby="examAnswerCardTitle">
     <header class="exam-answer-card-head">
       <div><p class="page-eyebrow">ANSWER SHEET</p><h2 id="examAnswerCardTitle">答题卡</h2></div>
@@ -99,7 +101,7 @@ export function renderAnswerCardHtml(model) {
     </div>
     <footer class="exam-answer-card-footer">
       <p>共 ${model.total} 题，未答 ${model.unanswered} 题</p>
-      <button id="examAnswerCardSubmit" class="btn btn-primary" type="button">交卷</button>
+      ${readOnly ? '<span class="exam-answer-card-readonly">解析模式</span>' : '<button id="examAnswerCardSubmit" class="btn btn-primary" type="button">交卷</button>'}
     </footer>
   </section>`;
 }

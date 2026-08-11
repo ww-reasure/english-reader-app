@@ -92,7 +92,11 @@ export class ExamPracticeService {
     const units = (paper.units || [])
       .filter(unit => Array.isArray(unit.questions) && unit.questions.length)
       .map((unit, index) => ({ unit, index }))
-      .sort((left, right) => (typeOrder.get(left.unit.type) ?? 99) - (typeOrder.get(right.unit.type) ?? 99) || left.index - right.index)
+      .sort((left, right) => {
+        const leftOrder = left.unit.sectionOrder !== undefined ? left.unit.sectionOrder : (typeOrder.get(left.unit.type) ?? 99);
+        const rightOrder = right.unit.sectionOrder !== undefined ? right.unit.sectionOrder : (typeOrder.get(right.unit.type) ?? 99);
+        return leftOrder - rightOrder || left.index - right.index;
+      })
       .map(item => item.unit);
     if (!units.length) throw new Error('paper 没有可练习的题目');
 

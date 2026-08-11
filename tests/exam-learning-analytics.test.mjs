@@ -81,6 +81,8 @@ test('reports review health and bounded metadata-only wrong summaries', () => {
     translationMastered: 0
   });
   assert.deepEqual(result.wrongSummary, [{
+    bankId: 'builtin_kaoyan_en1',
+    examLabel: '考研英语一',
     year: 2026,
     type: 'reading_mcq',
     typeLabel: '阅读理解',
@@ -96,7 +98,7 @@ test('reports review health and bounded metadata-only wrong summaries', () => {
 test('filters by year and returns available years without inventing unavailable data', () => {
   const selected = buildExamLearningAnalytics({ papers, attempts, responsesByAttempt, wrongStates, translationReviews, now: NOW, year: 2025 });
   assert.equal(selected.status, 'available');
-  assert.deepEqual(selected.scope, { examId: 'kaoyan_en1', year: 2025 });
+  assert.deepEqual(selected.scope, { examIds: ['kaoyan_en1'], year: 2025 });
   assert.deepEqual(selected.availableYears, [2026, 2025]);
   assert.equal(selected.totals.completedAttempts, 0);
   assert.equal(selected.totals.inProgressAttempts, 1);

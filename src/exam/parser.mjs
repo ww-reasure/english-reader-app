@@ -6,7 +6,7 @@ const OPTION_PATTERN = /^[-*]\s*([A-H])([.):])\s+(.+)$/;
 const QUESTION_HEADING_PATTERN = /^Q\d+$/;
 const BLANK_HEADING_PATTERN = /^Blank\s+(\d+)$/;
 const SLOT_HEADING_PATTERN = /^Slot\s+(\d+)$/;
-const CANDIDATE_HEADING_PATTERN = /^Candidate\s+([A-H])$/;
+const CANDIDATE_HEADING_PATTERN = /^Candidate\s+([A-P])$/;
 
 const QUESTION_FIELDS = Object.freeze({
   'Question Translation': 'questionTranslation',
@@ -177,6 +177,14 @@ function buildCanonicalPaper({ meta, title, units }) {
     return built;
   };
 
+  const carryUnitMeta = (target, meta) => {
+    if (meta.sectionLabel !== undefined) target.sectionLabel = meta.sectionLabel;
+    if (meta.sectionOrder !== undefined) target.sectionOrder = meta.sectionOrder;
+    if (meta.direction !== undefined) target.direction = meta.direction;
+    if (meta.allowCandidateReuse !== undefined) target.allowCandidateReuse = Boolean(meta.allowCandidateReuse);
+    return target;
+  };
+
   const buildOrderingUnit = unit => {
     const meta = unit.meta;
     const slotNumbers = Array.isArray(meta.slots) ? meta.slots : [];
@@ -195,7 +203,7 @@ function buildCanonicalPaper({ meta, title, units }) {
         questionKey: question?.meta?.questionKey || null
       };
     });
-    return {
+    return carryUnitMeta({
       unitKey: meta.unitKey,
       type: meta.type,
       displayTitle: meta.displayTitle || unit.displayTitle,
@@ -208,10 +216,10 @@ function buildCanonicalPaper({ meta, title, units }) {
       fixedPlacements,
       answerSequence,
       questions: unit.questions.map(buildQuestion)
-    };
+    }, meta);
   };
 
-  const buildMatchingUnit = unit => ({
+  const buildMatchingUnit = unit => carryUnitMeta({
     unitKey: unit.meta.unitKey,
     type: unit.meta.type,
     displayTitle: unit.meta.displayTitle || unit.displayTitle,
@@ -226,7 +234,7 @@ function buildCanonicalPaper({ meta, title, units }) {
       return { slotNumber: Number(slotNumber), position, questionKey: question?.meta?.questionKey || null };
     }),
     questions: unit.questions.map(buildQuestion)
-  });
+  }, unit.meta);
 
   const paper = {
     schemaVersion: EXAM_CANONICAL_SCHEMA_VERSION,
@@ -242,13 +250,13 @@ function buildCanonicalPaper({ meta, title, units }) {
       if (!unit.meta || typeof unit.meta !== 'object') {
         throw new Error(`unit 缺少 exam-item 元数据：${unit.displayTitle}`);
       }
-      const base = {
+      const base = carryUnitMeta({
         unitKey: unit.meta.unitKey,
         type: unit.meta.type,
         displayTitle: unit.meta.displayTitle || unit.displayTitle,
         passage: unit.passage,
         translation: unit.translation
-      };
+      }, unit.meta);
       if (unit.directions.trim()) base.directions = unit.directions.trim();
       if (unit.candidateTranslations.length) base.candidateTranslations = unit.candidateTranslations;
       if (unit.meta.type === 'paragraph_ordering') return buildOrderingUnit(unit);

@@ -30,12 +30,13 @@ export function getSelectionSource(node, root, fallback = 'question') {
  * nothing about Exam Tutor or ChatService; callers provide callbacks.
  */
 export class SelectableTextActions {
-  constructor({ root, onAskAI, onLookup, enabled = true, allowAskAI = true } = {}) {
+  constructor({ root, onAskAI, onLookup, enabled = true, allowAskAI = true, shouldIgnoreSelection = () => false } = {}) {
     this.root = root;
     this.onAskAI = onAskAI;
     this.onLookup = onLookup;
     this.enabled = enabled;
     this.allowAskAI = allowAskAI;
+    this.shouldIgnoreSelection = shouldIgnoreSelection;
     this.menu = null;
     this._handlers = [];
   }
@@ -72,6 +73,7 @@ export class SelectableTextActions {
 
   update() {
     if (!this.enabled) return;
+    if (this.shouldIgnoreSelection()) return this.hide();
     const selected = this.getSelection();
     if (!selected) return this.hide();
     const rect = selected.range.getBoundingClientRect?.();

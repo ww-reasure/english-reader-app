@@ -78,6 +78,7 @@ test('ExamTutorContextBuilder builds a complete serializable submitted-question 
   assert.deepEqual(context.pageContext.exam.attempt, {
     attemptId: 'attempt-2026-001',
     examId: 'kaoyan_en1',
+    examLabel: '考研英语一',
     bankId: 'builtin_kaoyan_en1',
     packageId: 'local.kaoyan.en1',
     paperKey: 'kaoyan_en1_2026',

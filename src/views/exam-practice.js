@@ -12,8 +12,10 @@ import { esc } from '../helpers.js';
 import { Config } from '../config.js';
 import { SNAP_ORDER, SNAP_HEIGHTS, closestSnap, isFinalPracticeQuestion } from '../exam/practice-ui.mjs';
 import { buildAnswerCardModel, renderAnswerCardHtml } from '../exam/practice-answer-card.mjs';
-import { bindSentenceLongPress } from '../components/sentence-long-press.mjs';
+import { bindSentenceLongPress, createLongPressSelectionGuard } from '../components/sentence-long-press.mjs';
 import { createSentenceRangeForTextNodes } from '../components/sentence-selection.mjs';
+import { paragraphTranslationService } from '../exam/paragraph-translation.mjs';
+import { resolveAttemptExam, sectionLabelOf, unitLabel } from '../exam/exam-context.mjs';
 const IDLE_PAUSE_MS = 2 * 60 * 1000;
 const AUTOSAVE_MS = 500;
 
@@ -77,17 +79,22 @@ export const ExamPracticeView = {
     this._sentenceLongPressCleanup?.();
     this._sentenceLongPressCleanup = null;
     this.clearSentenceAiConfirmation?.();
+    this.sentenceLongPressGuard?.clear();
+    this.sentenceLongPressGuard = null;
     this.closeAnswerCard?.({ restoreFocus: false });
     this.examTutor = null;
     this.isExplanation = false;
     this.wordLookupEnabled = true;
+    this._paragraphTranslationState = new Map();
+    this._paragraphTranslationRequestSequence = 0;
     this._contentUpdated = false;
   },
 
   async render(container, attemptId, mode = null) {
     await this.cleanup();
     const services = createExamServices();
-    const practice = await services.practiceService.getPractice({ examId: 'kaoyan_en1', attemptId });
+    const examId = await resolveAttemptExam(services, attemptId) || 'kaoyan_en1';
+    const practice = await services.practiceService.getPractice({ examId, attemptId });
     const { attempt, paper, unit, responses: savedResponses, questions } = practice;
     if (attempt.status === 'submitted' && mode === 'explanation') {
       await this.renderSubmittedExplanation(container, practice);
@@ -192,6 +199,7 @@ export const ExamPracticeView = {
     this.sheetSnap = 'mid';
     this.isExplanation = true;
     this.wordLookupEnabled = true;
+    this.sentenceLongPressGuard = createLongPressSelectionGuard();
     this._disposed = false;
     this._drag = null;
     const currentHashChecks = await Promise.all(this.questions.map(async question => {
@@ -211,7 +219,7 @@ export const ExamPracticeView = {
         <section class="exam-practice-article" id="examArticleScroll"><div class="exam-practice-article-inner"></div></section>
         <section class="exam-sheet is-${this.sheetSnap}" id="examSheet" aria-label="解析面板">
           <div class="exam-sheet-handle" id="examSheetHandle" role="slider" tabindex="0" aria-label="调整解析面板高度"></div>
-          <div class="exam-sheet-header"><button id="examSheetPrev" class="exam-sheet-nav" type="button" aria-label="上一题">‹</button><span id="examSheetProgress" class="exam-sheet-progress"></span><div class="exam-sheet-header-actions"><button id="examSheetNext" class="exam-sheet-nav" type="button" aria-label="下一题">›</button></div></div>
+          <div class="exam-sheet-header"><button id="examSheetPrev" class="exam-sheet-nav" type="button" aria-label="上一题">‹</button><button id="examSheetProgress" class="exam-sheet-progress" type="button" aria-haspopup="dialog" aria-label="打开答题卡"></button><div class="exam-sheet-header-actions"><button id="examSheetNext" class="exam-sheet-nav" type="button" aria-label="下一题">›</button></div></div>
           <div class="exam-sheet-body" id="examSheetBody"></div>
           <div class="exam-sheet-footer"><button id="examExplanationWrong" class="btn btn-outline btn-sm" type="button" ${unit.type === 'translation' ? 'hidden' : ''}></button><button id="examBookmarkBtn" class="btn btn-outline btn-sm" type="button" ${unit.type === 'translation' ? 'hidden' : ''}>收藏</button><button id="examExplanationBack" class="btn btn-primary btn-sm" type="button">返回结果</button></div>
         </section>
@@ -300,7 +308,8 @@ export const ExamPracticeView = {
     this._wordLookupCleanup = bindReadingStyleWordLookup({
       root: this.container,
       getContextSentence: event => getContextSentenceAtPoint(event, this.container),
-      getTargetTrack: () => this.paper?.targetTrack || (this.attempt?.examId === 'kaoyan_en1' ? 'kaoyan1' : ''),
+      getTargetTrack: () => this.paper?.targetTrack || (this.attempt?.examId === 'cet4' ? 'cet4' : this.attempt?.examId === 'kaoyan_en1' ? 'kaoyan1' : ''),
+      shouldIgnoreClick: () => this.sentenceLongPressGuard?.consumeClick() || false,
       isEnabled: this.isExplanation ? () => true : () => this.wordLookupEnabled
     });
   },
@@ -311,6 +320,7 @@ export const ExamPracticeView = {
       root: this.container,
       onLookup: (text, rect) => this.lookupSelection(text, rect),
       allowAskAI: true,
+      shouldIgnoreSelection: () => this.sentenceLongPressGuard?.shouldIgnoreSelection() || false,
       onAskAI: async quote => {
         if (!this.isExplanation || !quote) return;
         if (this.unit?.type === 'translation') {
@@ -327,9 +337,12 @@ export const ExamPracticeView = {
     this._sentenceLongPressCleanup?.();
     if (!this.isExplanation || !this.articleScroll) return;
     const controls = 'button, a, input, textarea, select, [role="button"], [data-word-lookup="disabled"]';
+    const passage = '[data-selection-source="passage"]';
     this._sentenceLongPressCleanup = bindSentenceLongPress({
       root: this.articleScroll,
-      shouldIgnore: event => Boolean(event.target?.closest?.(controls)),
+      duration: 420,
+      preventNativeTextSelection: true,
+      shouldIgnore: event => !event.target?.closest?.(passage) || Boolean(event.target?.closest?.(controls)),
       onLongPress: event => {
         const pointRange = document.caretRangeFromPoint?.(event.clientX, event.clientY)
           || (() => {
@@ -359,6 +372,7 @@ export const ExamPracticeView = {
         const selectedText = sentence?.text?.replace(/\s+/g, ' ').trim();
         if (!sentence || !selectedText || selectedText.length < 4 || !/[A-Za-z]/.test(selectedText)) return;
         const selection = window.getSelection?.();
+        this.sentenceLongPressGuard?.markAutomaticSelection();
         selection?.removeAllRanges?.();
         selection?.addRange?.(sentence.range);
         this.showSentenceAiConfirmation({ text: selectedText, range: sentence.range });
@@ -367,9 +381,12 @@ export const ExamPracticeView = {
   },
 
   showSentenceAiConfirmation({ text, range }) {
-    this.clearSentenceAiConfirmation({ clearSelection: false });
+    this.clearSentenceAiConfirmation({ clearSelection: false, preserveLongPressGuard: true });
     const rect = range.getBoundingClientRect?.();
-    if (!rect) return;
+    if (!rect) {
+      this.sentenceLongPressGuard?.clear();
+      return;
+    }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'exam-sentence-ai-confirm';
@@ -398,13 +415,14 @@ export const ExamPracticeView = {
     }, 0);
   },
 
-  clearSentenceAiConfirmation({ clearSelection = true } = {}) {
+  clearSentenceAiConfirmation({ clearSelection = true, preserveLongPressGuard = false } = {}) {
     if (this._sentenceConfirmBindTimer) clearTimeout(this._sentenceConfirmBindTimer);
     this._sentenceConfirmBindTimer = null;
     if (this._sentenceConfirmOutside) document.removeEventListener('pointerdown', this._sentenceConfirmOutside);
     this._sentenceConfirmOutside = null;
     this._sentenceAiConfirm?.remove();
     this._sentenceAiConfirm = null;
+    if (!preserveLongPressGuard) this.sentenceLongPressGuard?.clear();
     if (clearSelection) window.getSelection?.()?.removeAllRanges?.();
   },
 
@@ -523,10 +541,17 @@ export const ExamPracticeView = {
       }
     });
     add(this.container.querySelector('#examSheetPrev'), 'click', () => this.goToQuestion(this.currentIndex - 1));
+    add(this.sheetProgress, 'click', () => this.showAnswerCard());
     add(this.container.querySelector('#examSheetNext'), 'click', () => this.goToQuestion(this.currentIndex + 1));
     add(this.bookmarkBtn, 'click', () => this.toggleBookmark());
     add(this.wrongBtn, 'click', () => this.toggleExplanationWrong());
     add(this.container.querySelector('#examExplanationBack'), 'click', () => { location.hash = `#/exam/result/${this.attempt.attemptId}`; });
+    add(this.articleInner, 'click', event => {
+      const button = event.target?.closest?.('[data-paragraph-translation-toggle]');
+      if (!button || !this.articleInner.contains(button)) return;
+      event.preventDefault();
+      void this.toggleParagraphTranslation(button.dataset.paragraphKey);
+    });
     this._dispose = () => {
       if (this._drag) {
         document.removeEventListener('pointermove', this._drag.onMove);
@@ -603,22 +628,77 @@ export const ExamPracticeView = {
     return this.persistDraft();
   },
 
+  getParagraphTranslationState() {
+    if (!this._paragraphTranslationState) this._paragraphTranslationState = new Map();
+    const unitKey = this.unit?.unitKey || '<missing-unit>';
+    if (!this._paragraphTranslationState.has(unitKey)) this._paragraphTranslationState.set(unitKey, new Map());
+    return this._paragraphTranslationState.get(unitKey);
+  },
+
+  async toggleParagraphTranslation(paragraphKey) {
+    if (!this.isExplanation || this.unit?.type !== 'reading_mcq') return;
+    const paragraph = (this.unit.passage || []).find(item => item.paragraphKey === paragraphKey);
+    if (!paragraph) return;
+    const state = this.getParagraphTranslationState();
+    const current = state.get(paragraphKey) || {};
+    const storedText = this.unit.translation?.find(item => item.paragraphKey === paragraphKey)?.text || '';
+    const existing = String(current.text ?? storedText).trim();
+    if (current.status === 'loading') return;
+    if (existing) {
+      state.set(paragraphKey, { ...current, status: 'ready', text: existing, expanded: current.expanded === false });
+      this.renderArticle();
+      return;
+    }
+    const requestId = ++this._paragraphTranslationRequestSequence;
+    const unitKey = this.unit.unitKey;
+    const sourceText = String(paragraph.text || '').trim();
+    state.set(paragraphKey, { status: 'loading', expanded: false, requestId });
+    this.renderArticle();
+    try {
+      const result = await paragraphTranslationService.getOrTranslate({
+        context: {
+          examId: this.attempt?.examId || this.paper?.examId,
+          bankId: this.paper?.bankId || this.attempt?.bankId,
+          packageId: this.paper?.packageId,
+          paperKey: this.paper?.paperKey,
+          unitKey,
+          paragraphKey
+        },
+        text: sourceText
+      });
+      if (this._disposed || !this.isExplanation || this.unit?.unitKey !== unitKey) return;
+      const latest = this.getParagraphTranslationState().get(paragraphKey);
+      if (latest?.requestId !== requestId) return;
+      this.getParagraphTranslationState().set(paragraphKey, { status: 'ready', text: result.text, source: result.source, expanded: true, requestId });
+      this.renderArticle();
+    } catch (error) {
+      if (this._disposed || !this.isExplanation || this.unit?.unitKey !== unitKey) return;
+      const latest = this.getParagraphTranslationState().get(paragraphKey);
+      if (latest?.requestId !== requestId) return;
+      this.getParagraphTranslationState().set(paragraphKey, { status: 'error', expanded: false, requestId, error: error?.message || '翻译失败' });
+      this.renderArticle();
+    }
+  },
+
   renderArticle() {
     if (!this.articleInner) return;
     this.articleInner.innerHTML = `
       <div class="exam-practice-titlebar" data-type="${esc(this.unit.type)}">
         <div>
-          <p class="page-eyebrow">${esc(this.paper?.year || '')} · ${sectionLabel(this.unit.type)}</p>
-          <h2 class="exam-type-title">${esc(typeTitle(this.unit))}</h2>
+          <p class="page-eyebrow">${esc(this.paper?.year || '')} · ${sectionLabel(this.unit, this.attempt?.examId)}</p>
+<h2 class="exam-type-title">${esc(typeTitle(this.unit, this.attempt?.examId))}</h2>
         </div>
         ${this.isExplanation ? '' : '<button id="examOverflowBtn" class="app-icon-button" type="button" aria-label="更多操作">⋯</button>'}
       </div>
       ${this.renderer.renderArticle(this.unit, {
         responses: this.responses,
         currentQuestionKey: this.isExplanation ? this.questions[this.currentIndex]?.questionKey : this.attempt.currentQuestionKey,
-        resultMode: Boolean(this.isExplanation)
+        resultMode: Boolean(this.isExplanation),
+        paragraphTranslationState: this.isExplanation && this.unit.type === 'reading_mcq'
+          ? this.getParagraphTranslationState()
+          : null
       })}
-      ${this.isExplanation && this.unit.translation?.length ? `<section class="exam-postsubmit-translations"><h3>全文翻译</h3>${this.unit.translation.map(paragraph => `<details><summary>显示 ${esc(paragraph.paragraphKey)} 段翻译</summary><p>${esc(paragraph.text)}</p></details>`).join('')}</section>` : ''}
+      ${this.isExplanation && this.unit.type !== 'reading_mcq' && this.unit.translation?.length ? `<section class="exam-postsubmit-translations"><h3>全文翻译</h3>${this.unit.translation.map(paragraph => `<details><summary>显示 ${esc(paragraph.paragraphKey)} 段翻译</summary><p>${esc(paragraph.text)}</p></details>`).join('')}</section>` : ''}
       ${this.isExplanation && this._contentUpdated ? '<p class="exam-content-updated">题库内容此后有更新</p>' : ''}`;
     this.articleInner.querySelectorAll('[data-blank], [data-slot]').forEach(button => {
       button.addEventListener('click', () => {
@@ -962,7 +1042,7 @@ export const ExamPracticeView = {
   },
 
   showAnswerCard() {
-    if (this.isExplanation || this._answerCardOverlay) return;
+    if (this._answerCardOverlay) return;
     const model = buildAnswerCardModel({
       attempt: this.attempt,
       units: this.units,
@@ -972,7 +1052,7 @@ export const ExamPracticeView = {
     const overlay = document.createElement('div');
     overlay.id = 'examAnswerCardOverlay';
     overlay.className = 'modal-overlay exam-answer-card-overlay';
-    overlay.innerHTML = renderAnswerCardHtml(model);
+    overlay.innerHTML = renderAnswerCardHtml(model, { readOnly: this.isExplanation });
     document.body.appendChild(overlay);
     document.body.classList.add('exam-answer-card-open');
     this._answerCardOverlay = overlay;

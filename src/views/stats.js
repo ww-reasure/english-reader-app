@@ -18,6 +18,7 @@ export const StatsView = {
   activePanel: 'reading',
   trendMode: 'week',
   selectedExamYear: null,
+  selectedExamBank: '',
   container: null,
   readingModel: null,
   examOverview: null,
@@ -33,7 +34,7 @@ export const StatsView = {
     this.readingModel = this.buildReadingModel({ articles, learnWords, vocabWords, readingStats });
     this.examProvider = createExamLearningOverviewProvider({ services: createExamServices() });
     try {
-      this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear });
+      this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear, bankId: this.selectedExamBank || null });
     } catch (error) {
       console.warn('Unable to load exam learning overview', error);
       this.examOverview = this.emptyExamOverview();
@@ -123,7 +124,10 @@ export const StatsView = {
     return `
       <div class="profile-exam-toolbar">
         <div><p class="profile-kicker">EXAM PRACTICE</p><h2>真题表现</h2></div>
-        <label class="profile-year-select"><span>统计范围</span><select data-exam-year-filter>
+        <label class="profile-year-select"><span>题库</span><select data-exam-bank-filter>
+          <option value="">全部</option><option value="builtin_kaoyan_en1" ${this.selectedExamBank === 'builtin_kaoyan_en1' ? 'selected' : ''}>考研英语一</option><option value="builtin_cet4" ${this.selectedExamBank === 'builtin_cet4' ? 'selected' : ''}>英语四级</option>
+        </select></label>
+<label class="profile-year-select"><span>统计范围</span><select data-exam-year-filter>
           <option value="">全部年份</option>${overview.availableYears.map(year => `<option value="${year}" ${Number(this.selectedExamYear) === year ? 'selected' : ''}>${year}</option>`).join('')}
         </select></label>
       </div>
@@ -156,7 +160,7 @@ export const StatsView = {
     if (!rows.length) return '<p class="profile-empty-copy">还没有做题记录。可从真题训练开始。</p><div class="profile-card-actions"><a href="#/exam">进入真题训练</a></div>';
     return `<div class="profile-attempt-list">${rows.map(item => {
       const href = item.status === 'submitted' ? `#/exam/result/${encodeURIComponent(item.attemptId)}` : `#/exam/practice/${encodeURIComponent(item.attemptId)}`;
-      return `<a href="${href}" class="profile-attempt-row"><span><strong>${item.year || '—'} · ${esc(item.unitTitle)}</strong><small>${item.status === 'submitted' ? '已提交' : '继续练习'} · ${this.formatDuration(Math.round(item.activeDurationMs / 1000))}</small></span><b>${item.objectiveAccuracy === null ? '—' : `${item.objectiveAccuracy}%`}</b></a>`;
+      return `<a href="${href}" class="profile-attempt-row"><span><strong>${item.examLabel && !this.selectedExamBank ? esc(item.examLabel) + ' · ' : ''}${item.year || '—'} · ${esc(item.unitTitle)}</strong><small>${item.status === 'submitted' ? '已提交' : '继续练习'} · ${this.formatDuration(Math.round(item.activeDurationMs / 1000))}</small></span><b>${item.objectiveAccuracy === null ? '—' : `${item.objectiveAccuracy}%`}</b></a>`;
     }).join('')}</div>`;
   },
 
@@ -181,6 +185,7 @@ export const StatsView = {
       panel.innerHTML = this.renderReadingPanel();
       this.bindEvents();
     }, { signal }));
+    this.container.querySelector('[data-exam-bank-filter]')?.addEventListener('change', event => this.setExamBank(event.target.value), { signal });
     this.container.querySelector('[data-exam-year-filter]')?.addEventListener('change', event => this.setExamYear(event.target.value), { signal });
   },
 
@@ -195,11 +200,21 @@ export const StatsView = {
     this.container.querySelectorAll('[data-profile-panel]').forEach(item => { item.hidden = item.dataset.profilePanel !== panel; });
   },
 
+  async setExamBank(value) {
+    this.selectedExamBank = value || '';
+    const panel = this.container.querySelector('[data-profile-panel="exam"]');
+    if (!panel) return;
+    panel.setAttribute('aria-busy', 'true');
+    this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear, bankId: this.selectedExamBank || null });
+    panel.innerHTML = this.renderExamPanel(this.examOverview);
+    panel.removeAttribute('aria-busy');
+  },
+
   async setExamYear(value) {
     this.selectedExamYear = value ? Number(value) : null;
     const panel = this.container.querySelector('[data-profile-panel="exam"]');
     panel.setAttribute('aria-busy', 'true');
-    this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear });
+    this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear, bankId: this.selectedExamBank || null });
     panel.innerHTML = this.renderExamPanel(this.examOverview);
     panel.removeAttribute('aria-busy');
     this.bindEvents();

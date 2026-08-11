@@ -67,6 +67,33 @@ test('practice exposes a right-side word lookup switch that persists the current
   assert.match(source, /Tooltip\.hide\(\)/);
 });
 
+test('submitted explanations give automatic sentence selection priority over lookup and generic selection actions', async () => {
+  const [practice, selectionActions] = await Promise.all([
+    read('src/views/exam-practice.js'),
+    read('src/exam/selectable-text-actions.mjs')
+  ]);
+
+  assert.match(practice, /createLongPressSelectionGuard/);
+  assert.match(practice, /shouldIgnoreClick:\s*\(\)\s*=>\s*this\.sentenceLongPressGuard\?\.consumeClick\(\)/);
+  assert.match(practice, /shouldIgnoreSelection:\s*\(\)\s*=>\s*this\.sentenceLongPressGuard\?\.shouldIgnoreSelection\(\)/);
+  assert.match(practice, /sentenceLongPressGuard\?\.markAutomaticSelection\(\)/);
+  assert.match(practice, /sentenceLongPressGuard\?\.clear\(\)/);
+  assert.match(selectionActions, /shouldIgnoreSelection\s*=\s*\(\)\s*=>\s*false/);
+  assert.match(selectionActions, /if \(this\.shouldIgnoreSelection\(\)\) return this\.hide\(\)/);
+});
+
+test('only submitted exam passages enable native-selection suppression for sentence long press', async () => {
+  const [practice, reading] = await Promise.all([
+    read('src/views/exam-practice.js'),
+    read('src/views/reading.js')
+  ]);
+
+  assert.match(practice, /preventNativeTextSelection:\s*true/);
+  assert.match(practice, /duration:\s*420/);
+  assert.match(practice, /\[data-selection-source="passage"\]/);
+  assert.doesNotMatch(reading, /preventNativeTextSelection:\s*true/);
+});
+
 test('exam home sends full-paper practice through the year catalogue', async () => {
   const source = await read('src/views/exam-home.js');
   assert.match(source, /href="#\/exam\/catalog\/full_paper"/);

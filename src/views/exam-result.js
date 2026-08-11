@@ -5,6 +5,7 @@ import { getExamRenderer } from '../exam/renderers/registry.mjs';
 import { SelectableTextActions } from '../exam/selectable-text-actions.mjs';
 import { Tooltip } from '../components/tooltip.js';
 import { Dictionary } from '../dictionary.js';
+import { resolveAttemptExam } from '../exam/exam-context.mjs';
 import { esc } from '../helpers.js';
 
 function formatDuration(durationMs) {
@@ -36,7 +37,8 @@ export const ExamResultView = {
   async render(container, attemptId) {
     this.cleanup();
     const services = createExamServices();
-    const practice = await services.practiceService.getPractice({ examId: 'kaoyan_en1', attemptId });
+    const examId = await resolveAttemptExam(services, attemptId) || 'kaoyan_en1';
+    const practice = await services.practiceService.getPractice({ examId, attemptId });
     const { attempt, unit, responses, questions } = practice;
     if (attempt.status !== 'submitted') {
       container.innerHTML = '<div class="empty-state">该练习尚未提交</div>';
@@ -338,7 +340,7 @@ export const ExamResultView = {
       <div class="exam-result exam-translation-result">
         <header class="exam-result-summary">
           <p class="page-eyebrow">PRACTICE RESULT</p>
-          <h1 class="reading-title">${esc(unit.displayTitle || 'Part C 翻译')}</h1>
+          <h1 class="reading-title">${esc(unit.displayTitle || '翻译')}</h1>
           <div class="exam-result-metrics">
             <div><strong>${completed}/${questions.length}</strong><span>已完成</span></div>
             <div><strong>${activeDuration}</strong><span>有效用时</span></div>

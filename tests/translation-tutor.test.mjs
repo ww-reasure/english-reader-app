@@ -195,6 +195,6 @@ test('translation training message builder requests JSON-only internal feedback 
     userMessage: '解释'
   });
   assert.match(translationMessages[0].content, /只返回一个合法 JSON/);
-  assert.match(translationMessages[0].content, /不是官方考研评分/);
+  assert.match(translationMessages[0].content, /不是任何官方考试评分/);
   assert.match(objectiveMessages[0].content, /客观题 Exam Tutor/);
 });

@@ -1,3 +1,5 @@
+import { examDisplayName } from './exam-context.mjs';
+
 const copyKeyTextItems = items => Array.isArray(items)
   ? items.map(item => ({ key: item?.key ?? null, text: item?.text ?? '' }))
   : [];
@@ -5,6 +7,7 @@ const copyKeyTextItems = items => Array.isArray(items)
 const copyAttemptSnapshot = attempt => ({
   attemptId: attempt?.attemptId ?? null,
   examId: attempt?.examId ?? null,
+  examLabel: examDisplayName(attempt?.examId, attempt?.bankId),
   bankId: attempt?.bankId ?? null,
   packageId: attempt?.packageId ?? null,
   paperKey: attempt?.paperKey ?? null,

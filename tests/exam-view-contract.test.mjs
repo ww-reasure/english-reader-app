@@ -41,6 +41,17 @@ test('submitted attempts open a read-only explanation mode in the shared practic
   assert.match(routerSource, /explanation/);
 });
 
+test('reading explanations use per-paragraph translation controls and keep other global translations scoped', async () => {
+  const [practiceSource, rendererSource] = await Promise.all([
+    readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/exam/renderers/reading-mcq-renderer.mjs', import.meta.url), 'utf8')
+  ]);
+  assert.match(practiceSource, /paragraphTranslationService/);
+  assert.match(practiceSource, /unit\.type !== 'reading_mcq'/);
+  assert.match(practiceSource, /data-paragraph-translation-toggle/);
+  assert.match(rendererSource, /data-paragraph-translation-toggle/);
+});
+
 test('submitted explanation checks every question hash before showing a content-update notice', async () => {
   const source = await readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /this\.questions\.some\(async question/);

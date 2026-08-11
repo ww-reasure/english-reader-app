@@ -2,21 +2,22 @@ import { createExamServices } from '../exam/create-services.js';
 import { bindReadingStyleWordLookup } from '../components/reading-word-lookup.js';
 import { esc } from '../helpers.js';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
+import { listAcrossExams, resolveExamIdForBank, unitLabel } from '../exam/exam-context.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function unitTitle(unit) {
-  if (unit.type === 'cloze_choice') return '完形填空';
-  if (unit.type === 'paragraph_ordering') return 'Part B · 段落排序';
-  if (unit.type === 'matching') return `Part B · ${{ sentence_insertion: '句子插入', heading_matching: '小标题匹配', statement_matching: '观点匹配' }[unit.matchingVariant] || '匹配题'}`;
-  if (unit.type === 'translation') return 'Part C · 翻译';
-  return `阅读 ${unit.displayTitle || ''}`.trim();
+function unitTitle(unit, examId) {
+  const label = unitLabel(unit, { examId });
+  if (unit.type === 'paragraph_ordering') return 'Part B · ' + label;
+  if (unit.type === 'matching') return 'Part B · ' + label;
+  if (unit.type === 'translation') return examId === 'cet4' ? 'Part IV · ' + label : 'Part C · ' + label;
+  return label;
 }
 
 function questionLabel(unit, question, index) {
   if (unit.type === 'cloze_choice') return `${question.blankNumber || index + 1}`;
   if (['paragraph_ordering', 'matching'].includes(unit.type)) return `Q${question.slotNumber || index + 1}`;
-  if (unit.type === 'translation') return `Q${String(question.segmentKey || '').replace(/^S/i, '') || index + 1}`;
+  if (unit.type === 'translation') return `Q${String(question.segmentKey || '').replace(/^[ST]/i, '') || index + 1}`;
   const sourceNumber = String(question.questionKey || '').match(/_q(\d+)$/i)?.[1];
   return `Q${sourceNumber || question.number || index + 1}`;
 }
@@ -95,10 +96,10 @@ function objectiveGroups(entries, attempts, now) {
       return questionDetailHtml(entry, index, latestAttempt);
     }).join('');
     return `<article class="exam-review-card" data-oldest="${oldest}" data-completions="${completed}">
-      <div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(group.paper.year || ''))} · ${esc(unitTitle(group.unit))}</p><strong class="exam-review-count">${group.entries.length}</strong><span>题</span></div><span class="exam-review-status">${mostUnreviewed ? `${mostUnreviewed} 天未复习` : '可随时复习'}</span></div>
+      <div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(group.paper.year || ''))} · ${esc(unitTitle(group.unit, group.paper.examId))}</p><strong class="exam-review-count">${group.entries.length}</strong><span>题</span></div><span class="exam-review-status">${mostUnreviewed ? `${mostUnreviewed} 天未复习` : '可随时复习'}</span></div>
       <p class="exam-review-meta">累计完整作答 ${completed} 次 · 连续答对两次后移入已掌握</p>
       <div class="exam-review-card-actions"><button type="button" class="btn btn-outline btn-sm" data-review-details="${esc(groupKey)}">查看题目</button><button type="button" class="btn btn-primary btn-sm" data-review-start="${esc(group.state.bankId)}" data-paper="${esc(group.state.paperKey)}" data-unit="${esc(group.state.unitKey)}" data-keys="${esc(group.questionKeys.join('|'))}">开始复习 <span aria-hidden="true">→</span></button></div>
-      <dialog class="exam-review-dialog" data-review-dialog="${esc(groupKey)}"><div class="exam-review-dialog-card"><header><div><p class="exam-review-kicker">${esc(String(group.paper.year || ''))} · ${esc(unitTitle(group.unit))}</p><h2>错题详情</h2></div><button type="button" class="app-icon-button" data-review-dialog-close aria-label="关闭题目详情">×</button></header><div class="exam-review-question-list">${rows}</div>${details}</div></dialog>
+      <dialog class="exam-review-dialog" data-review-dialog="${esc(groupKey)}"><div class="exam-review-dialog-card"><header><div><p class="exam-review-kicker">${esc(String(group.paper.year || ''))} · ${esc(unitTitle(group.unit, group.paper.examId))}</p><h2>错题详情</h2></div><button type="button" class="app-icon-button" data-review-dialog-close aria-label="关闭题目详情">×</button></header><div class="exam-review-question-list">${rows}</div>${details}</div></dialog>
     </article>`;
   }).join('');
 }
@@ -106,7 +107,7 @@ function objectiveGroups(entries, attempts, now) {
 function translationCards(entries, now) {
   return entries.filter(entry => entry.paper && entry.unit && entry.question).map(entry => {
     const index = entry.unit.questions.findIndex(item => item.questionKey === entry.question.questionKey);
-    return `<article class="exam-review-card" data-oldest="${lastReviewedAt(entry.state)}" data-completions="${Number(entry.state.reviewCount) || 0}"><div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(entry.paper.year || ''))} · ${esc(unitTitle(entry.unit))}</p><h2>${esc(questionLabel(entry.unit, entry.question, index))}</h2></div><span class="exam-review-status">${esc(ageCopy(entry.state, now))}</span></div><p class="exam-review-copy" data-selection-source="passage">${esc(entry.question.sourceText || '')}</p><div class="exam-review-actions">${entry.state.sourceAttemptId ? `<button type="button" class="btn btn-outline btn-sm" data-translation-explanation="${esc(entry.state.sourceAttemptId)}">查看解析</button>` : ''}<button type="button" class="btn btn-primary btn-sm" data-translation-redo="${esc(entry.state.bankId)}" data-paper="${esc(entry.state.paperKey)}" data-unit="${esc(entry.state.unitKey)}">重新练习 Part C</button></div></article>`;
+    return `<article class="exam-review-card" data-oldest="${lastReviewedAt(entry.state)}" data-completions="${Number(entry.state.reviewCount) || 0}"><div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(entry.paper.year || ''))} · ${esc(unitTitle(entry.unit, entry.paper.examId))}</p><h2>${esc(questionLabel(entry.unit, entry.question, index))}</h2></div><span class="exam-review-status">${esc(ageCopy(entry.state, now))}</span></div><p class="exam-review-copy" data-selection-source="passage">${esc(entry.question.sourceText || '')}</p><div class="exam-review-actions">${entry.state.sourceAttemptId ? `<button type="button" class="btn btn-outline btn-sm" data-translation-explanation="${esc(entry.state.sourceAttemptId)}">查看解析</button>` : ''}<button type="button" class="btn btn-primary btn-sm" data-translation-redo="${esc(entry.state.bankId)}" data-paper="${esc(entry.state.paperKey)}" data-unit="${esc(entry.state.unitKey)}">重新练习 ${resolveExamIdForBank(entry.state.bankId) === 'cet4' ? '翻译' : 'Part C'}</button></div></article>`;
   }).join('');
 }
 
@@ -116,12 +117,11 @@ export const ExamReviewView = {
   async render(container) {
     this.cleanup();
     const services = createExamServices();
-    const examId = 'kaoyan_en1';
     const now = Date.now();
     const [allWrong, allTranslations, attempts] = await Promise.all([
-      services.stateRepository.listWrongStates({ examId }),
-      services.stateRepository.listTranslationReviews({ examId }),
-      services.stateRepository.listAttempts({ examId })
+      listAcrossExams(examId => services.stateRepository.listWrongStates({ examId })),
+      listAcrossExams(examId => services.stateRepository.listTranslationReviews({ examId })),
+      listAcrossExams(examId => services.stateRepository.listAttempts({ examId }))
     ]);
     const [activeEntries, masteredEntries, translationEntries] = await Promise.all([
       Promise.all(allWrong.filter(state => state.status === 'active').map(state => enrichState(services, state))),
@@ -151,9 +151,9 @@ export const ExamReviewView = {
     container.querySelectorAll('[data-review-question-open]').forEach(button => add(button, 'click', () => { const dialog = button.closest('dialog'); dialog.querySelector('.exam-review-question-list').hidden = true; dialog.querySelectorAll('[data-review-question-detail]').forEach(detail => { detail.hidden = detail.dataset.reviewQuestionDetail !== button.dataset.reviewQuestionOpen; }); }));
     container.querySelectorAll('[data-review-detail-back]').forEach(button => add(button, 'click', () => { const dialog = button.closest('dialog'); dialog.querySelector('.exam-review-question-list').hidden = false; dialog.querySelectorAll('[data-review-question-detail]').forEach(detail => { detail.hidden = true; }); }));
     container.querySelectorAll('[data-review-explanation]').forEach(button => add(button, 'click', () => { if (button.dataset.reviewExplanation) location.hash = `#/exam/practice/${button.dataset.reviewExplanation}/explanation`; else { const panelNode = button.nextElementSibling; panelNode.hidden = !panelNode.hidden; } }));
-    container.querySelectorAll('[data-review-start]').forEach(button => add(button, 'click', async () => { try { const attempt = await services.practiceService.startReviewCenterAttempt({ examId, bankId: button.dataset.reviewStart, paperKey: button.dataset.paper, unitKey: button.dataset.unit, questionKeys: button.dataset.keys.split('|').filter(Boolean) }); location.hash = `#/exam/practice/${attempt.attemptId}`; } catch { await this.render(container); } }));
+    container.querySelectorAll('[data-review-start]').forEach(button => add(button, 'click', async () => { try { const examId = resolveExamIdForBank(button.dataset.reviewStart) || 'kaoyan_en1'; const attempt = await services.practiceService.startReviewCenterAttempt({ examId, bankId: button.dataset.reviewStart, paperKey: button.dataset.paper, unitKey: button.dataset.unit, questionKeys: button.dataset.keys.split('|').filter(Boolean) }); location.hash = `#/exam/practice/${attempt.attemptId}`; } catch { await this.render(container); } }));
     container.querySelectorAll('[data-translation-explanation]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.translationExplanation}/explanation`; }));
-    container.querySelectorAll('[data-translation-redo]').forEach(button => add(button, 'click', async () => { const attempt = await services.practiceService.startAttempt({ examId, bankId: button.dataset.translationRedo, paperKey: button.dataset.paper, unitKey: button.dataset.unit, practiceOrigin: 'review_center_manual' }); location.hash = `#/exam/practice/${attempt.attemptId}`; }));
+    container.querySelectorAll('[data-translation-redo]').forEach(button => add(button, 'click', async () => { const examId = resolveExamIdForBank(button.dataset.translationRedo) || 'kaoyan_en1'; const attempt = await services.practiceService.startAttempt({ examId, bankId: button.dataset.translationRedo, paperKey: button.dataset.paper, unitKey: button.dataset.unit, practiceOrigin: 'review_center_manual' }); location.hash = `#/exam/practice/${attempt.attemptId}`; }));
     this._wordLookupCleanup = bindReadingStyleWordLookup({ root: container, shouldIgnoreClick: event => Boolean(event.target.closest('[data-word-lookup="disabled"]')) });
   }
 };

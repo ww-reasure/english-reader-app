@@ -15,6 +15,14 @@ test('practice progress opens an answer card and resolves cross-unit question ke
   assert.match(source, /event\.key === 'Tab'/);
 });
 
+test('submitted explanation keeps the answer card as a read-only question navigator', async () => {
+  const source = await read('../src/views/exam-practice.js');
+  assert.doesNotMatch(source, /<span id="examSheetProgress"/);
+  assert.match(source, /bindExplanationEvents\(\)[\s\S]*this\.sheetProgress, 'click'/);
+  assert.doesNotMatch(source, /if \(this\.isExplanation \|\| this\._answerCardOverlay\) return;/);
+  assert.match(source, /renderAnswerCardHtml\(model, \{ readOnly: this\.isExplanation \}\)/);
+});
+
 test('submitted explanation binds sentence long press to a passage-only AI confirmation', async () => {
   const source = await read('../src/views/exam-practice.js');
   assert.match(source, /bindSentenceLongPress/);

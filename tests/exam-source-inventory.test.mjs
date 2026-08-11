@@ -11,19 +11,41 @@ test('classifySourceFile identifies standard year sources and MinerU candidates'
   assert.deepEqual(classifySourceFile('1/考研英语一2025年真题及答案解析（整卷）.pdf'), {
     extension: '.pdf',
     year: 2025,
+    month: null,
+    setNumber: null,
     sourceRole: 'standard_exam_pdf',
     flags: []
   });
   assert.deepEqual(classifySourceFile('md/MinerU_markdown_考研英语一2026年真题及答案解析（整卷）.md'), {
     extension: '.md',
     year: 2026,
+    month: null,
+    setNumber: null,
     sourceRole: 'mineru_candidate_markdown',
     flags: []
   });
   assert.deepEqual(classifySourceFile('json/MinerU_考研英语一2026年真题及答案解析（整卷）__20260807151332.json'), {
     extension: '.json',
     year: 2026,
+    month: null,
+    setNumber: null,
     sourceRole: 'mineru_candidate_json',
+    flags: []
+  });
+  assert.deepEqual(classifySourceFile('CET4/md/英语四级2023年6月第1套真题及答案解析（整卷）.md'), {
+    extension: '.md',
+    year: 2023,
+    month: 6,
+    setNumber: 1,
+    sourceRole: 'standard_exam_markdown',
+    flags: []
+  });
+  assert.deepEqual(classifySourceFile('CET4/pdf/英语四级2020年9月第2套真题及答案解析（整卷）.pdf'), {
+    extension: '.pdf',
+    year: 2020,
+    month: 9,
+    setNumber: 2,
+    sourceRole: 'standard_exam_pdf',
     flags: []
   });
 });

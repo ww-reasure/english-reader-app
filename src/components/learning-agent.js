@@ -17,8 +17,8 @@ export const LEARNING_TOOLS = [
     type: 'function',
     function: {
       name: 'get_exam_learning_overview',
-      description: '只读查询真题练习表现、趋势和复习摘要。仅当用户明确提到某一年时传入 year。',
-      parameters: { type: 'object', properties: { year: { type: 'integer', minimum: 2000, maximum: 2100 } } }
+      description: '只读查询真题练习表现、趋势和复习摘要。仅当用户明确提到某一年时传入 year；仅在明确提到四级或英语一时传入 bankId。',
+      parameters: { type: 'object', properties: { year: { type: 'integer', minimum: 2000, maximum: 2100 }, bankId: { type: 'string' } } }
     }
   },
   {
@@ -83,12 +83,13 @@ export class LearningAgent {
     throw new Error('Tool not allowed: ' + name);
   }
 
-  async getExamLearningOverview({ year } = {}) {
+  async getExamLearningOverview({ year, bankId } = {}) {
     if (!this.examLearningProvider?.getOverview) {
       return { source: 'exam_learning_overview', status: 'unavailable', availableYears: [], recentAttempts: [], wrongSummary: [] };
     }
     const query = { recentLimit: 5, wrongLimit: 5 };
     if (Number.isInteger(Number(year))) query.year = Number(year);
+    if (typeof bankId === 'string' && bankId.trim()) query.bankId = bankId.trim();
     return this.examLearningProvider.getOverview(query);
   }
 

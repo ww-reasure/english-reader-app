@@ -4,11 +4,19 @@
  * deterministic in tests and prevents unavailable packs from being invented.
  */
 
+function matchesUnitType(unit, unitType) {
+  if (!unitType) return true;
+  if (unitType === 'part_b') return ['paragraph_ordering', 'matching'].includes(unit.type);
+  if (unitType === 'section_c') return unit.type === 'reading_mcq';
+  if (unitType === 'banked_cloze' || unitType === 'long_reading') {
+    return unit.type === 'matching' && unit.matchingVariant === unitType;
+  }
+  return unit.type === unitType;
+}
+
 function asUnits(paper, unitType) {
   return (paper?.units || [])
-    .filter(unit => !unitType || (unitType === 'part_b'
-      ? ['paragraph_ordering', 'matching'].includes(unit.type)
-      : unit.type === unitType))
+    .filter(unit => matchesUnitType(unit, unitType))
     .filter(unit => Array.isArray(unit.questions) && unit.questions.length)
     .map(unit => ({
       ...unit,

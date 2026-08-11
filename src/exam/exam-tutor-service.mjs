@@ -19,7 +19,7 @@ const TRANSLATION_TUTOR_SYSTEM_PROMPT = [
 
 const TRANSLATION_TRAINING_SYSTEM_PROMPT = [
   TRANSLATION_TUTOR_SYSTEM_PROMPT,
-  '这是一次 AI 训练评分，仅供学习参考：内部训练分数范围只能是 0 到 10，不是官方考研评分，也不得映射或声称为考研 Part C 的官方分数。',
+  '这是一次 AI 训练评分，仅供学习参考：内部训练分数范围只能是 0 到 10，不是任何官方考试评分，也不得映射或声称为考研、四级或其他考试的官方分数。',
   '主要从原文信息完整性、关键逻辑关系、词义理解、长难句结构处理和中文表达自然度给出反馈。',
   '只返回一个合法 JSON 对象，不要 Markdown、代码块或额外文字。JSON 必须严格包含：',
   '{"trainingScore":7.5,"summary":"...","strengths":["..."],"issues":[{"sourceFragment":"...","userFragment":"...","type":"...","explanation":"...","suggestion":"..."}],"improvedTranslation":"...","studyAdvice":"..."}'

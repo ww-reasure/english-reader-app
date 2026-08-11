@@ -90,3 +90,27 @@ test('full-paper year selection keeps the paper together and expands multi-secti
     }
   ]);
 });
+
+test('catalog filters CET4 variant and section keys without breaking kaoyan types', async () => {
+  const { buildExamCatalog } = await import('../src/exam/catalog.mjs');
+  const paper = {
+    paperKey: 'cet4_2023_06_1',
+    bankId: 'builtin_cet4',
+    packageId: 'local.cet4',
+    year: 2023,
+    units: [
+      { unitKey: 'u-a', type: 'matching', matchingVariant: 'banked_cloze', questions: [{ questionKey: 'q26' }] },
+      { unitKey: 'u-b', type: 'matching', matchingVariant: 'long_reading', questions: [{ questionKey: 'q36' }] },
+      { unitKey: 'u-c', type: 'reading_mcq', displayTitle: 'Passage One', questions: [{ questionKey: 'q46' }] },
+      { unitKey: 'u-t', type: 'translation', questions: [{ questionKey: 'q1' }] }
+    ]
+  };
+  const banked = buildExamCatalog([paper], { unitType: 'banked_cloze' });
+  assert.deepEqual(banked[0].units.map(unit => unit.unitKey), ['u-a']);
+  const longReading = buildExamCatalog([paper], { unitType: 'long_reading' });
+  assert.deepEqual(longReading[0].units.map(unit => unit.unitKey), ['u-b']);
+  const sectionC = buildExamCatalog([paper], { unitType: 'section_c' });
+  assert.deepEqual(sectionC[0].units.map(unit => unit.unitKey), ['u-c']);
+  const translation = buildExamCatalog([paper], { unitType: 'translation' });
+  assert.deepEqual(translation[0].units.map(unit => unit.unitKey), ['u-t']);
+});

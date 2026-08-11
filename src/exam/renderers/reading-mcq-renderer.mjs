@@ -7,12 +7,35 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({
 }[character]));
 import { renderResultDetail } from './result-detail.mjs';
 
+function translationFor(unit, paragraphKey) {
+  return (unit.translation || []).find(item => item.paragraphKey === paragraphKey)?.text || '';
+}
+
+function paragraphTranslationHtml(unit, paragraph, { resultMode = false, translationState = null } = {}) {
+  if (!resultMode) return '';
+  const state = translationState?.get?.(paragraph.paragraphKey) || {};
+  const storedText = translationFor(unit, paragraph.paragraphKey);
+  const translation = String(state.text ?? storedText ?? '').trim();
+  const status = state.status || (translation ? 'ready' : 'idle');
+  const expanded = translation && state.expanded !== false && status !== 'error';
+  const label = status === 'loading' ? '…' : status === 'error' ? '重试' : '译';
+  const translationId = `exam-paragraph-translation-${esc(paragraph.paragraphKey)}`;
+  const body = translation
+    ? `<span id="${translationId}" class="exam-paragraph-translation" data-paragraph-translation="${esc(paragraph.paragraphKey)}" data-word-lookup="disabled" ${expanded ? '' : 'hidden'}>${esc(translation)}</span>`
+    : status === 'error'
+      ? `<span id="${translationId}" class="exam-paragraph-translation is-error" data-paragraph-translation="${esc(paragraph.paragraphKey)}" data-word-lookup="disabled">暂时无法翻译，请重试</span>`
+      : '';
+  return `
+    <button type="button" class="exam-paragraph-translation-toggle ${expanded ? 'is-expanded' : ''}" data-paragraph-translation-toggle data-paragraph-key="${esc(paragraph.paragraphKey)}" aria-controls="${translationId}" aria-expanded="${Boolean(expanded)}" ${status === 'loading' ? 'disabled' : ''}>${label}</button>
+    ${body}`;
+}
+
 export const readingMcqRenderer = {
   unitType: 'reading_mcq',
 
-  renderArticle(unit) {
+  renderArticle(unit, { resultMode = false, paragraphTranslationState = null } = {}) {
     return (unit.passage || []).map(paragraph =>
-      `<p class="exam-practice-paragraph" data-paragraph-key="${esc(paragraph.paragraphKey)}" data-selection-source="passage">${esc(paragraph.text)}</p>`
+      `<p class="exam-practice-paragraph" data-paragraph-key="${esc(paragraph.paragraphKey)}" data-selection-source="passage">${esc(paragraph.text)}${paragraphTranslationHtml(unit, paragraph, { resultMode, translationState: paragraphTranslationState })}</p>`
     ).join('');
   },
 

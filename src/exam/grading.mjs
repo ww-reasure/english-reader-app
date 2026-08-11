@@ -49,12 +49,13 @@ export function gradeSingleChoice(question, answer) {
 export function assertOrderingResponses(unit, responses) {
   const fixedKeys = new Set((unit.fixedPlacements || []).map(item => item.candidateKey));
   const candidateKeys = new Set((unit.candidates || []).map(candidate => candidate.candidateKey));
+  const allowReuse = Boolean(unit.allowCandidateReuse);
   const used = new Map();
   for (const response of responses || []) {
     if (response.answer === null || response.answer === undefined || response.answer === '') continue;
     if (!candidateKeys.has(response.answer)) throw new Error(`未知候选段落：${response.answer}`);
     if (fixedKeys.has(response.answer)) throw new Error(`固定段落不能用于待填位置：${response.answer}`);
-    if (used.has(response.answer)) {
+    if (!allowReuse && used.has(response.answer)) {
       throw new Error(`候选段落 ${response.answer} 重复使用`);
     }
     used.set(response.answer, response.questionKey);

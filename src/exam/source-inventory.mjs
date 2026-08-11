@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, extname, relative, resolve } from 'node:path';
 
 const YEAR_PATTERN = /(20\d{2})/u;
+const CET4_SET_PATTERN = /(20\d{2})年(\d{1,2})月第(\d)套/u;
 
 function normalizeRelativePath(value) {
   return String(value || '').replaceAll('\\', '/').replace(/^\.\//u, '');
@@ -36,23 +37,28 @@ export function classifySourceFile(inputPath) {
   const extension = fileExtension(relativePath);
   const parts = relativePath.split('/');
   const root = parts[0] || '';
+  const subfolder = parts[1] || '';
   const filename = parts.at(-1) || '';
   const detectedYear = Number(filename.match(YEAR_PATTERN)?.[1] || relativePath.match(YEAR_PATTERN)?.[1]) || null;
   const isMinerU = /mineru/i.test(filename);
+  const isCET4Root = root === 'CET4' || (['md', 'json', 'pdf'].includes(root) && /英语四级/.test(filename));
   let sourceRole = 'unknown';
 
-  if (extension === '.pdf' && root === '1') sourceRole = 'standard_exam_pdf';
-  else if (extension === '.md' && root === 'md' && !isMinerU) sourceRole = 'standard_exam_markdown';
-  else if (extension === '.json' && root === 'json' && !isMinerU) sourceRole = 'standard_exam_json';
+  if (extension === '.pdf' && (root === '1' || (isCET4Root && (subfolder === 'pdf' || root === 'pdf')))) sourceRole = 'standard_exam_pdf';
+  else if (extension === '.md' && ((root === 'md' && !isCET4Root) || (isCET4Root && (subfolder === 'md' || root === 'md'))) && !isMinerU) sourceRole = 'standard_exam_markdown';
+  else if (extension === '.json' && ((root === 'json' && !isCET4Root) || (isCET4Root && (subfolder === 'json' || root === 'json'))) && !isMinerU) sourceRole = 'standard_exam_json';
   else if (extension === '.md' && root === 'md' && isMinerU) sourceRole = 'mineru_candidate_markdown';
   else if (extension === '.json' && root === 'json' && isMinerU) sourceRole = 'mineru_candidate_json';
   else if (extension === '.jpg' || extension === '.jpeg' || extension === '.png') sourceRole = 'supporting_image';
 
   const year = sourceRole.startsWith('standard_exam_') || sourceRole.startsWith('mineru_candidate_') ? detectedYear : null;
+  const setMatch = isCET4Root ? filename.match(CET4_SET_PATTERN) : null;
+  const month = setMatch ? Number(setMatch[2]) : null;
+  const setNumber = setMatch ? Number(setMatch[3]) : null;
   const flags = [];
   if (sourceRole === 'unknown' || (sourceRole !== 'supporting_image' && !year)) flags.push('NEEDS_HUMAN_REVIEW');
 
-  return { extension, year, sourceRole, flags };
+  return { extension, year, sourceRole, month, setNumber, flags };
 }
 
 function metadataRecord(record) {
@@ -62,11 +68,14 @@ function metadataRecord(record) {
     relativePath,
     extension: classification.extension,
     year: classification.year,
+    month: classification.month,
+    setNumber: classification.setNumber,
     sourceRole: classification.sourceRole,
     sizeBytes: Number.isSafeInteger(record.sizeBytes) ? record.sizeBytes : null,
     sha256: record.sha256 || null,
     pageCount: Number.isSafeInteger(record.pageCount) ? record.pageCount : null,
     isEnglishI: classification.sourceRole === 'unknown' ? null : true,
+    isCET4: relativePath.startsWith('CET4/'),
     isPdf: classification.extension === '.pdf',
     isMarkdown: classification.extension === '.md',
     isJson: classification.extension === '.json',

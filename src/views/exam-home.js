@@ -4,15 +4,24 @@ import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs
 import { installExamPack } from '../exam/pack-installer.mjs';
 import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
+import { SUPPORTED_EXAM_IDS } from '../exam/constants.mjs';
+import { examDisplayName, listAcrossExams, persistActiveBankId, readActiveBankId, resolveExamIdForBank, unitLabel } from '../exam/exam-context.mjs';
 import { esc } from '../helpers.js';
 
-const EXAM_ID = 'kaoyan_en1';
-const TYPE_CARDS = [
-  { type: 'cloze_choice', title: '完形填空', subtitle: 'Section I', icon: 'fa-solid fa-puzzle-piece' },
-  { type: 'reading_mcq', title: '阅读理解', subtitle: 'Section II Part A', icon: 'fa-solid fa-book-open' },
-  { type: 'part_b', title: '阅读新题型 Part B', subtitle: '排序 · 插入 · 匹配', icon: 'fa-solid fa-list' },
-  { type: 'translation', title: '翻译', subtitle: 'Section II Part C', icon: 'fa-solid fa-language' }
-];
+const TYPE_CARDS_BY_EXAM = {
+  kaoyan_en1: [
+    { type: 'cloze_choice', title: '完形填空', subtitle: 'Section I', icon: 'fa-solid fa-puzzle-piece' },
+    { type: 'reading_mcq', title: '阅读理解', subtitle: 'Section II Part A', icon: 'fa-solid fa-book-open' },
+    { type: 'part_b', title: '阅读新题型 Part B', subtitle: '排序 · 插入 · 匹配', icon: 'fa-solid fa-list' },
+    { type: 'translation', title: '翻译', subtitle: 'Section II Part C', icon: 'fa-solid fa-language' }
+  ],
+  cet4: [
+    { type: 'banked_cloze', title: '选词填空', subtitle: 'Section A · 15 选 10', icon: 'fa-solid fa-puzzle-piece' },
+    { type: 'long_reading', title: '长篇阅读', subtitle: 'Section B · 信息匹配', icon: 'fa-solid fa-list' },
+    { type: 'section_c', title: '仔细阅读', subtitle: 'Section C · 四选一', icon: 'fa-solid fa-book-open' },
+    { type: 'translation', title: '翻译', subtitle: 'Part IV · 汉译英', icon: 'fa-solid fa-language' }
+  ]
+};
 
 async function installPrivatePacks(services) {
   const response = await fetch('/exam-packs/private/index.json');
@@ -29,21 +38,16 @@ async function installPrivatePacks(services) {
 }
 
 async function loadVisiblePapers(services, records) {
-  return Promise.all(records.map(async record => ({
-    ...await services.contentRepository.getFullPaper({ examId: EXAM_ID, bankId: record.bankId, paperKey: record.paperKey }),
-    bankId: record.bankId,
-    packageId: record.packageId,
-    packageVersion: record.packageVersion,
-    sourceType: record.sourceType
-  })));
-}
-
-function unitTitle(unit) {
-  if (unit?.type === 'cloze_choice') return '完形填空';
-  if (unit?.type === 'paragraph_ordering') return '段落排序';
-  if (unit?.type === 'matching') return ({ sentence_insertion: '句子插入', heading_matching: '小标题匹配', statement_matching: '观点匹配' }[unit.matchingVariant] || 'Part B 匹配');
-  if (unit?.type === 'translation') return '翻译';
-  return unit?.displayTitle ? `阅读理解 ${unit.displayTitle}` : '阅读理解';
+  return Promise.all(records.map(async record => {
+    const examId = resolveExamIdForBank(record.bankId) || 'kaoyan_en1';
+    return {
+      ...await services.contentRepository.getFullPaper({ examId, bankId: record.bankId, paperKey: record.paperKey }),
+      bankId: record.bankId,
+      packageId: record.packageId,
+      packageVersion: record.packageVersion,
+      sourceType: record.sourceType
+    };
+  }));
 }
 
 function isAnswered(response) {
@@ -51,7 +55,8 @@ function isAnswered(response) {
 }
 
 async function getAttemptProgress(stateRepository, attempt) {
-  const responses = await stateRepository.getResponses({ examId: EXAM_ID, attemptId: attempt.attemptId });
+  const examId = attempt.examId || resolveExamIdForBank(attempt.bankId) || 'kaoyan_en1';
+  const responses = await stateRepository.getResponses({ examId, attemptId: attempt.attemptId });
   const total = Math.max(1, (attempt.questionOrder || []).length);
   const answered = responses.filter(isAnswered).length;
   return {
@@ -72,23 +77,24 @@ export const ExamHomeView = {
     const services = createExamServices();
     if (shouldInstallPrivateExamPacks(import.meta.env.MODE)) await installPrivatePacks(services);
     const [records, banks, attempts] = await Promise.all([
-      services.contentRepository.listPapers({ examId: EXAM_ID }),
-      services.contentRepository.listBanks({ examId: EXAM_ID }).catch(() => []),
-      services.stateRepository.listAttempts({ examId: EXAM_ID })
+      listAcrossExams(examId => services.contentRepository.listPapers({ examId })),
+      listAcrossExams(examId => services.contentRepository.listBanks({ examId })),
+      listAcrossExams(examId => services.stateRepository.listAttempts({ examId }))
     ]);
     const visibleRecords = filterVisibleExamPapers(records, { isProduction: import.meta.env.MODE === 'public' });
     const bankOptions = getExamBankOptions(banks, visibleRecords);
-    const activeBankId = resolveExamBankId(bankOptions, bankId);
-    const activeBankLabel = String(bankOptions.find(option => option.bankId === activeBankId)?.label || '英语一')
-      .replace(/^考研/, '')
-      .replace(/^英语四级$/, '四级');
+    const requestedBank = bankId || readActiveBankId();
+    const activeBankId = resolveExamBankId(bankOptions, requestedBank);
+    const activeOption = bankOptions.find(option => option.bankId === activeBankId);
+    const activeBankLabel = String(activeOption?.label || '考研英语一');
+    const activeExamId = resolveExamIdForBank(activeBankId) || 'kaoyan_en1';
     const papers = await loadVisiblePapers(services, visibleRecords.filter(record => !activeBankId || record.bankId === activeBankId));
     const now = Date.now();
-    const [dueWrong, dueTranslations] = await Promise.all([
-      services.stateRepository.listDueWrongStates({ examId: EXAM_ID, now }),
-      services.stateRepository.listDueTranslationReviews({ examId: EXAM_ID, now })
-    ]);
-    const dueCount = dueWrong.length + dueTranslations.length;
+    const dueRows = await listAcrossExams(examId => Promise.all([
+      services.stateRepository.listDueWrongStates({ examId, now }),
+      services.stateRepository.listDueTranslationReviews({ examId, now })
+    ]).then(([wrong, translations]) => [...wrong, ...translations]));
+    const dueCount = dueRows.filter(state => !activeBankId || state.bankId === activeBankId).length;
     const resumable = attempts
       .filter(attempt => attempt.status === 'in_progress' && (!activeBankId || attempt.bankId === activeBankId))
       .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
@@ -97,13 +103,16 @@ export const ExamHomeView = {
       const paper = papers.find(item => item.paperKey === attempt.paperKey && item.bankId === attempt.bankId);
       if (!paper) return { attempt, label: '未知练习' };
       const unit = paper.units.find(item => item.unitKey === (attempt.currentUnitKey || attempt.unitKey));
-      return { attempt, paper, unit, label: attempt.practiceKind === 'full_paper' ? `${paper.year} · 整卷练习` : `${paper.year} · ${unitTitle(unit)}`, progress: await getAttemptProgress(services.stateRepository, attempt) };
+      const examId = attempt.examId || resolveExamIdForBank(attempt.bankId) || 'kaoyan_en1';
+      const label = attempt.practiceKind === 'full_paper' ? `${paper.year} · 整卷练习` : `${paper.year} · ${unitLabel(unit, { examId })}`;
+      return { attempt, paper, unit, label, progress: await getAttemptProgress(services.stateRepository, attempt) };
     };
     const resumableWithLabels = (await Promise.all(resumable.map(resolveAttempt))).filter(item => item.paper);
     const primaryResume = resumableWithLabels[0] || null;
     const recentPaper = primaryResume?.paper || papers[0];
     const recentUnit = primaryResume?.unit || recentPaper?.units.find(item => item.type === 'reading_mcq') || recentPaper?.units[0];
-    const recentLabel = primaryResume?.label || (recentPaper ? `${recentPaper.year} · ${unitTitle(recentUnit)}` : '还没有练习记录');
+    const recentLabel = primaryResume?.label || (recentPaper ? `${recentPaper.year} · ${unitLabel(recentUnit, { examId: activeExamId })}` : '还没有练习记录');
+    const typeCards = TYPE_CARDS_BY_EXAM[activeExamId] || TYPE_CARDS_BY_EXAM.kaoyan_en1;
 
     container.innerHTML = `
       <div class="exam-home exam-dashboard">
@@ -114,16 +123,16 @@ export const ExamHomeView = {
           <select id="examBankPicker" aria-label="选择题库">${bankOptions.map(option => `<option value="${esc(option.bankId)}" ${option.bankId === activeBankId ? 'selected' : ''} ${option.disabled ? 'disabled' : ''}>${esc(option.label)}${option.disabled ? '（暂未安装）' : ''}</option>`).join('')}</select>
         </label>
         <section class="exam-dashboard-hero">
-          <h1>考研英语一</h1>
+          <h1>${esc(examDisplayName(activeExamId, activeBankId))}</h1>
           <p>最近练习 <strong>${esc(recentLabel)}</strong></p>
         </section>
-        ${primaryResume ? `<button class="exam-resume-card" type="button" data-resume="${esc(primaryResume.attempt.attemptId)}"><span class="exam-progress-ring" aria-label="已完成 ${primaryResume.progress.percent}%"><i class="fa-solid fa-circle-notch" aria-hidden="true"></i><b>${primaryResume.progress.percent}%</b></span><span class="exam-resume-copy"><strong>继续练习</strong><small>${esc(primaryResume.unit ? unitTitle(primaryResume.unit).replace(/^阅读理解 /, '阅读理解 ') : '整卷练习')}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>` : ''}
+        ${primaryResume ? `<button class="exam-resume-card" type="button" data-resume="${esc(primaryResume.attempt.attemptId)}"><span class="exam-progress-ring" aria-label="已完成 ${primaryResume.progress.percent}%"><i class="fa-solid fa-circle-notch" aria-hidden="true"></i><b>${primaryResume.progress.percent}%</b></span><span class="exam-resume-copy"><strong>继续练习</strong><small>${esc(primaryResume.unit ? unitLabel(primaryResume.unit, { examId: activeExamId }) : '整卷练习')}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>` : ''}
         <a class="exam-full-paper-card" href="#/exam/catalog/full_paper"><i class="fa-regular fa-file-lines exam-card-icon" aria-hidden="true"></i><span><strong>整卷练习</strong><small>全真模拟，完整体验考试节奏</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>
         <section class="exam-special-section">
           <h2>专项训练</h2>
-          <div class="exam-special-list">${TYPE_CARDS.map(card => `<a class="exam-special-card" href="#/exam/catalog/${card.type}"><i class="${esc(card.icon)} exam-special-icon" aria-hidden="true"></i><span><strong>${card.title}</strong><small>${card.subtitle}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>`).join('')}</div>
+          <div class="exam-special-list">${typeCards.map(card => `<a class="exam-special-card" href="#/exam/catalog/${card.type}"><i class="${esc(card.icon)} exam-special-icon" aria-hidden="true"></i><span><strong>${card.title}</strong><small>${card.subtitle}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>`).join('')}</div>
         </section>
-        <a class="exam-review-card" href="#/exam/review"><i class="fa-solid fa-clipboard-list exam-special-icon" aria-hidden="true"></i><span><strong>错题本</strong><small>巩固薄弱，精准提分</small></span><em>${dueCount ? `今日待复习 <b>${dueCount}</b>` : '查看待复习题'} </em><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>
+        <a class="exam-review-card" href="#/exam/review"><i class="fa-solid fa-clipboard-list exam-special-icon" aria-hidden="true"></i><span><strong>错题本</strong><small>巩固薄弱，精准提分</small></span><em>${dueCount ? `待复习 <b>${dueCount}</b>` : '查看待复习题'} </em><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>
          ${renderExamBottomNav('exam')}
       </div>`;
 
@@ -136,7 +145,7 @@ export const ExamHomeView = {
       headerActions.replaceChildren(bankPicker.closest('label') || bankPicker);
     }
     container.querySelectorAll('[data-resume]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.resume}`; }));
-    add(bankPicker, 'change', event => this.render(container, event.target.value));
+    add(bankPicker, 'change', event => { persistActiveBankId(event.target.value); this.render(container, event.target.value); });
     this._cleanupHandlers = handlers;
   }
 };

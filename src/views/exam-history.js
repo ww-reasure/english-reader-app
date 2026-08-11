@@ -4,6 +4,7 @@ import { installExamPack } from '../exam/pack-installer.mjs';
 import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
 import { esc } from '../helpers.js';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
+import { listAcrossExams, unitLabel } from '../exam/exam-context.mjs';
 
 async function installPrivatePacks(services) {
   const response = await fetch('/exam-packs/private/index.json');
@@ -33,8 +34,8 @@ export const ExamHistoryView = {
     const services = createExamServices();
     if (shouldInstallPrivateExamPacks(import.meta.env.MODE)) await installPrivatePacks(services);
     const [attempts, records] = await Promise.all([
-      services.stateRepository.listAttempts({ examId: 'kaoyan_en1' }),
-      services.contentRepository.listPapers({ examId: 'kaoyan_en1' })
+      listAcrossExams(examId => services.stateRepository.listAttempts({ examId })),
+      listAcrossExams(examId => services.contentRepository.listPapers({ examId }))
     ]);
     const isPublicBuild = import.meta.env.MODE === 'public';
     const visibleRecords = filterVisibleExamPapers(records, { isProduction: isPublicBuild });
@@ -43,10 +44,10 @@ export const ExamHistoryView = {
     for (const attempt of attempts) {
       const record = recordByKey.get(`${attempt.bankId}:${attempt.paperKey}`);
       if (!record) continue;
-      const paper = await services.contentRepository.getFullPaper({ examId: 'kaoyan_en1', bankId: attempt.bankId, paperKey: attempt.paperKey });
+      const paper = await services.contentRepository.getFullPaper({ examId: attempt.examId, bankId: attempt.bankId, paperKey: attempt.paperKey });
       if (!paper || (isPublicBuild && isSyntheticExamPaper(paper))) continue;
       const unit = paper.units.find(item => item.unitKey === (attempt.currentUnitKey || attempt.unitKey));
-      const responses = await services.stateRepository.getResponses({ examId: 'kaoyan_en1', attemptId: attempt.attemptId });
+      const responses = await services.stateRepository.getResponses({ examId: attempt.examId, attemptId: attempt.attemptId });
       const objective = responses.filter(response => response.correct !== null && response.correct !== undefined);
       rows.push({ attempt, paper, unit, responses, accuracy: objective.length ? Math.round(objective.filter(response => response.correct).length / objective.length * 100) : null });
     }
@@ -58,7 +59,8 @@ export const ExamHistoryView = {
             const isFull = attempt.practiceKind === 'full_paper';
             const state = attempt.status === 'in_progress' ? '进行中' : attempt.status === 'submitted' ? '已完成' : '已放弃';
             const action = attempt.status === 'in_progress' ? `<button class="btn btn-outline btn-sm" data-resume="${esc(attempt.attemptId)}">继续</button>` : attempt.status === 'submitted' ? `<a class="btn btn-outline btn-sm" href="#/exam/result/${esc(attempt.attemptId)}">查看结果</a>` : '';
-            return `<article class="exam-history-row"><div><strong>${esc(isFull ? `${paper.year} · 整卷练习` : `${paper.year} · ${unit?.displayTitle || '真题练习'}`)}</strong><span>${state} · ${accuracy == null ? '未提交' : `${accuracy}%`} · ${formatDuration(attempt.activeDurationMs)} · ${responses.length} 条记录</span></div>${action}</article>`;
+            const unitTitle = unit ? unitLabel(unit, { examId: attempt.examId }) : '真题练习';
+            return `<article class="exam-history-row"><div><strong>${esc(isFull ? `${paper.year} · 整卷练习` : `${paper.year} · ${unitTitle}`)}</strong><span>${state} · ${accuracy == null ? '未提交' : `${accuracy}%`} · ${formatDuration(attempt.activeDurationMs)} · ${responses.length} 条记录</span></div>${action}</article>`;
           }).join('') : '<div class="empty-state">还没有练习记录</div>'}
         </div>
         ${renderExamBottomNav('history')}

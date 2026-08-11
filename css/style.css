@@ -1659,6 +1659,50 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   line-height: 1.8;
   font-size: 16px;
 }
+.exam-paragraph-translation-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--signal-deep);
+  font: inherit;
+  font-size: .82em;
+  line-height: 1.4;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.exam-paragraph-translation-toggle:hover,
+.exam-paragraph-translation-toggle.is-expanded {
+  background: var(--signal-soft);
+}
+.exam-paragraph-translation-toggle:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.exam-paragraph-translation-toggle:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+.exam-paragraph-translation {
+  display: block;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--signal);
+  background: var(--signal-soft);
+  color: var(--ink-soft);
+  font-size: .92em;
+  line-height: 1.7;
+}
+.exam-paragraph-translation[hidden] {
+  display: none;
+}
+.exam-paragraph-translation.is-error {
+  color: var(--danger);
+}
 .exam-sheet {
   position: absolute;
   left: 0;
@@ -2963,7 +3007,10 @@ body.exam-answer-card-open { overflow:hidden; }
 .exam-answer-card-footer { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:14px 20px calc(14px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px))); border-top:1px solid var(--exam-border); background:var(--exam-surface); }
 .exam-answer-card-footer p { margin:0; color:var(--exam-text-muted); font-size:13px; }
 .exam-answer-card-footer .btn { min-width:112px; min-height:44px; }
+.exam-answer-card-readonly { display:inline-flex; align-items:center; min-height:44px; padding:0 12px; color:var(--exam-text-muted); font-size:13px; font-weight:750; }
 .exam-sentence-ai-confirm { position:fixed; z-index:1400; min-height:42px; padding:8px 14px; transform:translateX(-50%); border:1px solid var(--exam-accent); border-radius:999px; background:var(--exam-accent); color:var(--on-accent); box-shadow:var(--elevation-float); font-size:13px; font-weight:800; white-space:nowrap; }
+.sentence-long-press-pending,
+.sentence-long-press-pending * { -webkit-user-select:none !important; user-select:none !important; -webkit-touch-callout:none; }
 
 @media (min-width: 600px) {
   .exam-answer-card-overlay { align-items:stretch; justify-content:flex-end; padding:0; background:var(--overlay-soft); backdrop-filter:none; }

@@ -181,40 +181,111 @@ function assertQuestion(question, errors) {
   }
 }
 
+const KAOYAN_MATCHING_VARIANTS = new Set(['sentence_insertion', 'heading_matching', 'statement_matching']);
+const CET4_MATCHING_VARIANTS = new Set(['banked_cloze', 'long_reading']);
+
+function hasEmbeddedFullTranslation(text) {
+  const value = String(text || '');
+  const cjkCount = (value.match(/[\u3400-\u9fff]/gu) || []).length;
+  const latinCount = (value.match(/[A-Za-z]/gu) || []).length;
+  return cjkCount >= 8 && /[，。；：！？、]/u.test(value) && cjkCount > latinCount * 0.08;
+}
+
+function assertPracticePassageIsEnglish(paragraphs, field, errors) {
+  (Array.isArray(paragraphs) ? paragraphs : []).forEach((paragraph, index) => {
+    if (hasEmbeddedFullTranslation(paragraph?.text)) {
+      errors.push(`${field}[${index}].text 疑似混入全文中文翻译`);
+    }
+  });
+}
+
+function assertReadingOptionIsEnglish(question, errors) {
+  const label = `question.${question?.questionKey || '<missing>'}`;
+  (Array.isArray(question?.options) ? question.options : []).forEach((option, optionIndex) => {
+    const text = String(option?.text || '');
+    if (/[\u3400-\u9fff]/u.test(text)) {
+      errors.push(`${label}.options[${optionIndex}].text 不能包含中文`);
+    }
+    if (/(?:##\s*(?:答案与逐题解析|【选项】)|【答案】|【定位】|【选项】)/u.test(text)) {
+      errors.push(`${label}.options[${optionIndex}].text 疑似混入解析内容`);
+    }
+  });
+}
+
 function assertMatchingUnit(unit, errors) {
   const label = `unit.${unit.unitKey || '<missing>'}`;
-  if (!['sentence_insertion', 'heading_matching', 'statement_matching'].includes(unit.matchingVariant)) {
+  const variant = unit.matchingVariant;
+  const isKaoyan = KAOYAN_MATCHING_VARIANTS.has(variant);
+  if (!isKaoyan && !CET4_MATCHING_VARIANTS.has(variant)) {
     errors.push(`${label}.matchingVariant 无效`);
   }
-  assertParagraphArray(unit.passage, `${label}.passage`, errors);
+  const passageKeys = assertParagraphArray(unit.passage, `${label}.passage`, errors) || new Set();
+  if (variant === 'long_reading') assertPracticePassageIsEnglish(unit.passage, `${label}.passage`, errors);
+  assertTranslationAlignment(unit, label, passageKeys, errors);
   const candidates = Array.isArray(unit.candidates) ? unit.candidates : [];
-  if (candidates.length !== 7) errors.push(`${label}.candidates 必须恰好包含 7 项`);
+  if (variant === 'banked_cloze' && candidates.length !== 15) {
+    errors.push(`${label}.candidates 必须恰好包含 15 项`);
+  } else if (isKaoyan && candidates.length !== 7) {
+    errors.push(`${label}.candidates 必须恰好包含 7 项`);
+  } else if (!isKaoyan && (candidates.length < 5 || candidates.length > 16)) {
+    errors.push(`${label}.candidates 必须包含 5–16 项`);
+  }
+  const maxKey = isKaoyan ? 'G' : 'P';
+  const keyPattern = new RegExp(`^[A-${maxKey}]$`);
   const candidateKeys = new Set();
   candidates.forEach((candidate, index) => {
     const key = String(candidate?.candidateKey || '');
-    if (!/^[A-G]$/.test(key)) errors.push(`${label}.candidates[${index}].candidateKey 必须是 A-G`);
+    if (!keyPattern.test(key)) errors.push(`${label}.candidates[${index}].candidateKey 必须是 A-${maxKey}`);
     else if (candidateKeys.has(key)) errors.push(`${label}.candidates.candidateKey 重复：${key}`);
     else candidateKeys.add(key);
     if (!isNonEmptyString(candidate?.text)) errors.push(`${label}.candidates[${index}].text 必须是非空字符串`);
   });
   const questions = Array.isArray(unit.questions) ? unit.questions : [];
   const slots = Array.isArray(unit.slots) ? unit.slots : [];
-  if (questions.length !== 5 || slots.length !== 5) errors.push(`${label} 必须包含 5 个 matching slot`);
+  if (variant === 'banked_cloze' && (questions.length !== 10 || slots.length !== 10)) {
+    errors.push(`${label} 必须包含 10 个 matching slot`);
+  } else if (isKaoyan && (questions.length !== 5 || slots.length !== 5)) {
+    errors.push(`${label} 必须包含 5 个 matching slot`);
+  } else if (!isKaoyan && (!questions.length || !slots.length)) {
+    errors.push(`${label} 必须至少包含一个 matching slot`);
+  }
+  const uniqueAnswersRequired = !unit.allowCandidateReuse;
   const usedAnswers = new Set();
   for (const question of questions) {
     assertQuestion(question, errors);
     if (question.type !== 'matching_slot') errors.push(`${label}.questions 类型必须为 matching_slot`);
-    if (usedAnswers.has(question.answer)) errors.push(`${label}.answer 候选不可重复使用：${question.answer}`);
-    usedAnswers.add(question.answer);
+    if (uniqueAnswersRequired) {
+      if (usedAnswers.has(question.answer)) errors.push(`${label}.answer 候选不可重复使用：${question.answer}`);
+      usedAnswers.add(question.answer);
+    }
     if (!candidateKeys.has(question.answer)) errors.push(`${label}.answer 不在 candidates 中：${question.answer}`);
     if (!slots.some(slot => slot.questionKey === question.questionKey && slot.slotNumber === question.slotNumber)) {
       errors.push(`${label}.question ${question.questionKey} 未映射到 slot`);
     }
   }
-  for (const slot of slots) {
-    const marker = `[${slot.slotNumber}]`;
-    if (!(unit.passage || []).some(item => String(item.text || '').includes(marker))) {
-      errors.push(`${label}.slot ${slot.slotNumber} 在 passage 中缺少占位标记`);
+  if (isKaoyan || variant === 'banked_cloze') {
+    const markerNumbers = new Set();
+    const markerSequence = [];
+    for (const paragraph of unit.passage || []) {
+      for (const match of String(paragraph.text || '').matchAll(/\[(\d+)\]/gu)) {
+        const number = Number(match[1]);
+        markerNumbers.add(number);
+        markerSequence.push(number);
+      }
+    }
+    for (const slot of slots) {
+      const marker = `[${slot.slotNumber}]`;
+      if (!(unit.passage || []).some(item => String(item.text || '').includes(marker))) {
+        errors.push(`${label}.slot ${slot.slotNumber} 在 passage 中缺少占位标记`);
+      }
+    }
+    if (variant === 'banked_cloze' && (
+      markerSequence.length !== 10
+      || markerNumbers.size !== 10
+      || slots.some(slot => !markerNumbers.has(slot.slotNumber))
+      || markerSequence.some((number, index) => number !== slots[index]?.slotNumber)
+    )) {
+      errors.push(`${label}.passage 必须包含与 10 个 slot 一一对应的占位标记`);
     }
   }
 }
@@ -246,9 +317,9 @@ function assertParagraphArray(paragraphs, field, errors) {
 
 function assertTranslationAlignment(unit, label, passageKeys, errors) {
   if (unit.translation !== undefined && unit.translation !== null && unit.translation.length) {
-    const translationKeys = assertParagraphArray(unit.translation, `${label}.translation`, errors);
+    const translationKeys = assertParagraphArray(unit.translation, `${label}.translation`, errors) || new Set();
     for (const key of translationKeys) {
-      if (passageKeys.size && !passageKeys.has(key)) {
+      if (passageKeys instanceof Set && passageKeys.size && !passageKeys.has(key)) {
         errors.push(`${label}.translation.paragraphKey 不在 passage 中：${key}`);
       }
     }
@@ -260,12 +331,14 @@ function assertTranslationAlignment(unit, label, passageKeys, errors) {
 function assertReadingMcqUnit(unit, errors) {
   const label = `unit.${unit.unitKey || '<missing>'}`;
   const passageKeys = assertParagraphArray(unit.passage, `${label}.passage`, errors);
+  assertPracticePassageIsEnglish(unit.passage, `${label}.passage`, errors);
   assertTranslationAlignment(unit, label, passageKeys, errors);
   if (!Array.isArray(unit.questions) || !unit.questions.length) {
     errors.push(`${label}.questions 必须至少包含一个题目`);
   } else {
     unit.questions.forEach(question => {
       assertQuestion(question, errors);
+      assertReadingOptionIsEnglish(question, errors);
       if (question.type !== 'single_choice') errors.push(`${label}.questions 类型必须为 single_choice`);
     });
   }
@@ -423,6 +496,9 @@ function assertOrderingUnit(unit, errors) {
 
 function assertTranslationUnit(unit, errors) {
   const label = `unit.${unit.unitKey || '<missing>'}`;
+  if (unit.direction !== undefined && !['en_to_zh', 'zh_to_en'].includes(unit.direction)) {
+    errors.push(`${label}.direction 无效`);
+  }
   assertParagraphArray(unit.passage, `${label}.passage`, errors);
   assertTranslationAlignment(unit, label, new Set((unit.passage || []).map(item => item.paragraphKey)), errors);
   if (!Array.isArray(unit.questions) || !unit.questions.length) {
@@ -452,6 +528,13 @@ function assertUnit(unit, errors) {
   }
   if (!isNonEmptyString(unit.displayTitle)) errors.push(`${label}.displayTitle 必须是非空字符串`);
   assertOptionalString(unit.directions, `${label}.directions`, errors);
+  assertOptionalString(unit.sectionLabel, `${label}.sectionLabel`, errors);
+  if (unit.sectionOrder !== undefined && (!Number.isSafeInteger(unit.sectionOrder) || unit.sectionOrder < 0)) {
+    errors.push(`${label}.sectionOrder 必须为非负整数`);
+  }
+  if (unit.allowCandidateReuse !== undefined && typeof unit.allowCandidateReuse !== 'boolean') {
+    errors.push(`${label}.allowCandidateReuse 必须为布尔值`);
+  }
   assertCandidateTranslations(unit.candidateTranslations, unit.candidates, `${label}.candidateTranslations`, errors);
 
   if (unit.type === 'reading_mcq') assertReadingMcqUnit(unit, errors);

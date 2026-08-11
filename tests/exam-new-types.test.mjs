@@ -230,6 +230,19 @@ test('reading result labels retain the stable source question number', () => {
   assert.equal(reading.questionLabel({ questionKey: 'kaoyan_en1_2026_q22' }, 1), 'Q22');
 });
 
+test('reading explanation renders one paragraph translation control per passage paragraph', async () => {
+  const reading = getExamRenderer('reading_mcq');
+  const paper = parseExamMarkdown(await readFile(new URL('./fixtures/exam-md-minimal.md', import.meta.url), 'utf8'));
+  const unit = paper.units[0];
+  const draft = reading.renderArticle(unit, { resultMode: false });
+  assert.doesNotMatch(draft, /data-paragraph-translation-toggle/);
+
+  const explanation = reading.renderArticle(unit, { resultMode: true });
+  assert.equal((explanation.match(/data-paragraph-translation-toggle/gu) || []).length, unit.passage.length);
+  assert.match(explanation, /data-paragraph-key="P1"/);
+  assert.match(explanation, /一个小型工程师团队构建了用于自动化测试的合成阅读文章/u);
+});
+
 test('result renderers preserve submit snapshots and hide absent optional explanation sections', async () => {
   const reading = getExamRenderer('reading_mcq');
   const readingPaper = parseExamMarkdown(await readFile(new URL('./fixtures/exam-md-minimal.md', import.meta.url), 'utf8'));

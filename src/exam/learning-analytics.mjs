@@ -1,11 +1,31 @@
-const EXAM_ID = 'kaoyan_en1';
+import { examDisplayName, resolveExamIdForBank, unitLabel } from './exam-context.mjs';
 
-export const EXAM_UNIT_TYPES = Object.freeze([
-  { type: 'cloze_choice', label: '完形填空' },
-  { type: 'reading_mcq', label: '阅读理解' },
-  { type: 'paragraph_ordering', label: 'Part B 段落排序' },
-  { type: 'matching', label: 'Part B 匹配' }
-]);
+const examIdOf = bankId => resolveExamIdForBank(bankId) || 'kaoyan_en1';
+
+function typeLabelFor(unit, examId) {
+  if (unit?.type === 'cloze_choice') return '完形填空';
+  if (unit?.type === 'reading_mcq') return examId === 'cet4' ? '仔细阅读' : '阅读理解';
+  if (unit?.type === 'paragraph_ordering') return 'Part B 段落排序';
+  if (unit?.type === 'matching') {
+    if (unit?.matchingVariant === 'banked_cloze') return '选词填空';
+    if (unit?.matchingVariant === 'long_reading') return '长篇阅读';
+    return 'Part B 匹配';
+  }
+  return unitLabel(unit, { examId });
+}
+
+function typeRowFor(unit) {
+  const examId = examIdOf(unit?.bankId);
+  return {
+    key: unit?.type + (unit?.matchingVariant ? ':' + unit.matchingVariant : ''),
+    type: unit?.type || '',
+    variant: unit?.matchingVariant || null,
+    label: typeLabelFor(unit, examId),
+    answered: 0,
+    correct: 0,
+    accuracy: null
+  };
+}
 
 const responseRows = (responsesByAttempt, attemptId) => {
   if (responsesByAttempt instanceof Map) return responsesByAttempt.get(attemptId) || [];
@@ -93,6 +113,7 @@ export function buildExamLearningAnalytics({
   translationReviews = [],
   now = Date.now(),
   year = null,
+  examIds = ['kaoyan_en1'],
   recentLimit = 5,
   wrongLimit = 5
 } = {}) {
@@ -120,7 +141,7 @@ export function buildExamLearningAnalytics({
   totals.inProgressAttempts = ordinaryAttempts.filter(attempt => attempt.status === 'in_progress').length;
   totals.activeDurationMs = submittedAttempts.reduce((sum, attempt) => sum + activityTime(attempt.activeDurationMs), 0);
 
-  const typeRows = new Map(EXAM_UNIT_TYPES.map(item => [item.type, { ...item, answered: 0, correct: 0, accuracy: null }]));
+  const typeRows = new Map();
   const attemptMetrics = new Map();
   for (const attempt of ordinaryAttempts) {
     const metric = { objectiveAnswered: 0, objectiveCorrect: 0, translationSegments: 0 };
@@ -130,8 +151,13 @@ export function buildExamLearningAnalytics({
         if (typeof response.correct === 'boolean') {
           metric.objectiveAnswered += 1;
           metric.objectiveCorrect += Number(response.correct);
-          const type = typeRows.get(unit?.type);
-          if (type) {
+          if (unit?.type) {
+            const key = unit.type + (unit.matchingVariant ? ':' + unit.matchingVariant : '');
+            let type = typeRows.get(key);
+            if (!type) {
+              type = typeRowFor(unit);
+              typeRows.set(key, type);
+            }
             type.answered += 1;
             type.correct += Number(response.correct);
           }
@@ -144,6 +170,11 @@ export function buildExamLearningAnalytics({
       totals.translationSegments += metric.translationSegments;
     }
     attemptMetrics.set(attempt.attemptId, metric);
+  }
+  for (const indexedUnit of unitByKey.values()) {
+    if (!indexedUnit?.type) continue;
+    const key = indexedUnit.type + (indexedUnit.matchingVariant ? ':' + indexedUnit.matchingVariant : '');
+    if (!typeRows.has(key)) typeRows.set(key, typeRowFor(indexedUnit));
   }
   totals.objectiveAccuracy = percent(totals.objectiveCorrect, totals.objectiveAnswered);
   const byType = [...typeRows.values()].map(item => ({ ...item, accuracy: percent(item.correct, item.answered) }));
@@ -176,10 +207,12 @@ export function buildExamLearningAnalytics({
       const metric = attemptMetrics.get(attempt.attemptId) || {};
       return {
         attemptId: attempt.attemptId,
+        bankId: attempt.bankId || null,
+        examLabel: examDisplayName(examIdOf(attempt.bankId), attempt.bankId),
         year: paper?.year || null,
         paperTitle: paper?.title || '',
         unitType: attempt.practiceKind === 'full_paper' ? 'full_paper' : unit?.type || null,
-        unitTitle: attempt.practiceKind === 'full_paper' ? '整卷练习' : unit?.displayTitle || '真题练习',
+        unitTitle: attempt.practiceKind === 'full_paper' ? '整卷练习' : unit ? unitLabel(unit, { examId: examIdOf(attempt.bankId) }) : '真题练习',
         practiceKind: attempt.practiceKind || 'unit',
         status: attempt.status,
         updatedAt: eventTime(attempt),
@@ -212,11 +245,12 @@ export function buildExamLearningAnalytics({
       const paper = paperByKey.get(paperIdentity(item));
       const unit = unitByKey.get(unitIdentity(item.bankId, item.unitKey));
       const question = questionByKey.get(`${item.bankId}:${item.questionKey}`);
-      const type = EXAM_UNIT_TYPES.find(entry => entry.type === unit?.type);
       return {
+        bankId: item.bankId || null,
+        examLabel: examDisplayName(examIdOf(item.bankId), item.bankId),
         year: paper?.year || null,
         type: unit?.type || null,
-        typeLabel: type?.label || unit?.displayTitle || '真题',
+        typeLabel: unit ? typeLabelFor(unit, examIdOf(item.bankId)) : '真题',
         questionNumber: questionNumberFor(item.questionKey, question),
         status: item.status,
         reviewCount: Number(item.reviewCount) || 0,
@@ -228,7 +262,7 @@ export function buildExamLearningAnalytics({
   return {
     source: 'exam_learning_overview',
     status,
-    scope: { examId: EXAM_ID, year: hasRequestedYear ? requestedYear : null },
+    scope: { examIds: [...examIds], year: hasRequestedYear ? requestedYear : null },
     availableYears,
     totals,
     byType,
