@@ -71,6 +71,9 @@ test('chat wiring adds copy actions only to assistant content and cleans selecti
   assert.match(chat, /content\.appendChild\(createCopyButton\(\)\)/);
   assert.match(chat, /_chatSelectionActions/);
   assert.match(chat, /_chatSelectionActions\?\.destroy\?\.\(\)/);
+  assert.match(chat, /chatFollowUpChip/);
+  assert.match(chat, /document\.getElementById\('promptInput'\)\?\.focus\(\)/);
+  assert.doesNotMatch(chat, /chatFollowUpInput/);
   assert.match(analysis, /message-actions\.mjs/);
   assert.match(analysis, /createCopyButton\(\)/);
   assert.match(analysis, /closest\?\.\('\[data-message-copy\]'\)/);
@@ -78,7 +81,15 @@ test('chat wiring adds copy actions only to assistant content and cleans selecti
   assert.match(selection, /chatSelectionAction/);
   assert.match(selection, /removeAllRanges/);
   assert.match(css, /\.message-copy-action/);
-  assert.match(css, /\.chat-follow-up-panel/);
+  assert.match(css, /\.chat-follow-up-chip/);
+  assert.doesNotMatch(css, /\.chat-follow-up-panel/);
+});
+
+test('follow-up uses the home composer input instead of a second input panel', async () => {
+  const chat = await read('../src/views/chat.js');
+  assert.match(chat, /const selectedExcerpt = normalizeSelectedExcerpt\(this\._chatFollowUpExcerpt\);\s*\n\s*const epoch = this\.homeEpoch;/);
+  assert.match(chat, /e\.key === 'Escape' && this\._chatFollowUpExcerpt/);
+  assert.match(chat, /chip\.hidden = false;\s*\n\s*document\.getElementById\('promptInput'\)\?\.focus\(\);/);
 });
 
 test('selected text is normalized and capped before it becomes a follow-up quote', () => {

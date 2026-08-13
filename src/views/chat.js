@@ -260,18 +260,11 @@ export const ChatView = {
             </select>
             <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
           </div>
-          <section id="chatFollowUpPanel" class="chat-follow-up-panel" hidden aria-label="选中内容追问">
-            <div class="chat-follow-up-head">
-              <span><i class="fa-solid fa-quote-left" aria-hidden="true"></i> 追问引用</span>
-              <button id="chatFollowUpClose" type="button" aria-label="关闭追问引用">×</button>
-            </div>
-            <p id="chatFollowUpExcerpt" class="chat-follow-up-excerpt"></p>
-            <textarea id="chatFollowUpInput" rows="2" placeholder="想了解这段内容的什么？" aria-label="追问内容"></textarea>
-            <div class="chat-follow-up-actions">
-              <button id="chatFollowUpCancel" class="btn btn-ghost btn-sm" type="button">取消</button>
-              <button id="chatFollowUpSend" class="btn btn-primary btn-sm" type="button">发送追问</button>
-            </div>
-          </section>
+          <div id="chatFollowUpChip" class="chat-follow-up-chip" hidden aria-label="已选中内容，可直接在下方输入框追问">
+            <span class="chat-follow-up-chip-icon"><i class="fa-solid fa-quote-left" aria-hidden="true"></i></span>
+            <span id="chatFollowUpChipText" class="chat-follow-up-chip-text"></span>
+            <button id="chatFollowUpChipClose" type="button" aria-label="移除引用">×</button>
+          </div>
           <div class="chat-input-row">
             <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
             <textarea id="promptInput" name="learningPrompt" placeholder="问学习问题，或生成英语阅读" aria-label="学习问题或阅读生成要求" rows="1"></textarea>
@@ -792,6 +785,11 @@ export const ChatView = {
     document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
 
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this._chatFollowUpExcerpt) {
+        e.preventDefault();
+        this.closeChatFollowUp();
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.submitComposer();
@@ -847,22 +845,7 @@ export const ChatView = {
       }
     });
 
-    const followUpClose = document.getElementById('chatFollowUpClose');
-    const followUpCancel = document.getElementById('chatFollowUpCancel');
-    const followUpSend = document.getElementById('chatFollowUpSend');
-    const followUpInput = document.getElementById('chatFollowUpInput');
-    followUpClose?.addEventListener('click', () => this.closeChatFollowUp());
-    followUpCancel?.addEventListener('click', () => this.closeChatFollowUp());
-    followUpSend?.addEventListener('click', () => this.submitChatFollowUp());
-    followUpInput?.addEventListener('keydown', event => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        this.closeChatFollowUp();
-      } else if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        this.submitChatFollowUp();
-      }
-    });
+    document.getElementById('chatFollowUpChipClose')?.addEventListener('click', () => this.closeChatFollowUp());
   },
 
   bindChatMessageInteractions(forceDestroy = false) {
@@ -888,89 +871,19 @@ export const ChatView = {
     const normalized = normalizeSelectedExcerpt(excerpt);
     if (!normalized) return;
     this._chatFollowUpExcerpt = normalized;
-    const panel = document.getElementById('chatFollowUpPanel');
-    const quote = document.getElementById('chatFollowUpExcerpt');
-    const input = document.getElementById('chatFollowUpInput');
-    if (!panel || !quote || !input) return;
-    quote.textContent = normalized;
-    panel.hidden = false;
-    input.value = '';
-    input.focus();
+    const chip = document.getElementById('chatFollowUpChip');
+    const text = document.getElementById('chatFollowUpChipText');
+    if (!chip || !text) return;
+    text.textContent = normalized;
+    text.title = normalized;
+    chip.hidden = false;
+    document.getElementById('promptInput')?.focus();
   },
 
   closeChatFollowUp() {
     this._chatFollowUpExcerpt = '';
-    const panel = document.getElementById('chatFollowUpPanel');
-    if (panel) panel.hidden = true;
-    const input = document.getElementById('chatFollowUpInput');
-    if (input) input.value = '';
-  },
-
-  async submitChatFollowUp() {
-    const input = document.getElementById('chatFollowUpInput');
-    const send = document.getElementById('chatFollowUpSend');
-    const question = input?.value.trim();
-    const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
-    if (!question || !selectedExcerpt || send?.disabled) return;
-    if (!Config.hasApiKey()) {
-      Modal.showApiSettings();
-      return;
-    }
-
-    const epoch = this.homeEpoch;
-    const requestVersion = this.beginHomeRequest();
-    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
-    this.appendConversation({ role: 'user', kind: 'text', content: question, selectedExcerpt });
-    this.closeChatFollowUp();
-    if (send) send.disabled = true;
-    this.showThinking('正在结合选中内容回答…');
-
-    try {
-      const session = conversationStore.getContextSession('home');
-      const reply = await chatService.ask({
-        sessionKey: 'home',
-        session,
-        userMessage: question,
-        kind: 'home',
-        pageContext: { selectedExcerpt, source: 'chat_reply' },
-        tools: HOME_LEARNING_TOOLS,
-        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, question, requestVersion)
-      });
-      if (!isCurrentRequest()) return;
-      this.removeThinking();
-      this.removeArticleGenerationStatus();
-      if (reply.content) this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
-      reply.artifacts.forEach(artifact => {
-        if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
-          this.addArticleCard(artifact.article);
-        }
-        if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
-          this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, question));
-        }
-        if (artifact.type === 'research_sources') {
-          this.addResearchSources(artifact);
-          this.recordNativeResearchActivity(artifact);
-        }
-        if (artifact.type === 'app_actions' && artifact.actions?.length) this.addAppActions(artifact.actions);
-      });
-    } catch (error) {
-      if (!isCurrentRequest()) return;
-      this.removeThinking();
-      this.removeArticleGenerationStatus();
-      const rawMessage = String(error?.message || '').trim();
-      if (/请求已取消|AbortError/i.test(rawMessage)) {
-        this.appendConversation({ role: 'assistant', kind: 'error', content: '请求已取消。' });
-        return;
-      }
-      const reason = redactAgentSecrets(rawMessage).slice(0, 240);
-      this.appendConversation({
-        role: 'assistant',
-        kind: 'error',
-        content: reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。'
-      });
-    } finally {
-      if (send) send.disabled = false;
-    }
+    const chip = document.getElementById('chatFollowUpChip');
+    if (chip) chip.hidden = true;
   },
 
   toggleComposerOptions(force) {
@@ -991,10 +904,16 @@ export const ChatView = {
       return;
     }
 
+    const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
-    this.appendConversation({ role: 'user', kind: 'text', content: value });
+    this.appendConversation({
+      role: 'user',
+      kind: 'text',
+      content: value,
+      ...(selectedExcerpt ? { selectedExcerpt } : {})
+    });
     input.value = '';
     this.showThinking();
     try {
@@ -1004,6 +923,7 @@ export const ChatView = {
         session,
         userMessage: value,
         kind: 'home',
+        ...(selectedExcerpt ? { pageContext: { selectedExcerpt, source: 'chat_reply' } } : {}),
         tools: HOME_LEARNING_TOOLS,
         executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, value, requestVersion)
       });
