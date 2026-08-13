@@ -71,6 +71,11 @@ export const Router = {
       case hash === '#/flashcard/recall':
         view = FlashcardView;
         break;
+      case /^#\/flashcard\/practice\/[a-z_]+$/.test(hash): {
+        view = FlashcardView;
+        args = [hash.split('/').pop()];
+        break;
+      }
       case hash === '#/flashcard/context':
         view = ContextReviewView;
         break;

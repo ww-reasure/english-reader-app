@@ -9,7 +9,7 @@ import {
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-07-29T08:00:00.000Z');
 
-test('unknown context recognition reuses the forgotten relearning schedule', () => {
+test('unknown context recognition enters recovery without a forced 10-minute deadline', () => {
   const next = scheduleContextReview({
     interval: 20,
     reviewCount: 5,
@@ -18,14 +18,15 @@ test('unknown context recognition reuses the forgotten relearning schedule', () 
     lapseCount: 1
   }, ContextReviewResult.UNKNOWN, NOW);
 
-  assert.equal(next.state, 'relearning');
-  assert.equal(next.interval, 0);
-  assert.equal(next.lapseCount, 2);
-  assert.equal(next.nextReview, NOW + 10 * 60 * 1000);
+  assert.equal(next.recoveryStage, 2);
+  assert.equal(next.recoveryTarget, 2);
+  assert.equal(next.lastDebt, 2);
+  assert.equal(next.interval, 20, '成熟词 recovery 期间保留原 interval');
+  assert.equal(next.nextReview, NOW, '不再按真实分钟强制，而是下次打开即可复习');
   assert.equal(next.contextResult, 'unknown');
 });
 
-test('uncertain context recognition schedules direct recall soon without a lapse', () => {
+test('uncertain context recognition enters fragile recovery without a forced 30-minute deadline', () => {
   const next = scheduleContextReview({
     interval: 20,
     reviewCount: 5,
@@ -34,14 +35,14 @@ test('uncertain context recognition schedules direct recall soon without a lapse
     lapseCount: 2
   }, ContextReviewResult.UNCERTAIN, NOW);
 
-  assert.equal(next.state, 'relearning');
-  assert.equal(next.interval, 0);
-  assert.equal(next.lapseCount, 2);
-  assert.equal(next.nextReview, NOW + 30 * 60 * 1000);
+  assert.equal(next.recoveryStage, 1);
+  assert.equal(next.lastDebt, 1);
+  assert.equal(next.interval, 20);
+  assert.equal(next.nextReview, NOW);
   assert.equal(next.contextResult, 'uncertain');
 });
 
-test('known context recognition extends an established interval only mildly', () => {
+test('known context recognition without recovery extends the established interval', () => {
   const next = scheduleContextReview({
     interval: 40,
     reviewCount: 8,
@@ -51,31 +52,24 @@ test('known context recognition extends an established interval only mildly', ()
   }, ContextReviewResult.KNOWN, NOW);
 
   assert.equal(next.state, 'review');
-  assert.equal(next.interval, 47);
-  assert.equal(next.nextReview, NOW + 47 * DAY);
-  assert.equal(next.easeFactor, 2.5);
+  assert.ok(next.interval >= 40);
+  assert.equal(next.nextReview, NOW + next.interval * DAY);
+  assert.equal(next.recoveryStage, 0);
   assert.equal(next.contextResult, 'known');
 });
 
-test('known context recognition never exceeds 1.25x on a short established interval', () => {
+test('known context recognition during recovery decrements the recovery stage', () => {
   const next = scheduleContextReview({
     interval: 1,
     reviewCount: 2,
-    easeFactor: 2.5,
-    state: 'review'
+    recoveryStage: 2,
+    recoveryTarget: 2,
+    lastDebt: 2
   }, ContextReviewResult.KNOWN, NOW);
 
-  assert.equal(next.interval, 1.25);
-  assert.equal(next.nextReview, NOW + 1.25 * DAY);
-});
-
-test('known context recognition gives a new word only a one-day learning step', () => {
-  const next = scheduleContextReview({ state: 'new', reviewCount: 0 }, ContextReviewResult.KNOWN, NOW);
-
-  assert.equal(next.state, 'learning');
-  assert.equal(next.interval, 1);
-  assert.equal(next.reviewCount, 1);
-  assert.equal(next.nextReview, NOW + DAY);
+  assert.equal(next.recoveryStage, 1);
+  assert.equal(next.recoveryTarget, 2);
+  assert.equal(next.nextReview, NOW, '恢复未完成，下次打开继续巩固');
 });
 
 test('skipped context recognition does not produce a schedule', () => {

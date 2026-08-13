@@ -484,6 +484,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .learn-words-header { display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 0 14px; }
 .learn-words-header > span { color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:20px; font-weight:700; }
 .learn-words-header > div { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.vocab-practice { margin:0 0 18px; padding:14px 16px; border:1px solid var(--rule); border-radius:14px; background:color-mix(in srgb,var(--signal) 5%,transparent); }
+.vocab-practice-title { margin:0 0 3px; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:17px; font-weight:700; }
+.vocab-practice-desc { margin:0 0 12px; color:var(--muted); font-size:12px; }
+.vocab-practice-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.vocab-practice-entry { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; min-height:62px; padding:10px 12px; border:1px solid var(--rule); border-radius:11px; background:var(--surface); color:var(--ink); text-align:left; cursor:pointer; }
+.vocab-practice-entry:active { background:var(--surface-soft); }
+.vocab-practice-entry-name { font-size:13px; font-weight:700; }
+.vocab-practice-entry-count { color:var(--signal-deep); font-size:12px; }
+.vocab-practice-note { margin:0 0 14px; padding:10px 12px; border-left:2px solid var(--signal); background:color-mix(in srgb,var(--signal) 5%,transparent); color:var(--ink-soft); font-size:12px; line-height:1.6; }
+.vocab-card.selection-mode { align-items:center; }
+.vocab-practice-check { display:inline-flex; align-items:center; flex:0 0 auto; cursor:pointer; }
+.vocab-practice-check input { width:20px; height:20px; accent-color:var(--signal); }
+.vocab-practice-unavailable { display:block; margin-top:4px; color:var(--muted); font-size:11px; }
 .vocab-card { display:flex; gap:12px; align-items:flex-start; }
 .vocab-word { flex:0 1 42%; min-width:0; }
 .vocab-word .word { color:var(--vocab-word); font-family:Georgia,serif; font-weight:700; }

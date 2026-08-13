@@ -694,6 +694,103 @@ export const DB = {
     });
   },
 
+  // 专项复习评分：只记录练习事件，绝不修改 learnWords 的 SRS 字段
+  // （nextReview / interval / state / easeFactor / reviewCount / reviewRevision 均保持不变）。
+  async recordLearnWordPractice(id, { rating, sawAnswer = false, practiceScope = '' } = {}) {
+    if (id === null || id === undefined || !Number.isFinite(Number(id))) throw new TypeError('练习评分需要有效的单词 id');
+    const quality = [1, 3, 5].includes(Number(rating)) ? Number(rating) : null;
+    if (quality === null) throw new TypeError('练习评分需要 1 / 3 / 5 的有效评分');
+    return this.addReviewEvent({
+      wordId: Number(id),
+      rating: quality,
+      source: 'practice-flashcard',
+      sawAnswer: Boolean(sawAnswer),
+      practiceScope: String(practiceScope || '')
+    });
+  },
+
+  // V2 会话结算：正式复习评分统一入口。按 recovery 状态机更新 learnWords，
+  // 并在同一事务写入带 sessionDebt / recoveryStage 的 reviewEvents。
+  async settleSessionReview(id, srsData, event = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
+      const words = tx.objectStore('learnWords');
+      const events = tx.objectStore('reviewEvents');
+      const getReq = words.get(id);
+      let updatedWord = null;
+      let failure = null;
+
+      getReq.onsuccess = () => {
+        const word = getReq.result;
+        if (!word) {
+          failure = abortTransaction(tx, new Error('学习词不存在'));
+          return;
+        }
+        const currentRevision = Math.max(0, Number(word.reviewRevision) || 0);
+        if (event.expectedRevision !== undefined && Number(event.expectedRevision) !== currentRevision) {
+          failure = abortTransaction(tx, new Error('该单词已在另一种复习方式中更新'));
+          return;
+        }
+        updatedWord = { ...word, ...srsData, reviewRevision: currentRevision + 1 };
+        words.put(updatedWord);
+        events.add({
+          wordId: id,
+          reviewedAt: Date.now(),
+          rating: event.rating,
+          source: event.source || 'flashcard',
+          sawAnswer: Boolean(event.sawAnswer),
+          previousInterval: Number(word.interval) || 0,
+          nextInterval: Number(srsData.interval) || 0,
+          previousState: word.state || (!word.reviewCount ? 'new' : 'legacy'),
+          nextState: srsData.state || 'legacy',
+          schedulerVersion: 2,
+          reviewRevision: currentRevision + 1,
+          sessionDebt: Number(event.sessionDebt) || 0,
+          recoveryStage: Number(srsData.recoveryStage) || 0,
+          recoveryTarget: Number(srsData.recoveryTarget) || 0,
+          lastDebt: Number(srsData.lastDebt) || 0,
+          ...event
+        });
+      };
+      tx.oncomplete = () => resolve(updatedWord);
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('复习记录保存失败'));
+    });
+  },
+
+  // 通用复习会话描述符（V2 会话内重插断点恢复）
+  async saveReviewSession(session) {
+    if (!session?.id) throw new TypeError('复习会话需要稳定标识');
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readwrite');
+      const req = tx.objectStore('contextReviewSessions').put({ ...session, kind: 'review-session' });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async getReviewSession(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readonly');
+      const req = tx.objectStore('contextReviewSessions').get(id);
+      req.onsuccess = () => resolve(req.result?.kind === 'review-session' ? req.result : null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async deleteReviewSession(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('contextReviewSessions', 'readwrite');
+      tx.objectStore('contextReviewSessions').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
   // ===== Context review sentence bank and resumable sessions =====
 
   async saveContextReviewSentences(items = []) {

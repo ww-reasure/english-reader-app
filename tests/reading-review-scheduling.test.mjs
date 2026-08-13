@@ -7,7 +7,7 @@ test('reading review never upgrades untouched words as known', async () => {
 
   assert.doesNotMatch(source, /User didn't click - they recognized it/);
   assert.doesNotMatch(source, /quality\s*=\s*5;/);
-  assert.match(source, /DB\.recordLearnWordReview\(word\.id, srsData, \{/);
+  assert.match(source, /DB\.settleSessionReview\(word\.id, srsData, \{/);
   assert.match(source, /source:\s*'reading'/);
   assert.match(source, /contextExposure/);
 });

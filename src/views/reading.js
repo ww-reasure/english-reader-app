@@ -13,6 +13,7 @@ import { Modal } from '../components/modal.js';
 import { API } from '../api.js';
 import { ChatView } from './chat.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
+import { settleSessionReview } from '../recovery-scheduler.mjs';
 import { normalizeTargetWords } from '../components/article-generation-tool.js';
 import { createKnowledgeProfileRepository } from '../knowledge-profile.mjs';
 import { applyReadingEaseFeedback, evaluateReadingSession } from '../calibration-engine.mjs';
@@ -612,12 +613,15 @@ export const ReadingView = {
         continue;
       }
 
-      const srsData = SpacedRepetition.calculateNext(word, clicked.quality);
-      await DB.recordLearnWordReview(word.id, srsData, {
+      const quality = Number(clicked.quality);
+      const sessionDebt = quality === 1 ? 2 : quality === 3 ? 1 : 0;
+      const srsData = settleSessionReview(word, quality, sessionDebt);
+      await DB.settleSessionReview(word.id, srsData, {
         rating: clicked.quality,
         source: 'reading',
         sawAnswer: true,
-        contextExposure: false
+        contextExposure: false,
+        sessionDebt
       });
     }
   },
