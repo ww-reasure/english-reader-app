@@ -20,6 +20,7 @@ import { renderLearningMarkdown } from './rich-text.js';
 import { createSentenceRangeForTextNodes, findSentenceOffsets } from './sentence-selection.mjs';
 import { bindSentenceLongPress } from './sentence-long-press.mjs';
 import { getRangeAtPoint } from './word-point.mjs';
+import { bindMessageCopy, createCopyButton } from './message-actions.mjs';
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService({
@@ -45,6 +46,7 @@ export const AIAnalysis = {
   _detailSelectionAction: null,
   _detailSelectionModal: null,
   _followUpController: null,
+  _messageCopyCleanup: null,
 
   setArticleContext(article, paragraph = '') {
     this.articleContext = {
@@ -94,6 +96,8 @@ export const AIAnalysis = {
 
   _removeResultModal() {
     this.clearDetailSelection();
+    this._messageCopyCleanup?.();
+    this._messageCopyCleanup = null;
     Tooltip.hide();
     const existing = document.getElementById('aiResultModal');
     if (existing) existing.remove();
@@ -229,6 +233,16 @@ export const AIAnalysis = {
       host.classList.add('is-active');
     }
     (host || document.body).appendChild(overlay);
+    const isError = /^分析失败[：:]/.test(String(content || ''));
+    if (!isLoading && !isError) {
+      const answer = modal.querySelector('.ai-result-content');
+      if (answer) {
+        answer.dataset.copyable = 'true';
+        answer.dataset.copyContent = 'true';
+        answer.appendChild(createCopyButton());
+      }
+    }
+    this._messageCopyCleanup = bindMessageCopy(modal);
     modal.querySelector('#aiResultClose')?.addEventListener('click', () => this.closeResultModal());
     this.bindWordLookup(modal);
     this.bindFollowUp(modal, sentence, content, analysisContext);
@@ -240,6 +254,7 @@ export const AIAnalysis = {
     const lookupTargets = modal.querySelectorAll('.ai-lookup-sentence, .ai-result-content');
     lookupTargets.forEach(target => {
       target.addEventListener('click', async (e) => {
+        if (e.target?.closest?.('[data-message-copy]')) return;
         // A native text selection is an intentional follow-up action, never a word lookup.
         if (this.getSelectedDetailExcerpt(modal)) {
           e.stopPropagation();
@@ -425,7 +440,7 @@ export const AIAnalysis = {
         this.addFollowUpBubble(list, 'assistant', reply.content);
       } catch (error) {
         list.querySelector('.ai-followup-thinking')?.remove();
-        this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + error.message);
+        this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + error.message, false, true);
       } finally {
         send.disabled = false;
         list.scrollTop = list.scrollHeight;
@@ -441,12 +456,19 @@ export const AIAnalysis = {
     });
   },
 
-  addFollowUpBubble(container, role, content, isThinking = false) {
+  addFollowUpBubble(container, role, content, isThinking = false, isError = false) {
     if (!container) return;
     const bubble = document.createElement('div');
     bubble.className = 'ai-followup-bubble ' + (role === 'user' ? 'user-message' : 'ai-message') + (isThinking ? ' ai-followup-thinking' : '');
-    if (role === 'assistant' && !isThinking) bubble.innerHTML = renderLearningMarkdown(content);
-    else bubble.textContent = content;
+    if (role === 'assistant' && !isThinking && !isError) {
+      bubble.dataset.copyable = 'true';
+      const body = document.createElement('div');
+      body.dataset.copyContent = 'true';
+      body.className = 'ai-followup-content';
+      body.innerHTML = renderLearningMarkdown(content);
+      bubble.appendChild(body);
+      bubble.appendChild(createCopyButton());
+    } else bubble.textContent = content;
     container.appendChild(bubble);
   },
 

@@ -38,6 +38,8 @@ import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { buildResearchBrief, createWebResearch, normalizeResearchSources } from '../components/web-research.mjs';
 import { buildNativeResearchArtifact, messagesToResponsesItems, resolveWebResearchPlan } from '../components/deepseek-responses.mjs';
+import { bindMessageCopy, createCopyButton } from '../components/message-actions.mjs';
+import { ChatSelectionActions, normalizeSelectedExcerpt } from '../components/chat-selection-actions.mjs';
 
 const conversationStore = new ConversationStore();
 const webResearch = createWebResearch({ config: Config });
@@ -190,6 +192,9 @@ export const ChatView = {
   _generationPreviewQueue: new Map(),
   _generationPreviewTimer: null,
   _searchCallCounts: new Map(),
+  _messageCopyCleanup: null,
+  _chatSelectionActions: null,
+  _chatFollowUpExcerpt: '',
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -255,6 +260,18 @@ export const ChatView = {
             </select>
             <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
           </div>
+          <section id="chatFollowUpPanel" class="chat-follow-up-panel" hidden aria-label="选中内容追问">
+            <div class="chat-follow-up-head">
+              <span><i class="fa-solid fa-quote-left" aria-hidden="true"></i> 追问引用</span>
+              <button id="chatFollowUpClose" type="button" aria-label="关闭追问引用">×</button>
+            </div>
+            <p id="chatFollowUpExcerpt" class="chat-follow-up-excerpt"></p>
+            <textarea id="chatFollowUpInput" rows="2" placeholder="想了解这段内容的什么？" aria-label="追问内容"></textarea>
+            <div class="chat-follow-up-actions">
+              <button id="chatFollowUpCancel" class="btn btn-ghost btn-sm" type="button">取消</button>
+              <button id="chatFollowUpSend" class="btn btn-primary btn-sm" type="button">发送追问</button>
+            </div>
+          </section>
           <div class="chat-input-row">
             <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
             <textarea id="promptInput" name="learningPrompt" placeholder="问学习问题，或生成英语阅读" aria-label="学习问题或阅读生成要求" rows="1"></textarea>
@@ -311,7 +328,7 @@ export const ChatView = {
         } else if (message.kind === 'activity') {
           // Activity events are model context, not duplicate visible chat bubbles.
         } else {
-          this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
+          this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content, message.selectedExcerpt);
         }
       });
     }
@@ -378,7 +395,11 @@ export const ChatView = {
     Config.set('coverage', '97');
     Config.set('new_word_percent', '3');
     const container = document.getElementById('chatMessages');
-    if (container) container.innerHTML = this.studyAnchorMarkup();
+    if (container) {
+      this.bindChatMessageInteractions(true);
+      container.innerHTML = this.studyAnchorMarkup();
+      this.bindChatMessageInteractions();
+    }
     this.addMessageToDOM('system', '已进入未校准的保守阅读：会优先使用高频基础词、较短句和少量目标重点词。完成 3 篇有效阅读后，我会只问一次“偏难 / 合适 / 偏易”，帮助校正推荐；随时可以在「设置」中完成 3 分钟校准。');
   },
 
@@ -387,16 +408,22 @@ export const ChatView = {
     if (!confirm('清除本次对话的上下文和显示记录？已保存的阅读文章不受影响。')) return;
     this.homeEpoch += 1;
     this.beginHomeRequest({ cancelGeneration: true, cancelReason: 'clear_context' });
+    this.closeChatFollowUp();
     conversationStore.clear('home');
     ChatHistory.clear();
     const container = document.getElementById('chatMessages');
-    if (container) container.innerHTML = this.studyAnchorMarkup();
+    if (container) {
+      this.bindChatMessageInteractions(true);
+      container.innerHTML = this.studyAnchorMarkup();
+      this.bindChatMessageInteractions();
+    }
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
   },
 
   beginHomeRequest({ cancelGeneration = false, cancelReason = 'superseded' } = {}) {
     const requestVersion = homeRequestGate.begin();
     chatService.cancel('home');
+    this.closeChatFollowUp();
     if (cancelGeneration) {
       homeGenerationCoordinator?.cancel(cancelReason);
       this.isReviewGenerating = false;
@@ -760,6 +787,8 @@ export const ChatView = {
 
   // Bind event listeners
   bindEvents() {
+    this.bindChatMessageInteractions();
+
     document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
 
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
@@ -817,6 +846,131 @@ export const ChatView = {
         customInput.value = '';
       }
     });
+
+    const followUpClose = document.getElementById('chatFollowUpClose');
+    const followUpCancel = document.getElementById('chatFollowUpCancel');
+    const followUpSend = document.getElementById('chatFollowUpSend');
+    const followUpInput = document.getElementById('chatFollowUpInput');
+    followUpClose?.addEventListener('click', () => this.closeChatFollowUp());
+    followUpCancel?.addEventListener('click', () => this.closeChatFollowUp());
+    followUpSend?.addEventListener('click', () => this.submitChatFollowUp());
+    followUpInput?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.closeChatFollowUp();
+      } else if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        this.submitChatFollowUp();
+      }
+    });
+  },
+
+  bindChatMessageInteractions(forceDestroy = false) {
+    if (forceDestroy) {
+      this._messageCopyCleanup?.();
+      this._messageCopyCleanup = null;
+      this._chatSelectionActions?.destroy?.();
+      this._chatSelectionActions = null;
+      return;
+    }
+    const messages = document.getElementById('chatMessages');
+    this._messageCopyCleanup?.();
+    this._messageCopyCleanup = bindMessageCopy(messages);
+    this._chatSelectionActions?.destroy?.();
+    this._chatSelectionActions = new ChatSelectionActions({
+      root: messages,
+      onFollowUp: excerpt => this.openChatFollowUp(excerpt)
+    });
+    this._chatSelectionActions.bind();
+  },
+
+  openChatFollowUp(excerpt) {
+    const normalized = normalizeSelectedExcerpt(excerpt);
+    if (!normalized) return;
+    this._chatFollowUpExcerpt = normalized;
+    const panel = document.getElementById('chatFollowUpPanel');
+    const quote = document.getElementById('chatFollowUpExcerpt');
+    const input = document.getElementById('chatFollowUpInput');
+    if (!panel || !quote || !input) return;
+    quote.textContent = normalized;
+    panel.hidden = false;
+    input.value = '';
+    input.focus();
+  },
+
+  closeChatFollowUp() {
+    this._chatFollowUpExcerpt = '';
+    const panel = document.getElementById('chatFollowUpPanel');
+    if (panel) panel.hidden = true;
+    const input = document.getElementById('chatFollowUpInput');
+    if (input) input.value = '';
+  },
+
+  async submitChatFollowUp() {
+    const input = document.getElementById('chatFollowUpInput');
+    const send = document.getElementById('chatFollowUpSend');
+    const question = input?.value.trim();
+    const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
+    if (!question || !selectedExcerpt || send?.disabled) return;
+    if (!Config.hasApiKey()) {
+      Modal.showApiSettings();
+      return;
+    }
+
+    const epoch = this.homeEpoch;
+    const requestVersion = this.beginHomeRequest();
+    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
+    this.appendConversation({ role: 'user', kind: 'text', content: question, selectedExcerpt });
+    this.closeChatFollowUp();
+    if (send) send.disabled = true;
+    this.showThinking('正在结合选中内容回答…');
+
+    try {
+      const session = conversationStore.getContextSession('home');
+      const reply = await chatService.ask({
+        sessionKey: 'home',
+        session,
+        userMessage: question,
+        kind: 'home',
+        pageContext: { selectedExcerpt, source: 'chat_reply' },
+        tools: HOME_LEARNING_TOOLS,
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, question, requestVersion)
+      });
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      this.removeArticleGenerationStatus();
+      if (reply.content) this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+      reply.artifacts.forEach(artifact => {
+        if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
+          this.addArticleCard(artifact.article);
+        }
+        if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
+          this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, question));
+        }
+        if (artifact.type === 'research_sources') {
+          this.addResearchSources(artifact);
+          this.recordNativeResearchActivity(artifact);
+        }
+        if (artifact.type === 'app_actions' && artifact.actions?.length) this.addAppActions(artifact.actions);
+      });
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      this.removeArticleGenerationStatus();
+      const rawMessage = String(error?.message || '').trim();
+      if (/请求已取消|AbortError/i.test(rawMessage)) {
+        this.appendConversation({ role: 'assistant', kind: 'error', content: '请求已取消。' });
+        return;
+      }
+      const reason = redactAgentSecrets(rawMessage).slice(0, 240);
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。'
+      });
+    } finally {
+      if (send) send.disabled = false;
+    }
   },
 
   toggleComposerOptions(force) {
@@ -1292,7 +1446,7 @@ export const ChatView = {
           this.addResearchSourcesToDOM(message.research || message);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
-      this.addMessageToDOM(type, message.content);
+      this.addMessageToDOM(type, message.content, message.selectedExcerpt);
     }
   },
 
@@ -1600,13 +1754,33 @@ export const ChatView = {
   },
 
   // Add message to DOM only (no history save)
-  addMessageToDOM(type, text) {
+  addMessageToDOM(type, text, selectedExcerpt = '') {
     const container = document.getElementById('chatMessages');
     if (!container) return;
     const div = document.createElement('div');
     div.className = `message ${type}-message`;
-    if (type === 'user') div.textContent = text;
-    else div.innerHTML = renderLearningMarkdown(text);
+    if (type === 'user') {
+      if (selectedExcerpt) {
+        const quote = document.createElement('blockquote');
+        quote.className = 'chat-selected-quote';
+        quote.textContent = selectedExcerpt;
+        div.appendChild(quote);
+      }
+      const question = document.createElement('div');
+      question.textContent = text;
+      div.appendChild(question);
+    } else if (type === 'assistant') {
+      div.dataset.copyable = 'true';
+      const content = document.createElement('div');
+      content.className = 'chat-ai-content';
+      content.dataset.copyContent = 'true';
+      content.dataset.chatSelectable = 'true';
+      content.innerHTML = renderLearningMarkdown(text);
+      content.appendChild(createCopyButton());
+      div.appendChild(content);
+    } else {
+      div.innerHTML = renderLearningMarkdown(text);
+    }
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
   },
@@ -1642,6 +1816,11 @@ export const ChatView = {
     this.homeEpoch += 1;
     homeRequestGate.invalidate();
     chatService.cancel('home');
+    this._messageCopyCleanup?.();
+    this._messageCopyCleanup = null;
+    this._chatSelectionActions?.destroy?.();
+    this._chatSelectionActions = null;
+    this.closeChatFollowUp();
     this.resetGenerateButton();
     this.removeThinking();
     this.removeArticleGenerationStatus();
