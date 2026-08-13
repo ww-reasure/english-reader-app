@@ -956,9 +956,17 @@ export const FlashcardView = {
   // Render completion result
   renderResult(container) {
     this.cleanupExampleWordLookup();
+    // 专项练习完成即结束本次会话：清掉 sessionStorage 中的词表，
+    // 避免再次进入同一入口时重复复习同一批词（正式复习队列不受影响）。
+    const isPractice = Boolean(this.practiceScope);
+
+    if (isPractice) {
+      clearPracticeSession();
+      this.practiceScope = '';
+    }
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
-    const isPractice = Boolean(this.practiceScope);
+
     // Today's accumulated words (across multiple review sessions)
     const todayWords = this.loadTodayWords();
     const todayTotal = todayWords.length;
@@ -1021,7 +1029,7 @@ export const FlashcardView = {
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
             <a href="${isPractice ? '#/vocab' : '#/chat'}" class="btn btn-outline">${isPractice ? '返回生词本' : '返回阅读'}</a>
             <a href="#/learn-words" class="btn btn-outline">词库管理</a>
-            <button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>
+            ${isPractice ? '' : '<button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>'}
           </div>
         </section>
       </div>

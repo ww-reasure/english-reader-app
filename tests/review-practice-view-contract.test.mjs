@@ -43,3 +43,13 @@ test('flashcard practice mode records practice events and keeps scheduled review
   assert.match(source, /专项练习完成/);
   assert.match(source, /返回生词本/);
 });
+
+test('practice completion clears the scoped session so re-entering cannot repeat the same words', async () => {
+  const source = await read('../src/views/flashcard.js');
+
+  assert.match(source, /clearPracticeSession\(\)/);
+  assert.match(source, /const isPractice = Boolean\(this\.practiceScope\);/);
+  assert.match(source, /this\.practiceScope = ''/);
+  assert.match(source, /isPractice \? '' : '<button class="btn btn-outline" onclick="FlashcardView\.restart\(\)">再来一轮<\/button>'/);
+  assert.match(source, /专项练习完成/);
+});
