@@ -7,8 +7,8 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 test('vocabulary page exposes the three practice entries and manual word selection', async () => {
   const source = await read('../src/views/vocabulary.js');
 
-  assert.match(source, /startPractice\('today_added'\)/);
-  assert.match(source, /startPractice\('recent_added'\)/);
+  assert.match(source, /renderPracticeEntry\(\{ scope: 'today_added'/);
+  assert.match(source, /renderPracticeEntry\(\{ scope: 'recent_added'/);
   assert.match(source, /toggleSelection\(\)/);
   assert.match(source, /data-practice-word/);
   assert.match(source, /startManualPractice\(\)/);
@@ -23,8 +23,10 @@ test('vocabulary toggles re-render into the routed outlet and refresh counts fro
   assert.match(source, /this\.container = container/);
   assert.match(source, /await this\.render\(this\.container\)/);
   assert.match(source, /const words = await DB\.getAllWords\(\)/);
-  assert.match(source, /const todayCount = practiceable\.filter/);
-  assert.match(source, /const recentCount = practiceable\.filter/);
+  assert.match(source, /const todayStatus = getPracticeScopeStatus\(\{/);
+  assert.match(source, /const recentStatus = getPracticeScopeStatus\(\{/);
+  assert.match(source, /idsFor\(practiceable\.filter\(word => Number\(word\.createdAt\) >= todayBoundary\.getTime\(\)\)\)/);
+  assert.match(source, /idsFor\(practiceable\.filter\(word => Number\(word\.createdAt\) >= Date\.now\(\) - 7 \* dayMs\)\)/);
 });
 
 test('router maps the practice route with its scope into the flashcard view', async () => {
@@ -52,4 +54,34 @@ test('practice completion clears the scoped session so re-entering cannot repeat
   assert.match(source, /this\.practiceScope = ''/);
   assert.match(source, /isPractice \? '' : '<button class="btn btn-outline" onclick="FlashcardView\.restart\(\)">再来一轮<\/button>'/);
   assert.match(source, /专项练习完成/);
+});
+
+test('completed time-scoped practice locks the vocabulary entries until an explicit new round', async () => {
+  const vocabSource = await read('../src/views/vocabulary.js');
+
+  assert.match(vocabSource, /getPracticeScopeStatus\(\{/);
+  assert.match(vocabSource, /scope: 'today_added'/);
+  assert.match(vocabSource, /scope: 'recent_added'/);
+  assert.match(vocabSource, /renderPracticeEntry\(\{ scope: 'today_added'/);
+  assert.match(vocabSource, /renderPracticeEntry\(\{ scope: 'recent_added'/);
+  assert.match(vocabSource, /vocab-practice-entry--done/);
+  assert.match(vocabSource, /今日已复习/);
+  assert.match(vocabSource, /再来一轮/);
+  assert.match(vocabSource, /onclick="VocabularyView\.startPractice\('\$\{scope\}', \{ reviewAll: true \}\)"/);
+});
+
+test('incremental state only exposes the newly added words and keeps reviewed ones out', async () => {
+  const vocabSource = await read('../src/views/vocabulary.js');
+
+  assert.match(vocabSource, /已复习 \$\{reviewedCount\} 词 · 新增 \$\{newCount\} 词/);
+  assert.match(vocabSource, /status\.reviewedIds\.length > 0/);
+  assert.match(vocabSource, /wordIds = status\.newIds/);
+  assert.match(vocabSource, /getPracticeScopeStatus\(\{ scope, currentWordIds: currentIds \}\)/);
+});
+
+test('flashcard completion writes the daily done marker for the finished practice scope', async () => {
+  const source = await read('../src/views/flashcard.js');
+
+  assert.match(source, /markPracticeScopeDone\(this\.practiceScope, \{\s*wordIds: this\.words\.map\(word => word\.id\)\s*\}\)/);
+  assert.match(source, /import \{ readPracticeSession, clearPracticeSession, markPracticeScopeDone \} from '\.\.\/review-practice\.mjs';/);
 });

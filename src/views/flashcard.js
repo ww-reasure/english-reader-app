@@ -31,7 +31,7 @@ import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
 import { ReviewQueue } from '../review-queue.js';
-import { readPracticeSession } from '../review-practice.mjs';
+import { readPracticeSession, clearPracticeSession, markPracticeScopeDone } from '../review-practice.mjs';
 import {
   createSessionQueue,
   persistSessionQueue,
@@ -236,6 +236,10 @@ export const FlashcardView = {
       this.words[this.currentIndex] = { ...queuedWord, expectedRevision: bufferRevision ?? queuedRevision };
       this.sessionQueue.syncExpectedRevision(wordId, this.words[this.currentIndex].expectedRevision);
     } else if (this.currentIndex >= this.words.length) {
+      // 完成分支与正常翻卡一致地推进会话号：让仍在飞行中的异步资料加载
+      // （loadStudyDetails 等）因 session 不匹配而失效，避免用越界的
+      // currentIndex 再次渲染学习卡，导致最后一个词完成后出现异常。
+      this.cardSession++;
       this.renderResult(container);
       return;
     }
@@ -672,6 +676,9 @@ export const FlashcardView = {
 
   async loadStudyDetails(session) {
     const word = this.words[this.currentIndex];
+    // 防御：会话已推进（含完成页渲染）或越界时，直接放弃本次加载，
+    // 防止用 undefined 单词发起资料请求或在完成页之后回写学习卡。
+    if (!word || session !== this.cardSession) return;
     const targetTrack = Config.get('exam_level') || '';
     const [examExamples, examples, rootAnalysis, examCorpus] = await Promise.all([
       ExamCorpus.getExamples(word.word, targetTrack).catch(() => []),
@@ -961,6 +968,11 @@ export const FlashcardView = {
     const isPractice = Boolean(this.practiceScope);
 
     if (isPractice) {
+      // 完成一轮后锁定入口：同一天内不再直接开始同一批词，
+      // 用户仍可回生词本通过“再来一轮”主动重新复习。
+      markPracticeScopeDone(this.practiceScope, {
+        wordIds: this.words.map(word => word.id)
+      });
       clearPracticeSession();
       this.practiceScope = '';
     }

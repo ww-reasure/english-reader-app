@@ -28,8 +28,8 @@ export const ReportView = {
 
     // Vocabulary stats
     const totalLearnWords = learnWords.length;
-    const masteredWords = learnWords.filter(w => w.interval >= 21).length;
-    const learningWords = learnWords.filter(w => w.reviewCount > 0 && w.interval < 21).length;
+    const masteredWords = learnWords.filter(w => SpacedRepetition.isStable(w)).length;
+    const learningWords = learnWords.filter(w => w.reviewCount > 0 && !SpacedRepetition.isStable(w)).length;
     const newWords = learnWords.filter(w => !w.reviewCount || w.reviewCount === 0).length;
     const dueWords = SpacedRepetition.getDueCount(learnWords);
 

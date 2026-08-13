@@ -22,7 +22,9 @@ export const StatsView = {
     const totalArticles = reading.libraryArticleCount;
     const totalWords = reading.totalWords;
     const learnedWords = learnWords.filter(w => w.reviewCount > 0).length;
-    const masteredWords = learnWords.filter(w => w.interval >= 21).length;
+    // Mastery is derived from the SRS status so words in active recovery are
+    // never counted as mastered while being relearned.
+    const masteredWords = learnWords.filter(w => SpacedRepetition.isStable(w)).length;
 
     // Every displayed reading metric comes from the versioned qualified
     // session records. The library inventory stays a separate number.

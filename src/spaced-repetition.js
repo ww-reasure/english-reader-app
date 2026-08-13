@@ -33,6 +33,10 @@ export const SpacedRepetition = {
   },
 
   getStatus(word) {
+    // Recovery is an active transient state: a mature word being relearned must
+    // never be reported as stable, even if its stored interval is long or it
+    // was previously mastered.
+    if (Math.max(0, Number(word.recoveryStage) || 0) > 0) return 'relearning';
     if (word.state === 'mastered') return 'stable';
     if (word.state === 'relearning') return 'relearning';
     if (word.state === 'learning' || (!word.reviewCount && word.nextReview)) return 'learning';

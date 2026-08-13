@@ -9,7 +9,7 @@ import { esc } from '../helpers.js';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
 import { WordStudyDetail } from '../components/word-study-detail.js';
-import { resolvePracticeScope, createPracticeSession } from '../review-practice.mjs';
+import { resolvePracticeScope, createPracticeSession, getPracticeScopeStatus } from '../review-practice.mjs';
 
 function renderDefinitionPreview(word) {
   const primary = getDefinitionDisplayLines(word)[0];
@@ -38,8 +38,20 @@ export const VocabularyView = {
     const dayMs = 24 * 60 * 60 * 1000;
     const todayBoundary = new Date();
     todayBoundary.setHours(0, 0, 0, 0);
-    const todayCount = practiceable.filter(word => Number(word.createdAt) >= todayBoundary.getTime()).length;
-    const recentCount = practiceable.filter(word => Number(word.createdAt) >= Date.now() - 7 * dayMs).length;
+    // 当前词集按学习词库 id 去重计算，与 resolvePracticeScope 口径一致；
+    // 未进入学习词库的词（practiceable 之外的）不计入，也不参与解锁。
+    const idsFor = (filtered) => [...new Set(filtered.map(word => {
+      const libraryWord = this.learnWordsByWord.get(String(word.word || '').trim().toLowerCase());
+      return libraryWord ? Number(libraryWord.id) : null;
+    }).filter(Number.isFinite))];
+    const todayStatus = getPracticeScopeStatus({
+      scope: 'today_added',
+      currentWordIds: idsFor(practiceable.filter(word => Number(word.createdAt) >= todayBoundary.getTime()))
+    });
+    const recentStatus = getPracticeScopeStatus({
+      scope: 'recent_added',
+      currentWordIds: idsFor(practiceable.filter(word => Number(word.createdAt) >= Date.now() - 7 * dayMs))
+    });
 
     let cards = '';
     if (words.length === 0) {
@@ -66,14 +78,8 @@ export const VocabularyView = {
           <h3 class="vocab-practice-title">专项复习</h3>
           <p class="vocab-practice-desc">只练你指定的词，不动正式复习计划。</p>
           <div class="vocab-practice-grid">
-            <button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('today_added')">
-              <span class="vocab-practice-entry-name">今日新增</span>
-              <span class="vocab-practice-entry-count">${todayCount} 词</span>
-            </button>
-            <button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('recent_added')">
-              <span class="vocab-practice-entry-name">最近 7 天</span>
-              <span class="vocab-practice-entry-count">${recentCount} 词</span>
-            </button>
+            ${this.renderPracticeEntry({ scope: 'today_added', name: '今日新增', status: todayStatus })}
+            ${this.renderPracticeEntry({ scope: 'recent_added', name: '最近 7 天', status: recentStatus })}
             <button type="button" class="vocab-practice-entry" onclick="VocabularyView.toggleSelection()">
               <span class="vocab-practice-entry-name">自选单词</span>
               <span class="vocab-practice-entry-count">手动勾选</span>
@@ -124,6 +130,30 @@ export const VocabularyView = {
       </section>`;
   },
 
+  // Render one time-scoped practice entry with three states:
+  //  - open:        nothing reviewed yet, starts a full round;
+  //  - incremental: reviewed words exist and new words arrived, starts with only the new words;
+  //  - locked:      every current word was reviewed today, only “再来一轮” reopens it.
+  renderPracticeEntry({ scope, name, status }) {
+    const reviewedCount = status.reviewedIds.length;
+    const newCount = status.newIds.length;
+    const totalCount = reviewedCount + newCount;
+    if (status.done) {
+      return `<div class="vocab-practice-entry vocab-practice-entry--done" title="今天已完成一轮，可再来一轮">
+        <span class="vocab-practice-entry-name">${name}<span class="vocab-practice-done-badge">今日已复习</span></span>
+        <span class="vocab-practice-entry-count">已复习 ${reviewedCount} 词 · 当前 ${totalCount} 词</span>
+        <button type="button" class="vocab-practice-again" onclick="VocabularyView.startPractice('${scope}', { reviewAll: true })">再来一轮</button>
+      </div>`;
+    }
+    const countLabel = reviewedCount > 0
+      ? `已复习 ${reviewedCount} 词 · 新增 ${newCount} 词`
+      : `${totalCount} 词`;
+    return `<button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('${scope}')">
+      <span class="vocab-practice-entry-name">${name}</span>
+      <span class="vocab-practice-entry-count">${countLabel}</span>
+    </button>`;
+  },
+
   // Toggle manage mode
   async toggleManage() {
     if (this.selectionMode) this.selectionMode = false;
@@ -146,15 +176,29 @@ export const VocabularyView = {
     if (button) button.textContent = `开始复习（${this.selectedWordIds.size}）`;
   },
 
-  async startPractice(scope) {
+  async startPractice(scope, options = {}) {
+    const reviewAll = Boolean(options?.reviewAll);
     const result = await resolvePracticeScope({ db: DB, scope, now: Date.now() });
     if (!result.words.length) {
       alert('这些词还没有进入学习词库。先在阅读页收藏并同步，或到“学习词库”导入后即可专项复习。');
       return;
     }
+    const currentIds = result.words.map(word => word.id);
+    let wordIds = currentIds;
+    if (!reviewAll) {
+      const status = getPracticeScopeStatus({ scope, currentWordIds: currentIds });
+      if (status.done) {
+        alert('今天已完成一轮，可点“再来一轮”重新复习。');
+        return;
+      }
+      if (status.reviewedIds.length > 0) {
+        // 已有部分词复习过：本轮只复习新增词，已复习词不再出现
+        wordIds = status.newIds;
+      }
+    }
     createPracticeSession({
       scope,
-      wordIds: result.words.map(word => word.id),
+      wordIds,
       skipped: result.skipped
     });
     location.hash = `#/flashcard/practice/${scope}`;

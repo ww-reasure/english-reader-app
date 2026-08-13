@@ -110,7 +110,7 @@ test('learning profile counts historical graduate reading in the general graduat
     DIFFICULTY_LABELS: JSON.stringify(LABELS),
     formatDate: formatDate.toString(),
     esc: esc.toString(),
-    SpacedRepetition: JSON.stringify({ getDueCount: () => 0 })
+    SpacedRepetition: JSON.stringify({ getDueCount: () => 0, isStable: () => false })
   });
   const source = await readFile(new URL('../src/views/stats.js', import.meta.url), 'utf8');
   const runtime = source.replace(/^import .*?;\r?\n/gm, '');
@@ -134,7 +134,7 @@ test('learning profile counts historical graduate reading in the general graduat
     const DIFFICULTY_LABELS = ${JSON.stringify(LABELS)};
     const formatDate = ${formatDate.toString()};
     const esc = ${esc.toString()};
-    const SpacedRepetition = { getDueCount: () => 0 };
+    const SpacedRepetition = { getDueCount: () => 0, isStable: () => false };
     const resolveArticleTrack = article => { const raw = article.examType === '英语一' ? 'kaoyan1' : article.examType === '英语二' ? 'kaoyan2' : article.targetTrack || article.difficulty || 'unknown'; return { targetTrack: raw === 'graduate' ? 'kaoyan-general' : raw }; };
     ${analyticsRuntime}
     ${runtime}

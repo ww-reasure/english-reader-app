@@ -21,6 +21,19 @@ test('long-interval and legacy mastered words use the stable SRS status', async 
   assert.equal(SpacedRepetition.isStable({ reviewCount: 1, interval: 2 }), false);
 });
 
+test('words in active recovery are never reported as stable', async () => {
+  const { SpacedRepetition } = await loadSpacedRepetition();
+
+  // Mature word relearning: long stored interval but recoveryStage > 0.
+  assert.equal(SpacedRepetition.getStatus({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }), 'relearning');
+  assert.equal(SpacedRepetition.isStable({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }), false);
+  // Recovery overrides a previously mastered state as well.
+  assert.equal(SpacedRepetition.getStatus({ reviewCount: 12, interval: 60, state: 'mastered', recoveryStage: 2 }), 'relearning');
+  // Once recovery completes the word returns to the long-term status.
+  assert.equal(SpacedRepetition.getStatus({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 0 }), 'stable');
+  assert.equal(SpacedRepetition.getStatusDisplay({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }).label, '重新学习');
+});
+
 test('learning vocabulary exposes stable and relearning filters without losing relearning words', async () => {
   const learnWordsSource = await readFile(new URL('../src/views/learn-words.js', import.meta.url), 'utf8');
 

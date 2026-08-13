@@ -2,9 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  PRACTICE_DONE_LEGACY_PREFIX,
+  PRACTICE_DONE_PREFIX,
   PRACTICE_SESSION_KEY,
+  clearPracticeScopeDone,
   clearPracticeSession,
   createPracticeSession,
+  getPracticeScopeStatus,
+  markPracticeScopeDone,
+  readPracticeScopeDone,
   readPracticeSession,
   resolvePracticeScope
 } from '../src/review-practice.mjs';
@@ -22,6 +28,18 @@ function makeDb({ saved = [], library = [] } = {}) {
 function installSessionStorage() {
   const store = new Map();
   globalThis.sessionStorage = {
+    getItem: key => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: key => store.delete(key)
+  };
+  return store;
+}
+
+function installLocalStorage() {
+  const store = new Map();
+  globalThis.localStorage = {
+    get length() { return store.size; },
+    key: index => [...store.keys()][index] ?? null,
     getItem: key => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, String(value)),
     removeItem: key => store.delete(key)
@@ -120,4 +138,138 @@ test('corrupt or mismatched practice sessions read back as null', () => {
 
   store.set(PRACTICE_SESSION_KEY, JSON.stringify({ scope: 'manual', wordIds: [] }));
   assert.equal(readPracticeSession(), null);
+});
+
+test('completed time-scoped practice locks the entry for the same local day', () => {
+  const store = installLocalStorage();
+  const morning = new Date('2026-08-11T09:00:00+08:00').getTime();
+  const evening = new Date('2026-08-11T21:00:00+08:00').getTime();
+
+  assert.equal(readPracticeScopeDone('today_added', { now: morning }), null);
+
+  markPracticeScopeDone('today_added', { wordIds: [11, 12], now: morning });
+  const done = readPracticeScopeDone('today_added', { now: evening });
+  assert.ok(done, '同一天内再次进入仍能看到完成标记');
+  assert.deepEqual(done.wordIds, [11, 12]);
+  assert.equal(done.completedAt, morning);
+
+  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}today_added`), 'v2 单键存储');
+});
+
+test('completion markers accumulate as a union across multiple rounds', () => {
+  const store = installLocalStorage();
+  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
+
+  markPracticeScopeDone('today_added', { wordIds: [11, 12], now });
+  markPracticeScopeDone('today_added', { wordIds: [12, 13, 14], now });
+
+  assert.deepEqual(readPracticeScopeDone('today_added', { now }).wordIds, [11, 12, 13, 14]);
+  assert.equal(JSON.parse(store.get(`${PRACTICE_DONE_PREFIX}today_added`)).completedAt, now);
+});
+
+test('today_added markers expire on a new local day while recent_added keeps a rolling window', () => {
+  const store = installLocalStorage();
+  markPracticeScopeDone('recent_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
+  markPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
+
+  assert.ok(readPracticeScopeDone('recent_added', { now: new Date('2026-08-11T23:00:00+08:00').getTime() }));
+  // 跨天：today_added 失效，recent_added 仍在同一 7 天窗口内
+  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-12T00:30:00+08:00').getTime() }), null);
+  assert.ok(readPracticeScopeDone('recent_added', { now: new Date('2026-08-12T00:30:00+08:00').getTime() }));
+  // 超过 7 天：recent_added 也失效，整窗重新开放
+  assert.equal(readPracticeScopeDone('recent_added', { now: new Date('2026-08-19T12:00:00+08:00').getTime() }), null);
+  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}recent_added`));
+});
+
+test('manual scope is never locked and unknown scopes are ignored', () => {
+  const store = installLocalStorage();
+
+  markPracticeScopeDone('manual', { wordIds: [31] });
+  assert.equal(readPracticeScopeDone('manual'), null);
+  assert.equal([...store.keys()].some(key => key.includes(':manual')), false);
+
+  markPracticeScopeDone('article', { wordIds: [1] });
+  assert.equal(readPracticeScopeDone('article'), null);
+  assert.equal(store.size, 0);
+});
+
+test('corrupt completion markers read back as null and clear removes v2 and legacy keys', () => {
+  const store = installLocalStorage();
+  store.set(`${PRACTICE_DONE_PREFIX}today_added`, '{not-json');
+  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() }), null);
+
+  markPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
+  store.set(`${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-10`, JSON.stringify({ wordIds: [9], completedAt: 1 }));
+  clearPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
+  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() }), null);
+  assert.ok(!store.has(`${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-10`));
+});
+
+test('legacy date-keyed markers migrate into the v2 single key on read', () => {
+  const store = installLocalStorage();
+  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
+  const legacyKey = `${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-11`;
+  store.set(legacyKey, JSON.stringify({ wordIds: [7, 8], completedAt: now }));
+
+  const migrated = readPracticeScopeDone('today_added', { now });
+  assert.deepEqual(migrated.wordIds, [7, 8]);
+  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}today_added`), 'v2 键已写入');
+  assert.ok(!store.has(legacyKey), '旧键已删除');
+});
+
+test('getPracticeScopeStatus drives the three entry states', () => {
+  installLocalStorage();
+  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
+  const currentIds = [11, 12, 13];
+
+  // 无标记：全部可复习
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
+    done: false,
+    reviewedIds: [],
+    newIds: [11, 12, 13]
+  });
+
+  // 部分完成：新增词单独列出，入口不锁定
+  markPracticeScopeDone('today_added', { wordIds: [11, 12], now });
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
+    done: false,
+    reviewedIds: [11, 12],
+    newIds: [13]
+  });
+
+  // 全部完成：锁定
+  markPracticeScopeDone('today_added', { wordIds: [13], now });
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
+    done: true,
+    reviewedIds: [11, 12, 13],
+    newIds: []
+  });
+
+  // manual 永不锁定
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'manual', currentWordIds: currentIds, now }), {
+    done: false,
+    reviewedIds: [],
+    newIds: [11, 12, 13]
+  });
+});
+
+test('recent_added status keeps reviewed words out across days within the rolling window', () => {
+  installLocalStorage();
+  const day1 = new Date('2026-08-11T12:00:00+08:00').getTime();
+  const day2 = new Date('2026-08-12T09:00:00+08:00').getTime();
+  const currentIds = [21, 22];
+
+  markPracticeScopeDone('recent_added', { wordIds: [21, 22], now: day1 });
+
+  // 跨天后：昨天复习过的词不算新增，词集无新词 → 锁定
+  const status = getPracticeScopeStatus({ scope: 'recent_added', currentWordIds: currentIds, now: day2 });
+  assert.equal(status.done, true);
+  assert.deepEqual(status.reviewedIds, [21, 22]);
+  assert.deepEqual(status.newIds, []);
+
+  // 有新收藏词：只把新词列为可复习
+  const withNew = getPracticeScopeStatus({ scope: 'recent_added', currentWordIds: [21, 22, 23], now: day2 });
+  assert.equal(withNew.done, false);
+  assert.deepEqual(withNew.reviewedIds, [21, 22]);
+  assert.deepEqual(withNew.newIds, [23]);
 });
