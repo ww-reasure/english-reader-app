@@ -28,6 +28,7 @@ import { buildExactWordFormIndex, renderExactWordMarking } from '../components/w
 import { bindReadingStyleWordLookup } from '../components/reading-word-lookup.js';
 import { getContextSentenceAtPoint } from '../components/reading-word-context.mjs';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
+import { splitSentences } from '../components/sentence-selection.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -57,6 +58,9 @@ export const ReadingView = {
   guideSession: 0,
   guideAbortController: null,
   guideModeUsed: false,
+  sentenceSegmentsByParagraph: [],
+  sentenceColorsEnabled: false,
+  _guideWordLookupCleanup: null,
   _viewportResizeHandler: null,
   _viewportResizeFrame: null,
 
@@ -85,9 +89,41 @@ export const ReadingView = {
   },
 
   _splitGuideSentences(paragraph) {
-    return (String(paragraph || '').match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [])
-      .map(sentence => sentence.trim())
+    return splitSentences(paragraph)
+      .map(segment => segment.text)
       .filter(sentence => /[a-z]/i.test(sentence));
+  },
+
+  _getSentenceSegments(paragraph) {
+    return splitSentences(paragraph);
+  },
+
+  _renderSentenceMarkup(paragraph, segments, renderText) {
+    const source = String(paragraph || '');
+    if (!Array.isArray(segments) || !segments.length) return renderText(source);
+    let cursor = 0;
+    let html = '';
+    segments.forEach((segment, index) => {
+      html += esc(source.slice(cursor, segment.start));
+      html += `<span class="reading-sentence" data-sentence-index="${index}" data-sentence-text="${esc(segment.text)}" data-sentence-start="${segment.start}" data-sentence-end="${segment.end}">${renderText(segment.text)}</span>`;
+      cursor = segment.end;
+    });
+    return html + esc(source.slice(cursor));
+  },
+
+  _renderGuideSource(sentence) {
+    const source = String(sentence || '');
+    const tokenPattern = /[A-Za-z]+(?:['’\-][A-Za-z]+)*/gu;
+    let cursor = 0;
+    let html = '';
+    for (const match of source.matchAll(tokenPattern)) {
+      const token = match[0];
+      const start = match.index ?? cursor;
+      html += esc(source.slice(cursor, start));
+      html += `<span class="sentence-guide-word" data-word-lookup-token="${esc(token)}" role="button" tabindex="0" title="点击查词">${esc(token)}</span>`;
+      cursor = start + token.length;
+    }
+    return html + esc(source.slice(cursor));
   },
 
   getSentenceGuideProgress() {
@@ -110,6 +146,9 @@ export const ReadingView = {
         <div class="reading-header-utilities" aria-label="阅读工具">
           <button class="reading-favorite-btn ${favorite ? 'is-active' : ''}" type="button" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn" aria-pressed="${favorite}" aria-label="${favorite ? '取消收藏文章' : '收藏文章'}">
             <i class="fa-${favorite ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>
+          </button>
+          <button class="reading-sentence-color-btn ${this.sentenceColorsEnabled ? 'is-active' : ''}" type="button" id="sentenceColorBtn" onclick="ReadingView.toggleSentenceColors()" title="句子配色" aria-label="句子配色：${this.sentenceColorsEnabled ? '开' : '关'}" aria-pressed="${this.sentenceColorsEnabled}">
+            <i class="fa-solid fa-palette" aria-hidden="true"></i>
           </button>
           ${!this.reviewMode ? `<button class="reading-marking-switch ${this.wordMarkingEnabled ? 'is-active' : ''}" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()" role="switch" aria-checked="${this.wordMarkingEnabled}" aria-label="词汇标记：${this.wordMarkingEnabled ? '开' : '关'}"><span>词汇标记</span><i aria-hidden="true"></i></button>` : ''}
         </div>
@@ -145,6 +184,8 @@ export const ReadingView = {
 
   cleanup() {
     this.closeSentenceGuide({ restoreReading: false });
+    this._clearSentenceColors();
+    this.sentenceColorsEnabled = false;
     this._wordLookupCleanup?.();
     this._wordLookupCleanup = null;
     if (this._audioClickHandler) {
@@ -205,6 +246,8 @@ export const ReadingView = {
     this.guidePayload = null;
     this.guideError = '';
     this.guideModeUsed = false;
+    this.sentenceSegmentsByParagraph = [];
+    this.sentenceColorsEnabled = false;
     const article = await DB.getArticle(articleId);
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
@@ -268,15 +311,27 @@ export const ReadingView = {
     const enParas = this._splitParas(article.content);
     this.englishParagraphs = enParas;
     this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
-    this.guideSentences = enParas.flatMap((paragraph, paragraphIndex) => this._splitGuideSentences(paragraph)
-      .map(sentence => ({ sentence, paragraph, paragraphIndex })));
+    this.sentenceSegmentsByParagraph = enParas.map(paragraph => this._getSentenceSegments(paragraph));
+    this.guideSentences = this.sentenceSegmentsByParagraph.flatMap((segments, paragraphIndex) => {
+      const paragraph = enParas[paragraphIndex];
+      return segments
+        .filter(segment => /[a-z]/i.test(segment.text))
+        .map(segment => ({ ...segment, sentence: segment.text, paragraph, paragraphIndex }));
+    });
     const articleTrack = resolveArticleTrack(article);
 
     let parasHTML = '';
     enParas.forEach((p, i) => {
       const zhText = this.paragraphTranslations[i] || '';
       const hasTranslation = !!zhText.trim();
-      const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : this.wordMarkingEnabled ? this._highlightLearningWords(p.trim()) : esc(p.trim());
+      const paragraph = p.trim();
+      const segments = this.sentenceSegmentsByParagraph[i];
+      const renderText = text => this.reviewMode
+        ? this._highlightReviewWords(text)
+        : this.wordMarkingEnabled
+          ? this._highlightLearningWords(text)
+          : esc(text);
+      const paraHTML = this._renderSentenceMarkup(paragraph, segments, renderText);
       parasHTML += `
         <div class="paragraph-pair" data-paragraph-index="${i}">
           <p class="en-paragraph">${paraHTML}</p>
@@ -433,6 +488,8 @@ export const ReadingView = {
   },
 
   closeSentenceGuide({ restoreReading = true } = {}) {
+    this._guideWordLookupCleanup?.();
+    this._guideWordLookupCleanup = null;
     if (this.guideAbortController) {
       this.guideAbortController.abort();
       this.guideAbortController = null;
@@ -467,6 +524,8 @@ export const ReadingView = {
     const overlay = document.getElementById('sentenceGuideModal');
     const current = this.guideSentences[this.guideIndex];
     if (!overlay || !current) return;
+    this._guideWordLookupCleanup?.();
+    this._guideWordLookupCleanup = null;
     const guide = this.guidePayload;
     const loading = !!this.guideAbortController && !guide && !this.guideError;
     const chunks = guide?.chunks?.length
@@ -491,7 +550,7 @@ export const ReadingView = {
           <button class="modal-close" type="button" onclick="ReadingView.closeSentenceGuide()" aria-label="关闭逐句导读">×</button>
         </header>
         <div class="sentence-guide-body">
-          <p class="sentence-guide-source">${esc(current.sentence)}</p>
+          <p class="sentence-guide-source">${this._renderGuideSource(current.sentence)}</p>
           ${status}
         </div>
         <footer class="sentence-guide-actions">
@@ -500,6 +559,29 @@ export const ReadingView = {
           <button class="btn btn-primary" type="button" onclick="ReadingView.nextSentenceGuide()" ${this.guideIndex >= this.guideSentences.length - 1 ? 'disabled' : ''}>下一句</button>
         </footer>
       </section>`;
+
+    const source = overlay.querySelector?.('.sentence-guide-source');
+    if (source) {
+      const lookupCleanup = bindReadingStyleWordLookup({
+        root: source,
+        surface: 'guide',
+        getContextSentence: () => current.sentence,
+        getTargetTrack: () => resolveArticleTrack(this.articleData || {}).targetTrack,
+        onHide: () => AIAnalysis.hideButton()
+      });
+      const keyHandler = event => {
+        if (!['Enter', ' '].includes(event.key)) return;
+        const token = event.target?.closest?.('[data-word-lookup-token]');
+        if (!token) return;
+        event.preventDefault();
+        token.click?.();
+      };
+      source.addEventListener?.('keydown', keyHandler);
+      this._guideWordLookupCleanup = () => {
+        lookupCleanup?.();
+        source.removeEventListener?.('keydown', keyHandler);
+      };
+    }
   },
 
   async loadSentenceGuide() {
@@ -552,6 +634,15 @@ export const ReadingView = {
     }
     document.querySelectorAll('#articleBody .paragraph-pair').forEach((pair, index) => {
       const paragraph = this.englishParagraphs[index];
+      const sentenceNodes = pair.querySelectorAll?.('.reading-sentence') || [];
+      if (sentenceNodes.length) {
+        sentenceNodes.forEach(node => {
+          const source = node.dataset.sentenceText || node.textContent || '';
+          node.innerHTML = this.wordMarkingEnabled ? this._highlightLearningWords(source) : esc(source);
+        });
+        return;
+      }
+      // Compatibility for a partially rendered/legacy DOM without wrappers.
       const english = pair.querySelector('.en-paragraph');
       if (english && paragraph != null) {
         english.innerHTML = this.wordMarkingEnabled ? this._highlightLearningWords(paragraph) : esc(paragraph);
@@ -563,6 +654,48 @@ export const ReadingView = {
       button.setAttribute('aria-checked', String(this.wordMarkingEnabled));
       button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
     }
+  },
+
+  _clearSentenceColors() {
+    document.querySelectorAll?.('#articleBody .reading-sentence').forEach(node => {
+      node.classList?.remove(...Array.from({ length: 6 }, (_item, index) => `sentence-color-${index + 1}`));
+      node.style?.removeProperty?.('--sentence-tint');
+    });
+    const button = document.getElementById?.('sentenceColorBtn');
+    if (button) {
+      button.classList.remove('is-active');
+      button.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-label', '句子配色：关');
+    }
+  },
+
+  toggleSentenceColors() {
+    const nodes = Array.from(document.querySelectorAll?.('#articleBody .reading-sentence') || []);
+    if (!nodes.length) return false;
+    this.sentenceColorsEnabled = !this.sentenceColorsEnabled;
+    const colorClasses = Array.from({ length: 6 }, (_item, index) => `sentence-color-${index + 1}`);
+    if (!this.sentenceColorsEnabled) {
+      this._clearSentenceColors();
+    } else {
+      const shuffled = colorClasses.sort(() => Math.random() - 0.5);
+      nodes.forEach((node, index) => {
+        node.classList?.remove(...colorClasses);
+        let color = shuffled[index % shuffled.length];
+        if (index > 0 && color === shuffled[(index - 1) % shuffled.length]) {
+          const swapIndex = (index + 1) % shuffled.length;
+          [shuffled[index % shuffled.length], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index % shuffled.length]];
+          color = shuffled[index % shuffled.length];
+        }
+        node.classList?.add(color);
+      });
+      const button = document.getElementById?.('sentenceColorBtn');
+      if (button) {
+        button.classList.add('is-active');
+        button.setAttribute('aria-pressed', 'true');
+        button.setAttribute('aria-label', '句子配色：开');
+      }
+    }
+    return this.sentenceColorsEnabled;
   },
 
   _highlightLearningWords(text) {

@@ -1,4 +1,5 @@
 import { getRangeAtPoint } from './word-point.mjs';
+import { findSentenceOffsets } from './sentence-selection.mjs';
 
 const normalizeSentence = value => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -7,6 +8,10 @@ export function getContextSentenceAtPoint(event, root = document) {
   const pointNode = range?.startContainer;
   const textNodeType = globalThis.Node?.TEXT_NODE || 3;
   const element = pointNode?.nodeType === textNodeType ? pointNode.parentElement : pointNode;
+  const wrappedSentence = element?.closest?.('.reading-sentence');
+  if (wrappedSentence && (wrappedSentence.dataset?.sentenceText || wrappedSentence.classList?.contains?.('reading-sentence')) && root?.contains?.(wrappedSentence)) {
+    return normalizeSentence(wrappedSentence.dataset?.sentenceText || wrappedSentence.textContent);
+  }
   const block = element?.closest?.('.en-paragraph, p, [data-selection-source]');
   if (!block || !pointNode || pointNode.nodeType !== textNodeType || !root?.contains?.(block)) return '';
 
@@ -20,10 +25,6 @@ export function getContextSentenceAtPoint(event, root = document) {
   const offset = nodes.slice(0, pointIndex).reduce((total, item) => total + item.textContent.length, 0) + range.startOffset;
   const text = block.textContent || '';
   if (offset < 0 || offset > text.length) return '';
-  const before = text.slice(0, offset);
-  const start = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?')) + 1;
-  const after = text.slice(offset);
-  const boundary = after.search(/[.!?](?=\s|$)/);
-  const end = boundary === -1 ? text.length : offset + boundary + 1;
-  return normalizeSentence(text.slice(start, end));
+  const boundaries = findSentenceOffsets(text, offset);
+  return normalizeSentence(boundaries ? text.slice(boundaries.start, boundaries.end) : text);
 }

@@ -31,6 +31,15 @@ const chatService = new ChatService({
 
 const MAX_SELECTED_EXCERPT_LENGTH = 600;
 const normalizeSelectedExcerpt = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTED_EXCERPT_LENGTH);
+const MAX_FOLLOWUP_ERROR_LENGTH = 180;
+const formatFollowupError = error => {
+  const raw = String(error?.message || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '请求失败，请稍后重试';
+  // Keep provider responses out of the UI while retaining a useful, bounded
+  // retry hint for ordinary network/request errors.
+  if (/authorization|api[_ -]?key|bearer|response\s+body|stack|token\s*:/i.test(raw)) return '请求失败，请稍后重试';
+  return raw.slice(0, MAX_FOLLOWUP_ERROR_LENGTH);
+};
 
 export const AIAnalysis = {
   currentText: '',
@@ -104,6 +113,11 @@ export const AIAnalysis = {
     const host = document.querySelector?.('[data-reading-ai-panel="side"]');
     host?.setAttribute('aria-hidden', 'true');
     host?.classList.remove('is-active');
+    if (this._followUpController) {
+      this._followUpController.disposed = true;
+      this._followUpController.requestToken += 1;
+      if (this._followUpController.send) this._followUpController.send.disabled = true;
+    }
     this._followUpController = null;
   },
 
@@ -363,7 +377,7 @@ export const AIAnalysis = {
 
   openFollowUpPanel(modal, excerpt = '') {
     const controller = this._followUpController;
-    if (!controller || controller.modal !== modal) return;
+    if (!controller || controller.modal !== modal || controller.disposed) return;
     const selectedExcerpt = normalizeSelectedExcerpt(excerpt || this.selectedDetailExcerpt);
     if (selectedExcerpt) {
       this.selectedDetailExcerpt = selectedExcerpt;
@@ -399,8 +413,15 @@ export const AIAnalysis = {
       });
     };
 
-    this._followUpController = { modal, panel, composer, input, excerpt, excerptText, renderHistory };
+    this._followUpController?.send && (this._followUpController.disposed = true);
+    const controller = {
+      modal, panel, composer, input, send, excerpt, excerptText, renderHistory,
+      disposed: false,
+      requestToken: 0
+    };
+    this._followUpController = controller;
     toggle.addEventListener('click', () => {
+      if (controller.disposed) return;
       if (panel.hidden) this.openFollowUpPanel(modal);
       else {
         panel.hidden = true;
@@ -409,6 +430,7 @@ export const AIAnalysis = {
     });
 
     const submit = async () => {
+      if (controller.disposed || this._followUpController !== controller) return;
       const question = input.value.trim();
       if (!question || send.disabled) return;
       if (!Config.hasApiKey()) {
@@ -417,11 +439,16 @@ export const AIAnalysis = {
       }
 
       const list = modal.querySelector('#aiFollowupMessages');
+      if (!list) return;
+      const isLive = () => {
+        if (controller.disposed || this._followUpController !== controller || requestToken !== controller.requestToken) return false;
+        try { return modal.querySelector('#aiFollowupMessages') === list; } catch { return false; }
+      };
       const context = analysisContext;
       const selectedExcerpt = this.selectedDetailExcerpt;
       const session = conversationStore.getSession(key);
-      input.value = '';
       send.disabled = true;
+      const requestToken = ++controller.requestToken;
       this.addFollowUpBubble(list, 'user', question);
       this.addFollowUpBubble(list, 'assistant', '正在回答…', true);
 
@@ -431,27 +458,35 @@ export const AIAnalysis = {
           session,
           userMessage: question,
           kind: 'reading',
+          tools: [],
           pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph, analysis, selectedExcerpt }
         });
+        if (!isLive()) return;
         list.querySelector('.ai-followup-thinking')?.remove();
+        input.value = '';
         conversationStore.append(key, { role: 'user', kind: 'text', content: question, selectedExcerpt });
         conversationStore.append(key, { role: 'assistant', kind: 'text', content: reply.content });
         conversationStore.compact(key, 8);
         this.addFollowUpBubble(list, 'assistant', reply.content);
       } catch (error) {
+        if (!isLive()) return;
         list.querySelector('.ai-followup-thinking')?.remove();
-        this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + error.message, false, true);
+        if (error?.name !== 'AbortError') {
+          this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + formatFollowupError(error), false, true);
+        }
       } finally {
-        send.disabled = false;
-        list.scrollTop = list.scrollHeight;
+        if (isLive()) {
+          send.disabled = false;
+          list.scrollTop = list.scrollHeight;
+        }
       }
     };
 
-    send.addEventListener('click', submit);
+    send.addEventListener('click', () => { void submit(); });
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        submit();
+        void submit();
       }
     });
   },

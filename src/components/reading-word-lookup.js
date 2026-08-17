@@ -20,6 +20,9 @@ function normalizeSentence(value) {
 
 export function bindReadingStyleWordLookup({
   root,
+  surface = 'reading',
+  isolated = false,
+  isolatedSurface = false,
   getContextSentence = event => getContextSentenceAtPoint(event, root),
   getTargetTrack = () => '',
   isReviewWord = () => false,
@@ -32,6 +35,7 @@ export function bindReadingStyleWordLookup({
   if (!root || !tooltip) return () => {};
 
   let disposed = false;
+  const isIsolatedSurface = isolated || isolatedSurface || surface === 'guide' || surface === 'isolated';
 
   const hide = () => {
     Tooltip.hide();
@@ -54,7 +58,11 @@ export function bindReadingStyleWordLookup({
 
     const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
     if (!target || !root.contains(target)) return;
-    if (target.closest?.(LOOKUP_CONTROL_SELECTOR) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
+    const tokenTarget = target.dataset?.wordLookupToken
+      ? target
+      : target.closest?.('[data-word-lookup-token]');
+    if (isIsolatedSurface && !tokenTarget) return;
+    if ((!tokenTarget && target.closest?.(LOOKUP_CONTROL_SELECTOR)) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
 
     const selection = window.getSelection?.();
     if (selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
@@ -65,8 +73,10 @@ export function bindReadingStyleWordLookup({
       return;
     }
 
-    const word = Tooltip.getWordAtPoint(event);
+    const word = String(tokenTarget?.dataset?.wordLookupToken || Tooltip.getWordAtPoint(event) || '').trim();
     if (!word || word.length < 2) return;
+    // A guide is rendered outside the article body, but stop propagation as a
+    // second line of defence when a host embeds both surfaces together.
     event.stopPropagation();
 
     onHide();
@@ -100,7 +110,7 @@ export function bindReadingStyleWordLookup({
         }).catch(() => {});
       }
 
-      void Promise.resolve(onShown({ event, word, data, reviewWord, contextSentence, targetTrack, lookupId })).catch(() => {});
+      void Promise.resolve(onShown({ event, word, data, reviewWord, contextSentence, targetTrack, lookupId, surface })).catch(() => {});
     } catch {
       if (!disposed && Tooltip.isCurrent(lookupId)) Tooltip.showError(lookupId, x, y, '暂时无法查询，请稍后重试');
     }
@@ -116,5 +126,6 @@ export function bindReadingStyleWordLookup({
     document.removeEventListener('click', globalClickHandler);
     autoDismissCleanup?.();
     Tooltip.hide();
+    onHide();
   };
 }

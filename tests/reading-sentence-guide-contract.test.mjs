@@ -6,6 +6,10 @@ async function readReadingView() {
   return (await readFile(new URL('../src/views/reading.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
 }
 
+async function read(relativePath) {
+  return (await readFile(new URL(relativePath, import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
+}
+
 async function readStyles() {
   return (await readFile(new URL('../css/style.css', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
 }
@@ -43,4 +47,29 @@ test('sentence guide uses an independently scrollable mobile sheet with fixed na
   assert.match(css, /\.sentence-guide-sheet\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,1fr\)\s+auto/s);
   assert.match(css, /\.sentence-guide-body\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.sentence-guide-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,1fr\)/s);
+});
+
+test('reading guide and body use shared source-ranged sentence nodes and isolate guide lookup', async () => {
+  const source = await readReadingView();
+  const lookup = await read('../src/components/reading-word-lookup.js');
+
+  assert.match(source, /splitSentences/);
+  assert.match(source, /class="reading-sentence"/);
+  assert.match(source, /sentence-guide-word/);
+  assert.match(source, /_guideWordLookupCleanup/);
+  assert.match(lookup, /surface\s*=\s*['"]reading['"]/);
+  assert.match(lookup, /surface\s*===\s*['"]guide['"]/);
+});
+
+test('sentence color control is session-local and exposes pressed state', async () => {
+  const source = await readReadingView();
+  const css = await readStyles();
+
+  assert.match(source, /id="sentenceColorBtn"/);
+  assert.match(source, /toggleSentenceColors\(\)/);
+  assert.match(source, /aria-pressed="false"/);
+  assert.match(source, /toggleSentenceColors\(\)\s*\{/);
+  assert.match(source, /sentence-color-\$\{/);
+  assert.match(css, /\.reading-sentence\s*\{[^}]*box-decoration-break:\s*clone/s);
+  assert.match(css, /color-mix\(/);
 });

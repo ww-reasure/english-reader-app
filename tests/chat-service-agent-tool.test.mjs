@@ -25,6 +25,32 @@ test('returns article artifacts immediately after a generation tool call', async
   assert.deepEqual(reply.artifacts, [{ type: 'article', article: { id: 8, title: 'Practice' } }]);
 });
 
+test('reading follow-ups always send an explicit empty tools array', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const service = new ChatService({
+    api: {
+      chat: async (_messages, options) => {
+        requests.push(options);
+        return { content: 'reading answer' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [{ role: 'user', content: 'why?' }] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'reading:1',
+    session: { summary: '', messages: [] },
+    userMessage: 'why?',
+    kind: 'reading',
+    tools: [{ type: 'function', function: { name: 'should_not_be_sent' } }]
+  });
+
+  assert.equal(reply.content, 'reading answer');
+  assert.deepEqual(requests[0].tools, []);
+});
+
 test('returns a generation failure artifact without asking the model to continue', async () => {
   const { ChatService } = await loadChatService();
   let chatCalls = 0;
