@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { getContextSentenceAtPoint } from '../src/components/reading-word-context.mjs';
@@ -35,4 +36,12 @@ test('shared word lookup resolves the sentence under a text point in Android Web
     globalThis.document = originalDocument;
     globalThis.Node = originalNode;
   }
+});
+
+test('guide lookup exposes an isolated surface and cleans its listener on disposal', async () => {
+  const source = await readFile(new URL('../src/components/reading-word-lookup.js', import.meta.url), 'utf8');
+  assert.match(source, /surface\s*=\s*['"]reading['"]/);
+  assert.match(source, /surface\s*===\s*['"]guide['"]/);
+  assert.match(source, /event\.stopPropagation\(\)/);
+  assert.match(source, /root\.removeEventListener\('click', lookupWord\)/);
 });

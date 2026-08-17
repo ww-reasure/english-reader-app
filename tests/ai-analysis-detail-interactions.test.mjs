@@ -9,7 +9,7 @@ async function loadAIAnalysis(mocks) {
   const imports = `
     const { Tooltip, API, Dictionary, esc, debounce, SentenceAnalysisCache, Config, Modal,
       ConversationStore, LearningAgent, ContextBuilder, ChatService, DB, SpacedRepetition,
-      renderLearningMarkdown } = globalThis.__aiAnalysisMocks;
+      renderLearningMarkdown, bindMessageCopy, createCopyButton } = globalThis.__aiAnalysisMocks;
   `;
   const testSource = source
     .replace(/^import .+;\r?\n/gm, '')
@@ -74,6 +74,8 @@ function baseMocks(overrides = {}) {
       DB: {},
       SpacedRepetition: {},
       renderLearningMarkdown: value => String(value),
+      bindMessageCopy: () => () => {},
+      createCopyButton: () => ({ nodeType: 1 }),
       ...overrides
     }
   };
@@ -169,4 +171,111 @@ test('a late sentence analysis result cannot overwrite the current analysis requ
 
   assert.equal(renders.some(([, content]) => content === 'old result'), false);
   assert.equal(renders.at(-1)[1], 'new result');
+});
+
+function createFollowupModal() {
+  const elements = new Map();
+  for (const id of ['aiFollowupToggle', 'aiFollowupPanel', 'aiFollowupInput', 'aiFollowupSend', 'aiFollowupExcerpt', 'aiFollowupExcerptText', 'aiFollowupComposer', 'aiFollowupMessages']) {
+    const element = createTarget(id);
+    element.hidden = id === 'aiFollowupPanel' || id === 'aiFollowupComposer' || id === 'aiFollowupExcerpt';
+    element.disabled = false;
+    element.value = '';
+    element.children = [];
+    element.focus = () => {};
+    element.appendChild = child => element.children.push(child);
+    element.querySelector = selector => selector === '.ai-followup-thinking'
+      ? element.children.find(child => child.className?.includes('ai-followup-thinking')) || null
+      : null;
+    elements.set(`#${id}`, element);
+  }
+  return {
+    elements,
+    querySelector(selector) { return elements.get(selector) || null; }
+  };
+}
+
+function installFollowupDocument() {
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    createElement() {
+      return {
+        nodeType: 1,
+        dataset: {},
+        className: '',
+        textContent: '',
+        innerHTML: '',
+        children: [],
+        appendChild(child) { this.children.push(child); },
+        remove() { this.removed = true; }
+      };
+    }
+  };
+  return () => { globalThis.document = originalDocument; };
+}
+
+test('follow-up click and Enter share a guarded request with reading context and no tools', async () => {
+  const calls = [];
+  const saved = [];
+  class Store {
+    constructor() { this.messages = []; }
+    getSession() { return { summary: '', messages: [...this.messages] }; }
+    append(_key, message) { saved.push(message); this.messages.push(message); }
+    compact() {}
+  }
+  class Service {
+    constructor() {}
+    async ask(options) { calls.push(options); return { content: '已解释' }; }
+    cancel() {}
+  }
+  const { mocks } = baseMocks({ ConversationStore: Store, ChatService: Service });
+  const restoreDocument = installFollowupDocument();
+  try {
+    const { AIAnalysis } = await loadAIAnalysis(mocks);
+    const modal = createFollowupModal();
+    AIAnalysis.bindFollowUp(modal, 'The sentence.', '句子详解', { id: 42, title: '文章', paragraph: 'The sentence.' });
+
+    const input = modal.elements.get('#aiFollowupInput');
+    const send = modal.elements.get('#aiFollowupSend');
+    input.value = '为什么用这个时态？';
+    await send.emit('click', { preventDefault() {} });
+    input.value = '再给一个例子';
+    await input.emit('keydown', { key: 'Enter', shiftKey: false, preventDefault() {} });
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls.map(call => call.tools), [[], []]);
+    assert.equal(calls[0].pageContext.sentence, 'The sentence.');
+    assert.equal(calls[0].pageContext.article.id, 42);
+    assert.equal(saved.filter(item => item.role === 'assistant').length, 2);
+    assert.equal(modal.elements.get('#aiFollowupMessages').children.some(child => child.children?.some(nested => nested.innerHTML === '已解释')), true);
+    assert.equal(send.disabled, false);
+  } finally {
+    restoreDocument();
+  }
+});
+
+test('follow-up failure keeps the question available for retry and clips the visible error', async () => {
+  class Service {
+    constructor() {}
+    async ask() { throw new Error('secret response body '.repeat(80)); }
+    cancel() {}
+  }
+  const { mocks } = baseMocks({ ChatService: Service });
+  const restoreDocument = installFollowupDocument();
+  try {
+    const { AIAnalysis } = await loadAIAnalysis(mocks);
+    const modal = createFollowupModal();
+    AIAnalysis.bindFollowUp(modal, 'The sentence.', '句子详解', { id: 43, title: '文章', paragraph: 'The sentence.' });
+    const input = modal.elements.get('#aiFollowupInput');
+    const send = modal.elements.get('#aiFollowupSend');
+    input.value = '请重试';
+    await send.emit('click', { preventDefault() {} });
+
+    assert.equal(input.value, '请重试');
+    assert.equal(send.disabled, false);
+    const errorBubble = modal.elements.get('#aiFollowupMessages').children.at(-1);
+    assert.ok(errorBubble.textContent.length <= 220);
+    assert.equal(errorBubble.textContent.includes('secret response body '.repeat(5)), false);
+  } finally {
+    restoreDocument();
+  }
 });

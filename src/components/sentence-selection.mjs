@@ -1,12 +1,72 @@
 const ABBREVIATION_AT_END = /(?:Mr|Mrs|Dr|Ms|Prof|Sr|Jr|St|vs|etc|inc|Ltd|Corp|U\.S|U\.K|e\.g|i\.e|a\.m|p\.m)\.$/i;
+const CLOSING_SENTENCE_CHARACTERS = /[\"'\u2019\u201d\u00bb\u300d\u300f\u3011\)\]\}]/;
 
-function isSentenceEnd(text, index) {
+export function isSentenceEnd(text, index) {
   const character = text[index];
   if (!/[.!?]/.test(character)) return false;
   if (character === '.' && ABBREVIATION_AT_END.test(text.slice(Math.max(0, index - 14), index + 1))) return false;
   const following = text[index + 1] || '';
-  return !following || /[\s\"')\]\}]/.test(following);
+  return !following || /[\s\"'\u2019\u201d\u00bb\u300d\u300f\u3011)\]}]/.test(following);
 }
+
+function sentenceEndWithClosingCharacters(text, punctuationIndex) {
+  let end = punctuationIndex + 1;
+  while (end < text.length && CLOSING_SENTENCE_CHARACTERS.test(text[end])) end += 1;
+  return end;
+}
+
+function trimRange(text, start, end) {
+  let trimmedStart = Math.max(0, start);
+  let trimmedEnd = Math.min(text.length, end);
+  while (trimmedStart < trimmedEnd && /\s/.test(text[trimmedStart])) trimmedStart += 1;
+  while (trimmedEnd > trimmedStart && /\s/.test(text[trimmedEnd - 1])) trimmedEnd -= 1;
+  return {
+    start: trimmedStart,
+    end: trimmedEnd,
+    sourceStart: trimmedStart,
+    sourceEnd: trimmedEnd,
+    range: { start: trimmedStart, end: trimmedEnd },
+    text: text.slice(trimmedStart, trimmedEnd)
+  };
+}
+
+/**
+ * Split source text using the same abbreviation-aware boundary rules used by
+ * long-press selection. Ranges point back into the original string so callers
+ * can wrap a sentence without changing whitespace, punctuation, or quotes.
+ */
+export function splitSentences(text) {
+  const value = String(text ?? '');
+  if (!value) return [];
+
+  const segments = [];
+  let segmentStart = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const paragraphBreak = value.slice(index).match(/^\r?\n(?:[ \t]*\r?\n)+/);
+    if (paragraphBreak) {
+      const paragraph = trimRange(value, segmentStart, index);
+      if (paragraph.text) segments.push(paragraph);
+      segmentStart = index + paragraphBreak[0].length;
+      index = segmentStart - 1;
+      continue;
+    }
+    if (!isSentenceEnd(value, index)) continue;
+    const end = sentenceEndWithClosingCharacters(value, index);
+    const segment = trimRange(value, segmentStart, end);
+    if (segment.text) segments.push(segment);
+    segmentStart = end;
+    while (segmentStart < value.length && /\s/.test(value[segmentStart])) segmentStart += 1;
+    index = end - 1;
+  }
+
+  const tail = trimRange(value, segmentStart, value.length);
+  if (tail.text) segments.push(tail);
+  return segments;
+}
+
+// Explicit aliases make the shared contract discoverable to older callers.
+export const segmentSentences = splitSentences;
+export const findSentenceSegments = splitSentences;
 
 export function findSentenceOffsets(text, pointOffset) {
   const value = String(text || '');
@@ -16,7 +76,7 @@ export function findSentenceOffsets(text, pointOffset) {
   let start = 0;
   for (let index = offset - 1; index >= 0; index -= 1) {
     if (isSentenceEnd(value, index)) {
-      start = index + 1;
+      start = sentenceEndWithClosingCharacters(value, index);
       break;
     }
   }
@@ -25,7 +85,7 @@ export function findSentenceOffsets(text, pointOffset) {
   let end = value.length;
   for (let index = offset; index < value.length; index += 1) {
     if (isSentenceEnd(value, index)) {
-      end = index + 1;
+      end = sentenceEndWithClosingCharacters(value, index);
       break;
     }
   }

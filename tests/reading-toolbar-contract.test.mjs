@@ -13,6 +13,8 @@ test('reading header puts favourite and vocabulary marking in compact utilities'
   assert.match(reading, /id="favBtn"[^>]*aria-pressed=/);
   assert.match(reading, /id="wordMarkingBtn"[^>]*role="switch"[^>]*aria-checked=/);
   assert.match(reading, /词汇标记/);
+  assert.match(reading, /id="sentenceColorBtn"[^>]*aria-label=/);
+  assert.match(reading, /id="sentenceColorBtn"[^>]*aria-pressed=/);
 });
 
 test('reading actions keep translation, sentence guide, PDF export and back in one compact strip', async () => {

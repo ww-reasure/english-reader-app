@@ -89,6 +89,7 @@ export const App = {
     // Import modal
     document.getElementById('importSubmit')?.addEventListener('click', () => Modal.handleImport());
     document.getElementById('importCancel')?.addEventListener('click', () => Modal.hideImport());
+    document.getElementById('importFile')?.addEventListener('change', event => Modal.handleImportFile(event));
   }
 };
 

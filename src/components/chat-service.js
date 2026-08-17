@@ -57,7 +57,10 @@ export class ChatService {
       ? this.webResearch.resolve()
       : { native: false, tavily: true };
     const forceFirstSearch = Boolean(plan.native) && isTimelyQuery(userMessage);
-    const baseTools = Array.isArray(tools) ? tools : [];
+    // Reading follow-ups are deliberately ordinary chat. Sending the learning
+    // tool schema here makes some compatible chat models reject the request
+    // before they ever see the sentence context.
+    const baseTools = kind === 'reading' ? [] : (Array.isArray(tools) ? tools : []);
     const requestTools = plan.native
       ? [...baseTools.filter(tool => tool?.function?.name !== 'search_web'), { type: 'web_search' }]
       : plan.tavily
@@ -82,6 +85,7 @@ export class ChatService {
       toolResults: toolResults || []
     });
     const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto') => {
+      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       if (plan.native) {
         if (typeof toItems !== 'function') throw new Error('当前联网配置缺少 Responses 消息转换器');
         const completion = await this.api.responsesCompletion(
@@ -91,6 +95,7 @@ export class ChatService {
         if (kind === 'home' && completion?.usage) {
           this.telemetry?.record({ requestId, phase, usage: completion.usage });
         }
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         return completion || { role: 'assistant', content: '' };
       }
       const chatTools = (requestToolsForRound || []).filter(tool => tool?.type === 'function');
@@ -101,6 +106,7 @@ export class ChatService {
       if (kind === 'home' && completion?.usage) {
         this.telemetry?.record({ requestId, phase, usage: completion.usage });
       }
+      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       return completion?.message || { role: 'assistant', content: '' };
     };
 
@@ -113,7 +119,7 @@ export class ChatService {
       } catch (error) {
         if (!toolsUnsupported(error)) throw error;
         toolSupport = 'unsupported';
-        transcript = buildMessages([await this.agent.getLearningOverview()]);
+        transcript = buildMessages(kind === 'reading' ? [] : [await this.agent.getLearningOverview()]);
         reply = await call(transcript, [], 'fallback');
       }
 
