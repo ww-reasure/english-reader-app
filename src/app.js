@@ -10,6 +10,10 @@ import { Router } from './router.js';
 import { esc } from './helpers.js';
 import { installNativeNavigation } from './components/native-navigation.js';
 import { ArticleCatalog } from './components/article-catalog.js';
+import { DB } from './db.js';
+import { DailyLearningReportService } from './daily-learning-report-service.mjs';
+
+const dailyLearningReportMaintenance = new DailyLearningReportService({ db: DB, examProvider: {} });
 
 function scheduleCatalogPrewarm() {
   const prewarm = () => {
@@ -25,6 +29,19 @@ function scheduleCatalogPrewarm() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') prewarm();
   }, { passive: true });
+}
+
+function scheduleDailyReportPrune() {
+  const prune = () => {
+    void dailyLearningReportMaintenance.prune().catch(error => {
+      console.warn('Daily learning report cleanup failed:', error);
+    });
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(prune, { timeout: 2500 });
+  } else {
+    setTimeout(prune, 800);
+  }
 }
 
 export const App = {
@@ -45,6 +62,7 @@ export const App = {
 
       // Start router
       Router.init();
+      scheduleDailyReportPrune();
       scheduleCatalogPrewarm();
       this._removeNativeNavigation = await installNativeNavigation(Router);
 

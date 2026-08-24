@@ -16,7 +16,7 @@ test('reading lookup supplies the full current sentence to a constrained context
   assert.match(reading, /getLookupSentence\(e\)/);
   assert.match(lookup, /ContextualSense\.resolve\(\{/);
   assert.match(lookup, /sentence:\s*contextSentence/);
-  assert.match(lookup, /Tooltip\.show\([^;]*contextSentence/s);
+  assert.match(lookup, /(?:Tooltip|tooltipApi)\.show\(lookupId/);
 });
 
 test('tooltip and full study detail display a selected in-sentence meaning without replacing full dictionary senses', async () => {

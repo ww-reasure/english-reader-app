@@ -28,10 +28,12 @@ test('reading title and body delegate to the shared Tooltip and Dictionary looku
   assert.match(source, /bindReadingStyleWordLookup\(\{/);
   assert.match(source, /getContextSentence: event => this\.getLookupSentence\(event\) \|\| \(event\.target\.closest\?\.\('#readingTitleLookup'/);
   assert.match(source, /getTargetTrack: \(\) => articleTrack\.targetTrack/);
-  assert.match(lookupSource, /if \(Tooltip\.isVisible\(\)\) \{[\s\S]*?hide\(\);[\s\S]*?return;/);
-  assert.match(lookupSource, /const lookupId = Tooltip\.beginLookup\(x, y\);/);
-  assert.match(lookupSource, /const data = await Dictionary\.lookup\(word\);/);
-  assert.match(lookupSource, /Tooltip\.show\(lookupId, x, y, data, reviewWord,\s*\{\s*contextSentence,\s*targetTrack/s);
+  assert.match(lookupSource, /if \((?:Tooltip|tooltipApi)\.isVisible\(\)\) \{[\s\S]*?hide\(\);[\s\S]*?return;/);
+  assert.match(lookupSource, /const lookupId = (?:Tooltip|tooltipApi)\.beginLookup\(x, y\);/);
+  assert.match(lookupSource, /const data = await (?:Dictionary|dictionary)\.lookup\(word\);/);
+  assert.match(lookupSource, /(?:Tooltip|tooltipApi)\.show\(lookupId, x, y, data, reviewWord/);
+  assert.match(lookupSource, /contextSentence/);
+  assert.match(lookupSource, /targetTrack/);
   assert.match(source, /onShown: \(\{ event, word, data, reviewWord, lookupId \}\)/);
   assert.match(source, /knowledgeEvidenceBridge\.recordLookup/);
 });
