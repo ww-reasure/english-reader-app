@@ -8,12 +8,16 @@ let sequence = 0;
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
+  const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
       "const getStemForm = word => String(word || '').trim().toLowerCase();"
     )
-    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
+    .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
+    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -32,7 +36,7 @@ function openVersion13(name) {
   });
 }
 
-test('v17 migration preserves v13 data and creates exam core, state, and translation review stores', async () => {
+test('v18 migration preserves v13 data and creates exam and telemetry stores', async () => {
   globalThis.indexedDB = indexedDB;
   const name = `EnglishReaderExamV14-${process.pid}-${sequence++}`;
   const legacy = await openVersion13(name);
@@ -50,8 +54,8 @@ test('v17 migration preserves v13 data and creates exam core, state, and transla
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
 
-  assert.equal(upgraded.version, 17);
-  for (const storeName of ['examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions', 'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks', 'examTranslationReviews']) {
+  assert.equal(upgraded.version, 18);
+  for (const storeName of ['examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions', 'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks', 'examTranslationReviews', 'learningActivityEvents', 'dailyLearningReports']) {
     assert.equal(upgraded.objectStoreNames.contains(storeName), true);
   }
   upgraded.close();
@@ -78,7 +82,7 @@ function openVersion16WithLegacyWrongState(name) {
   });
 }
 
-test('v17 migrates legacy active wrong states into today due states and adds due indexes', async () => {
+test('v18 migrates legacy active wrong states into today due states and adds due indexes', async () => {
   globalThis.indexedDB = indexedDB;
   const name = `EnglishReaderExamV17-${process.pid}-${sequence++}`;
   const legacy = await openVersion16WithLegacyWrongState(name);
@@ -100,7 +104,7 @@ test('v17 migrates legacy active wrong states into today due states and adds due
   const module = await loadDatabaseModule();
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 17);
+  assert.equal(upgraded.version, 18);
   assert.equal(upgraded.transaction('examWrongStates').objectStore('examWrongStates').indexNames.contains('examIdStatusNextDueAt'), true);
   assert.equal(upgraded.transaction('examTranslationReviews').objectStore('examTranslationReviews').indexNames.contains('examIdStatusNextDueAt'), true);
   const migrated = await new Promise((resolve, reject) => {

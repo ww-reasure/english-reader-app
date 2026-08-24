@@ -5,6 +5,8 @@
 
 import { getStemForm } from './helpers.js';
 import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
+import { localDayBounds } from './learning-day.mjs';
+import { ActivityType, normalizeLearningActivity } from './learning-activity.mjs';
 
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
@@ -47,6 +49,33 @@ export function abortTransaction(tx, error) {
   return error;
 }
 
+function clonePlain(value) {
+  if (value === undefined) return value;
+  if (typeof structuredClone === 'function') return structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
+}
+
+function numericValue(value, fallback = null) {
+  return Number.isFinite(Number(value)) ? Number(value) : fallback;
+}
+
+function keyRangeForBounds(from, to) {
+  const keyRange = globalThis.IDBKeyRange;
+  const lower = numericValue(from);
+  const upper = numericValue(to);
+  if (!keyRange) return null;
+  if (lower !== null && upper !== null) return keyRange.bound(lower, upper, false, true);
+  if (lower !== null) return keyRange.lowerBound(lower);
+  if (upper !== null) return keyRange.upperBound(upper, true);
+  return null;
+}
+
+function upperRangeBefore(before) {
+  const keyRange = globalThis.IDBKeyRange;
+  const limit = numericValue(before);
+  return keyRange && limit !== null ? keyRange.upperBound(limit, true) : null;
+}
+
 function updateRecordFields(db, storeName, id, fields) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite');
@@ -63,7 +92,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 17, // v17: exam review scheduling indexes and legacy due normalization
+  DB_VERSION: 18, // v18: additive learning activity and daily report telemetry
 
   // Open database connection with retry
   open(retries = 3) {
@@ -331,6 +360,21 @@ export const DB = {
           const meta = e.target.transaction.objectStore('knowledgeProfileMeta');
           meta.delete('knowledge-profile-qualified-readings');
           meta.delete('knowledge-profile-reading-feedback');
+        }
+
+        // v18: additive learning telemetry and deterministic daily report snapshots.
+        if (!db.objectStoreNames.contains('learningActivityEvents')) {
+          const store = db.createObjectStore('learningActivityEvents', { keyPath: 'id' });
+          store.createIndex('occurredAt', 'occurredAt');
+          store.createIndex('dayKey', 'dayKey');
+          store.createIndex('type', 'type');
+          store.createIndex('sessionId', 'sessionId');
+          store.createIndex('dedupeKey', 'dedupeKey', { unique: true });
+        }
+        if (!db.objectStoreNames.contains('dailyLearningReports')) {
+          const store = db.createObjectStore('dailyLearningReports', { keyPath: 'dateKey' });
+          store.createIndex('updatedAt', 'updatedAt');
+          store.createIndex('expiresAt', 'expiresAt');
         }
       };
 
@@ -833,6 +877,135 @@ export const DB = {
       source: 'practice-flashcard',
       sawAnswer: Boolean(sawAnswer),
       practiceScope: String(practiceScope || '')
+    });
+  },
+
+  async saveLearningActivity(record) {
+    const normalized = normalizeLearningActivity(record);
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learningActivityEvents', 'readwrite');
+      const req = tx.objectStore('learningActivityEvents').put(normalized);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve(clonePlain(normalized));
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('学习活动保存失败'));
+    });
+  },
+
+  async getLearningActivityByDedupeKey(dedupeKey) {
+    if (!dedupeKey) return null;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learningActivityEvents', 'readonly');
+      const req = tx.objectStore('learningActivityEvents').index('dedupeKey').get(String(dedupeKey));
+      req.onsuccess = () => resolve(clonePlain(req.result) || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async listLearningActivities({ from, to, types = [] } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learningActivityEvents', 'readonly');
+      const index = tx.objectStore('learningActivityEvents').index('occurredAt');
+      const range = keyRangeForBounds(from, to);
+      const req = range ? index.getAll(range) : index.getAll();
+      req.onsuccess = () => {
+        const lower = numericValue(from);
+        const upper = numericValue(to);
+        const hasTypeFilter = Array.isArray(types) && types.length > 0;
+        const requestedTypes = new Set((Array.isArray(types) ? types : [])
+          .filter(type => Object.values(ActivityType).includes(type)));
+        const rows = req.result
+          .filter(row => (lower === null || Number(row.occurredAt) >= lower)
+            && (upper === null || Number(row.occurredAt) < upper))
+          .filter(row => !hasTypeFilter || requestedTypes.has(row.type))
+          .sort((left, right) => (Number(left.occurredAt) - Number(right.occurredAt))
+            || String(left.id).localeCompare(String(right.id)));
+        resolve(rows.map(clonePlain));
+      };
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async saveDailyLearningReport(report) {
+    const dateKey = String(report?.dateKey || '');
+    if (!dateKey) throw new TypeError('日报需要日期');
+    localDayBounds(dateKey);
+    const stored = clonePlain({ ...report, dateKey });
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('dailyLearningReports', 'readwrite');
+      const req = tx.objectStore('dailyLearningReports').put(stored);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve(clonePlain(stored));
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('日报保存失败'));
+    });
+  },
+
+  async getDailyLearningReport(dateKey) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('dailyLearningReports', 'readonly');
+      const req = tx.objectStore('dailyLearningReports').get(String(dateKey || ''));
+      req.onsuccess = () => resolve(clonePlain(req.result) || null);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async listDailyLearningReports({ limit = 30 } = {}) {
+    const requestedLimit = Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 30;
+    const cappedLimit = Math.max(0, Math.min(30, requestedLimit));
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('dailyLearningReports', 'readonly');
+      const req = tx.objectStore('dailyLearningReports').index('updatedAt').getAll();
+      req.onsuccess = () => resolve(req.result
+        .sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0)
+          || String(right.dateKey).localeCompare(String(left.dateKey)))
+        .slice(0, cappedLimit)
+        .map(clonePlain));
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async deleteExpiredLearningTelemetry({ reportBefore, activityBefore } = {}) {
+    const reportLimit = numericValue(reportBefore);
+    const activityLimit = numericValue(activityBefore);
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['dailyLearningReports', 'learningActivityEvents'], 'readwrite');
+      let reportsDeleted = 0;
+      let activitiesDeleted = 0;
+      let failure = null;
+
+      const deleteBefore = (storeName, indexName, before, onDelete) => {
+        if (before === null) return;
+        const index = tx.objectStore(storeName).index(indexName);
+        const range = upperRangeBefore(before);
+        const req = range ? index.openCursor(range) : index.openCursor();
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) return;
+          if (!range && Number(cursor.key) >= before) return;
+          cursor.delete();
+          onDelete();
+          cursor.continue();
+        };
+        req.onerror = () => {
+          failure = req.error;
+          tx.abort();
+        };
+      };
+
+      deleteBefore('dailyLearningReports', 'updatedAt', reportLimit, () => { reportsDeleted += 1; });
+      deleteBefore('learningActivityEvents', 'occurredAt', activityLimit, () => { activitiesDeleted += 1; });
+
+      tx.oncomplete = () => resolve({ reportsDeleted, activitiesDeleted });
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('遥测清理失败'));
     });
   },
 
