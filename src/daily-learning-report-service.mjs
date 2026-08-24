@@ -301,6 +301,7 @@ export class DailyLearningReportService {
       .slice(0, Math.max(0, Math.min(MAX_DETAIL_LIMIT, Math.trunc(Number(limit) || 20))))
       .map(sanitizeActivity);
     return {
+      source: 'learning_activity_detail',
       dateKey,
       category: text(category),
       completeness: rows ? 'complete' : 'unavailable',
