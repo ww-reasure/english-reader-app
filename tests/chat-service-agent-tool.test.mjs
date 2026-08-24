@@ -235,3 +235,31 @@ test('continues ordinary read-only tool calls through the model loop', async () 
     content: JSON.stringify({ source: 'get_learning_overview', due: 3 })
   });
 });
+
+test('passes a bounded daily report artifact through the ordinary tool loop', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const artifact = { type: 'daily_learning_report', reportId: 'daily:2026-08-24', dateKey: '2026-08-24', dataFingerprint: 'sha256:test' };
+  const service = new ChatService({
+    api: {
+      chat: async (_messages, options) => {
+        requests.push(options);
+        return requests.length === 1
+          ? { tool_calls: [{ id: 'daily-1', type: 'function', function: { name: 'get_daily_learning_report', arguments: '{"date":"2026-08-24"}' } }] }
+          : { content: '日报已生成。' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '查看今日日报', kind: 'home',
+    tools: [{ function: { name: 'get_daily_learning_report' } }],
+    executeTool: async () => ({ result: { source: 'daily_learning_report', dateKey: '2026-08-24' }, artifact })
+  });
+
+  assert.equal(reply.content, '日报已生成。');
+  assert.deepEqual(reply.artifacts, [artifact]);
+  assert.equal(requests.length, 2);
+});

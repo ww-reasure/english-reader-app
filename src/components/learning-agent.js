@@ -24,6 +24,51 @@ export const LEARNING_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_daily_learning_report',
+      description: '只读查询指定本地日期的学习日报。数据来自本机学习记录，可能标记为部分可用或不可用；不包含完整文章、试卷或对话内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '本地日期 YYYY-MM-DD' },
+          withAnalysis: { type: 'boolean', description: '是否请求有界的中文复盘；本地事实不依赖此项' }
+        },
+        required: ['date'],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_recent_learning_reports',
+      description: '只读列出最近的本地学习日报摘要。结果最多 30 条，历史数据可能部分可用或已过期。',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'integer', minimum: 1, maximum: 30 } },
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_learning_activity_detail',
+      description: '只读查看指定本地日期和类别的有界学习活动明细。仅返回元数据，可能部分可用；不返回完整文章、题目、答案或对话。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          category: { type: 'string', enum: ['vocabulary', 'lookup', 'reading', 'review', 'exam'] },
+          limit: { type: 'integer', minimum: 1, maximum: 100 }
+        },
+        required: ['date', 'category'],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_learning_overview',
       description: '读取学习概览',
       parameters: { type: 'object', properties: {} }
@@ -63,12 +108,22 @@ export const LEARNING_TOOLS = [
   }
 ];
 
+const DAILY_REPORT_CATEGORIES = new Set(['vocabulary', 'lookup', 'reading', 'review', 'exam']);
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function dateArg(args = {}) {
+  const date = String(args.date || args.dateKey || '').trim();
+  if (!DATE_PATTERN.test(date)) throw new TypeError('日报日期必须为 YYYY-MM-DD');
+  return date;
+}
+
 export class LearningAgent {
-  constructor({ db, srs, examCorpus = null, examLearningProvider = null, targetTrack = () => '', now = () => Date.now() }) {
+  constructor({ db, srs, examCorpus = null, examLearningProvider = null, dailyReportProvider = null, targetTrack = () => '', now = () => Date.now() }) {
     this.db = db;
     this.srs = srs;
     this.examCorpus = examCorpus;
     this.examLearningProvider = examLearningProvider;
+    this.dailyReportProvider = dailyReportProvider;
     this.targetTrack = targetTrack;
     this.now = now;
   }
@@ -80,7 +135,35 @@ export class LearningAgent {
     if (name === 'list_saved_articles') return this.listSavedArticles(args);
     if (name === 'get_review_queue') return this.getReviewQueue();
     if (name === 'get_exam_learning_priorities') return this.getExamLearningPriorities();
+    if (name === 'get_daily_learning_report') return this.getDailyLearningReport(args);
+    if (name === 'list_recent_learning_reports') return this.listRecentLearningReports(args);
+    if (name === 'get_learning_activity_detail') return this.getLearningActivityDetail(args);
     throw new Error('Tool not allowed: ' + name);
+  }
+
+  unavailableDailyResult(source = 'daily_learning_report') {
+    return { source, status: 'unavailable', completeness: 'unavailable', reports: [], items: [] };
+  }
+
+  async getDailyLearningReport(args = {}) {
+    const dateKey = dateArg(args);
+    if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
+    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: Boolean(args.withAnalysis) });
+  }
+
+  async listRecentLearningReports(args = {}) {
+    const limit = Math.max(1, Math.min(30, Math.trunc(Number(args.limit) || 30)));
+    if (!this.dailyReportProvider?.listRecent) return { source: 'recent_learning_reports', status: 'unavailable', reports: [] };
+    return { source: 'recent_learning_reports', status: 'available', reports: (await this.dailyReportProvider.listRecent(limit)).slice(0, 30) };
+  }
+
+  async getLearningActivityDetail(args = {}) {
+    const dateKey = dateArg(args);
+    const category = String(args.category || '').trim();
+    if (!DAILY_REPORT_CATEGORIES.has(category)) throw new TypeError('学习活动详情类别无效');
+    const limit = Math.max(1, Math.min(100, Math.trunc(Number(args.limit) || 20)));
+    if (!this.dailyReportProvider?.getActivityDetail) return { source: 'learning_activity_detail', status: 'unavailable', dateKey, category, items: [] };
+    return this.dailyReportProvider.getActivityDetail({ dateKey, category, limit });
   }
 
   async getExamLearningOverview({ year, bankId } = {}) {

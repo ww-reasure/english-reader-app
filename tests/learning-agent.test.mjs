@@ -130,3 +130,12 @@ test('exam overview tool reports unavailable without mutating or inventing data'
     recentAttempts: [], wrongSummary: []
   });
 });
+
+test('daily report tools return a typed unavailable result without a provider', async () => {
+  const { LearningAgent } = await loadAgent();
+  const agent = new LearningAgent({ db: {}, srs: {} });
+  assert.deepEqual(await agent.execute('get_daily_learning_report', { date: '2026-08-24' }), {
+    source: 'daily_learning_report', status: 'unavailable', completeness: 'unavailable',
+    reports: [], items: [], dateKey: '2026-08-24'
+  });
+});

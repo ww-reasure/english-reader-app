@@ -34,6 +34,7 @@ import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
 import { WordImportService, normalizeImportWords } from '../word-import-service.mjs';
+import { toDailyReportAgentSummary } from '../daily-learning-report.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
@@ -112,6 +113,18 @@ const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++gene
 const redactAgentSecrets = value => String(value || '')
   .replace(/(sk-[A-Za-z0-9_\-]{8,})/g, 'sk-***')
   .replace(/(tvly-[A-Za-z0-9_\-]{8,})/g, 'tvly-***');
+
+export const dailyReportArtifactOf = report => {
+  const facts = report?.facts || report?.data || report;
+  const dateKey = String(report?.dateKey || facts?.dateKey || '').trim();
+  if (!dateKey || report?.status === 'unavailable') return null;
+  return {
+    type: 'daily_learning_report',
+    reportId: `daily:${dateKey}`,
+    dateKey,
+    dataFingerprint: String(report?.dataFingerprint || '')
+  };
+};
 
 const cancelledRequest = () => {
   const error = new Error('请求已取消');
@@ -1042,6 +1055,23 @@ export const ChatView = {
         },
         artifact
       };
+    }
+    if (name === 'get_daily_learning_report') {
+      const report = await learningAgent.execute(name, args);
+      const facts = report?.facts || report?.data || report;
+      const artifact = dailyReportArtifactOf(report);
+      if (!artifact) return { result: report };
+      return {
+        result: {
+          source: 'daily_learning_report',
+          dataFingerprint: report.dataFingerprint || '',
+          ...toDailyReportAgentSummary(facts)
+        },
+        artifact
+      };
+    }
+    if (name === 'list_recent_learning_reports' || name === 'get_learning_activity_detail') {
+      return { result: await learningAgent.execute(name, args) };
     }
     if (name !== 'generate_reading') {
       return { result: await learningAgent.execute(name, args) };
