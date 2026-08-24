@@ -51,6 +51,6 @@ test('flashcard practice mode records practice events and keeps scheduled review
   assert.match(source, /DB\.settleSessionReview\(word\.id/);
   assert.match(source, /if \(!this\.practiceScope\)/);
   assert.match(source, /专项练习完成/);
-  assert.match(source, /返回生词本/);
+  assert.match(source, /返回我的词汇/);
   assert.doesNotMatch(source, /isPractice \? '[^']*再来一轮/);
 });

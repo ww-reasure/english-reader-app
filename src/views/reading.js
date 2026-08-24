@@ -1112,8 +1112,8 @@ export const ReadingView = {
       } catch {}
     }
     const msg = added > 0
-      ? `已将 ${added} 个单词加入学习词库${skipped > 0 ? `（${skipped} 个已存在，已跳过）` : ''}`
-      : `所有 ${skipped} 个单词已在学习词库中`;
+      ? `已将 ${added} 个单词加入我的词汇${skipped > 0 ? `（${skipped} 个已存在，已跳过）` : ''}`
+      : `所有 ${skipped} 个单词已在我的词汇中`;
     alert(msg);
   },
 

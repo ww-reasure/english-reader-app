@@ -21,13 +21,14 @@ test('long-interval and legacy mastered words use the stable SRS status', async 
   assert.equal(SpacedRepetition.isStable({ reviewCount: 1, interval: 2 }), false);
 });
 
-test('learning vocabulary exposes stable and relearning filters without losing relearning words', async () => {
-  const learnWordsSource = await readFile(new URL('../src/views/learn-words.js', import.meta.url), 'utf8');
+test('unified vocabulary exposes stable and relearning filters without losing relearning words', async () => {
+  const vocabularySource = await readFile(new URL('../src/views/vocabulary.js', import.meta.url), 'utf8');
 
-  assert.match(learnWordsSource, /filterMode === 'stable'/);
-  assert.match(learnWordsSource, /setFilter\('stable'\)/);
-  assert.match(learnWordsSource, /长期巩固/);
-  assert.match(learnWordsSource, /=== 'learning' \|\| SpacedRepetition\.getStatus\(w\) === 'relearning'/);
+  assert.match(vocabularySource, /statusFilter === 'stable'/);
+  assert.match(vocabularySource, /setStatusFilter/);
+  assert.match(vocabularySource, /value="stable"/);
+  assert.match(vocabularySource, /长期巩固/);
+  assert.match(vocabularySource, /statusDisplayOf/);
 });
 
 test('homepage review preserves due stable words while supplementing only non-stable words', async () => {

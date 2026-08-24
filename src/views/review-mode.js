@@ -19,17 +19,17 @@ export const ReviewModeView = {
           <p class="page-eyebrow">03 / REVIEW LAB</p>
           <h2 id="reviewModeTitle">今天想怎么复习？</h2>
           <p>两种方式共用同一复习队列和排期。一个词在任一方式完成后，未再次到期前不会在另一种方式重复出现。</p>
-          <div class="review-mode-count"><strong>${dueCount}</strong><span>个词现在到期</span><small>学习词库共 ${totalCount} 个</small></div>
+          <div class="review-mode-count"><strong>${dueCount}</strong><span>个词现在到期</span><small>词汇总数 ${totalCount} 个</small></div>
         </section>
         <div class="review-mode-grid">
-          <a class="review-mode-card review-mode-card--recall ${dueCount ? '' : 'is-disabled'}" href="${dueCount ? '#/flashcard/recall' : '#/learn-words'}">
+          <a class="review-mode-card review-mode-card--recall ${dueCount ? '' : 'is-disabled'}" href="${dueCount ? '#/flashcard/recall' : '#/vocab'}">
             <span class="review-mode-index">01</span>
             <span class="review-mode-icon" aria-hidden="true"><i class="fa-regular fa-eye"></i></span>
             <h3>单词回忆</h3>
             <p>只看英文想释义，直接检验能否独立回忆。证据更强，适合作为主要复习方式。</p>
             <span class="review-mode-enter">${dueCount ? '开始回忆' : '暂无到期词'} <i class="fa-solid fa-arrow-right"></i></span>
           </a>
-          <a class="review-mode-card review-mode-card--context ${dueCount ? '' : 'is-disabled'}" href="${dueCount ? '#/flashcard/context' : '#/learn-words'}">
+          <a class="review-mode-card review-mode-card--context ${dueCount ? '' : 'is-disabled'}" href="${dueCount ? '#/flashcard/context' : '#/vocab'}">
             <span class="review-mode-index">02</span>
             <span class="review-mode-icon" aria-hidden="true"><i class="fa-regular fa-message"></i></span>
             <h3>语境识词</h3>

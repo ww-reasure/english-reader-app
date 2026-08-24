@@ -160,12 +160,12 @@ export const ReportView = {
       },
       {
         icon: '📚', name: '百词达人',
-        desc: '学习词库达到 100 词',
+        desc: '词汇总数达到 100 词',
         unlocked: data.totalLearnWords >= 100
       },
       {
         icon: '🎓', name: '千词大师',
-        desc: '学习词库达到 1000 词',
+        desc: '词汇总数达到 1000 词',
         unlocked: data.totalLearnWords >= 1000
       },
       {

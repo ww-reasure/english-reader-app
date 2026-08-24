@@ -316,7 +316,7 @@ export const ChatView = {
             <button class="quick-action" type="button" data-action="import-article"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>导入文章</button>
             <button class="quick-action" type="button" data-action="import-words"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i>导入单词</button>
             <button class="quick-action" type="button" data-action="daily-report"><i class="fa-solid fa-chart-line" aria-hidden="true"></i>今日日报</button>
-            <a class="quick-action" href="#/learn-words"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>学习词库</a>
+            <a class="quick-action" href="#/vocab"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>我的词汇</a>
           </div>
           <div id="composerOptions" class="composer-options" hidden>
             <div class="composer-options-heading">
@@ -558,7 +558,7 @@ export const ChatView = {
   async publishHomeGenerationArticle(job, article, keywords, runtime, batchIndex = 0) {
     if (!this.hasPublishedGenerationArticle(job.id, article.id)) {
       this.addArticleCard(article);
-      if (keywords) this.addMessage('system', `已自动融入学习词库中的单词：${keywords}`);
+      if (keywords) this.addMessage('system', `已自动融入我的词汇中的单词：${keywords}`);
       runtime.updateJob({ publishedArticleIds: [...new Set([...(job.publishedArticleIds || []), article.id])] });
     }
     runtime.clearPreview?.(batchIndex);
@@ -838,7 +838,7 @@ export const ChatView = {
     pending.forEach(({ article, reviewKeywords }) => {
       this.addArticleCard(article);
       if (reviewKeywords) {
-        this.addMessage('system', `已自动融入学习词库中的单词：${reviewKeywords}`);
+        this.addMessage('system', `已自动融入我的词汇中的单词：${reviewKeywords}`);
       }
     });
   },
@@ -2111,7 +2111,7 @@ export const WordImport = {
     modal.innerHTML = `
       <h2>确认导入</h2>
       <div class="word-import-preview" aria-live="polite">
-        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入学习词库。</p>
+        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入我的词汇。</p>
         <div class="word-import-preview-grid">
           <div class="word-import-preview-row"><span>识别到的有效词</span><strong>${counts.recognized || 0}</strong></div>
           <div class="word-import-preview-row"><span>新增词</span><strong>${counts.new || 0}</strong></div>

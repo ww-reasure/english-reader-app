@@ -25,7 +25,7 @@ export const AppShell = {
     if (hash.startsWith('#/exam/practice/')) return { navKey: 'exam', title: '真题练习', headerMode: 'back', tabletLayout: 'focus' };
     if (hash.startsWith('#/exam/result/')) return { navKey: 'exam', title: '练习结果', headerMode: 'back', tabletLayout: 'focus' };
     if (hash.startsWith('#/reading/')) return { navKey: 'reading-list', title: '阅读', headerMode: 'back', tabletLayout: 'focus' };
-    if (hash === '#/learn-words' || hash.startsWith('#/flashcard')) {
+    if (hash === '#/vocab' || hash.startsWith('#/flashcard')) {
       return { navKey: 'vocab', title: hash.startsWith('#/flashcard') ? '单词复习' : '词汇学习', ...(hash.startsWith('#/flashcard') ? { headerMode: 'back' } : {}), tabletLayout: hash.startsWith('#/flashcard') ? 'focus' : 'rail' };
     }
     if (hash === '#/settings' || hash === '#/assessment' || hash === '#/report' || hash === '#/stats') {
