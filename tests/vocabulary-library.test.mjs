@@ -50,6 +50,24 @@ test('versioned rows are never reclassified after a source becomes inactive', ()
   assert.deepEqual(plan.inserts, []);
 });
 
+test('versioned rows reserve their lemma so migration never inserts a duplicate', () => {
+  const plan = planLegacyVocabularyMigration({
+    learnWords: [{
+      id: 1,
+      word: 'derive',
+      librarySourceVersion: LIBRARY_SOURCE_VERSION,
+      librarySources: {
+        reading: { active: true, firstAddedAt: 10, lastAddedAt: 10 },
+        import: { active: false, firstAddedAt: null, lastAddedAt: null }
+      }
+    }],
+    vocabulary: [{ word: 'derive', createdAt: 20, translation: '获得' }],
+    normalizeLemma: value => value.toLowerCase()
+  });
+  assert.deepEqual(plan.updates, []);
+  assert.deepEqual(plan.inserts, []);
+});
+
 function fixtures() {
   return [
     {

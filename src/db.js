@@ -8,6 +8,12 @@ import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
 import { localDayBounds, localDayKey } from './learning-day.mjs';
 import { ActivityType, importWordDedupeKey, normalizeLearningActivity } from './learning-activity.mjs';
 import { scheduleExternalReview } from './external-review-scheduler.mjs';
+import {
+  activateLibrarySource,
+  deactivateLibrarySource,
+  planLegacyVocabularyMigration,
+  projectUnifiedVocabulary
+} from './vocabulary-library.mjs';
 
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
@@ -683,13 +689,170 @@ export const DB = {
     });
   },
 
-  async getAllLearnWords() {
+  async getAllLearnWords({ includeArchived = false } = {}) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readonly');
       const req = tx.objectStore('learnWords').getAll();
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => resolve(includeArchived
+        ? req.result
+        : req.result.filter(word => word?.archivedAt == null));
       req.onerror = () => reject(req.error);
+    });
+  },
+
+  async ensureUnifiedVocabulary() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const savedRequest = savedStore.getAll();
+      const wordsRequest = wordStore.getAll();
+      let savedRows = null;
+      let learnRows = null;
+      let applied = false;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('统一词库迁移失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (applied || savedRows === null || learnRows === null) return;
+        applied = true;
+        try {
+          const plan = planLegacyVocabularyMigration({
+            learnWords: learnRows,
+            vocabulary: savedRows,
+            normalizeLemma: getStemForm
+          });
+          for (const row of plan.updates) wordStore.put(row);
+          for (const row of plan.inserts) wordStore.add(row);
+        } catch (error) {
+          fail(error);
+        }
+      };
+
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      wordsRequest.onsuccess = () => {
+        learnRows = wordsRequest.result || [];
+        apply();
+      };
+      wordsRequest.onerror = () => fail(wordsRequest.error);
+      tx.oncomplete = () => failure ? reject(failure) : resolve();
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('统一词库迁移失败'));
+    });
+  },
+
+  async getUnifiedVocabulary() {
+    await this.ensureUnifiedVocabulary();
+    const [learnWords, vocabulary] = await Promise.all([
+      this.getAllLearnWords(),
+      this.getAllWords()
+    ]);
+    return projectUnifiedVocabulary({
+      learnWords,
+      vocabulary,
+      normalizeLemma: getStemForm
+    });
+  },
+
+  async removeReadingVocabularySource(wordId, { occurredAt = Date.now() } = {}) {
+    await this.ensureUnifiedVocabulary();
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const wordRequest = wordStore.get(Number(wordId));
+      const savedRequest = savedStore.getAll();
+      let word = null;
+      let savedRows = null;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('取消收藏失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (word === null || savedRows === null) return;
+        if (!word) return;
+        const lemma = getStemForm(word.word);
+        for (const saved of savedRows) {
+          if (getStemForm(saved?.word) === lemma) savedStore.delete(saved.id);
+        }
+        wordStore.put(deactivateLibrarySource(word, 'reading', occurredAt));
+        word = undefined;
+      };
+
+      wordRequest.onsuccess = () => {
+        word = wordRequest.result || null;
+        apply();
+      };
+      wordRequest.onerror = () => fail(wordRequest.error);
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      tx.oncomplete = () => failure ? reject(failure) : resolve();
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('取消收藏失败'));
+    });
+  },
+
+  async archiveLearnWords(wordIds, { occurredAt = Date.now() } = {}) {
+    const ids = [...new Set((Array.isArray(wordIds) ? wordIds : [wordIds])
+      .map(id => Number(id))
+      .filter(Number.isFinite))];
+    if (!ids.length) return;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readwrite');
+      const store = tx.objectStore('learnWords');
+      for (const id of ids) {
+        const request = store.get(id);
+        request.onsuccess = () => {
+          if (request.result) store.put({ ...request.result, archivedAt: occurredAt });
+        };
+        request.onerror = () => {
+          try {
+            tx.abort();
+          } catch {}
+          reject(request.error);
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('移出词库失败'));
+    });
+  },
+
+  async restoreLearnWordSource(wordId, source, { occurredAt = Date.now() } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readwrite');
+      const store = tx.objectStore('learnWords');
+      const request = store.get(Number(wordId));
+      request.onsuccess = () => {
+        if (request.result) store.put(activateLibrarySource(request.result, source, occurredAt));
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('恢复词库来源失败'));
     });
   },
 

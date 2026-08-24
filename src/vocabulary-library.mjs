@@ -168,11 +168,12 @@ export function planLegacyVocabularyMigration({
   const updates = [];
   const canonicalLemmas = new Set();
   for (const original of Array.isArray(learnWords) ? learnWords : []) {
-    if (!original || original.librarySourceVersion === LIBRARY_SOURCE_VERSION) continue;
-    const row = clone(original);
-    const lemma = normalizeLemma(row.word, normalize);
+    if (!original) continue;
+    const lemma = normalizeLemma(original.word, normalize);
     if (!lemma) continue;
     canonicalLemmas.add(lemma);
+    if (original.librarySourceVersion === LIBRARY_SOURCE_VERSION) continue;
+    const row = clone(original);
     const matchingSaved = savedByLemma.get(lemma) || [];
     const times = firstAndLastTimes(matchingSaved);
     const source = matchingSaved.length ? 'reading' : 'import';
