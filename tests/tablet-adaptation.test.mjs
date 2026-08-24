@@ -27,7 +27,7 @@ test('tablet CSS keeps rail routes in the shell and turns exam navigation inline
 });
 
 test('wide tablets use independent 60/40 exam practice panes', async () => {
-  const css = await readFile(new URL('../css/style.css', import.meta.url), 'utf8');
+  const css = (await readFile(new URL('../css/style.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const start = css.indexOf('@media (min-width: 840px) {\n  .app-shell--focus.app-shell--exam');
   const end = css.indexOf('/* end wide exam practice */', start);
   const wide = start >= 0 && end >= start ? css.slice(start, end) : '';
