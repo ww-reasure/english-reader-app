@@ -33,8 +33,7 @@ import { getSharedArticleQualityService } from '../components/article-quality-se
 import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
-import { getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
-import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
+import { WordImportService, normalizeImportWords } from '../word-import-service.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
@@ -73,6 +72,7 @@ const articleGenerationTool = new ArticleGenerationTool({
   admit: admitArticle,
   inspectQuality: articleQualityService.inspectQuality
 });
+const wordImportService = new WordImportService({ db: DB, lookup: Dictionary.lookup.bind(Dictionary) });
 const generationPolicyFor = challenge => buildArticleGenerationPolicy({
   calibrationStatus: Config.get('calibration_status'),
   challenge,
@@ -1743,6 +1743,9 @@ export const ChatView = {
  * Handles importing words from PDF or manual input
  */
 export const WordImport = {
+  currentPlan: null,
+  _lastInputText: '',
+
   // Show import modal
   showModal() {
     const existing = document.getElementById('wordImportModal');
@@ -1773,7 +1776,7 @@ export const WordImport = {
           <div id="pdfStatus" style="margin-top:8px;font-size:13px;color:var(--text-muted)"></div>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-primary" onclick="WordImport.handleImport()">导入</button>
+          <button class="btn btn-primary" onclick="WordImport.handleImport()">预览导入</button>
           <button class="btn" onclick="document.getElementById('wordImportModal').remove()">取消</button>
         </div>
       </div>`;
@@ -1846,9 +1849,7 @@ export const WordImport = {
 
   // Extract English words from text
   extractWordsFromText(text) {
-    const words = text.match(/[a-zA-Z]{2,}/g) || [];
-    const unique = [...new Set(words.map(w => w.toLowerCase()))];
-    return unique.filter(w => w.length >= 3).slice(0, 200);
+    return normalizeImportWords(text);
   },
 
   // Handle word import
@@ -1864,39 +1865,66 @@ export const WordImport = {
       alert('未识别到有效单词');
       return;
     }
+    const plan = await wordImportService.createPlan(text);
+    this._lastInputText = text;
+    this.renderImportPreview(plan);
+  },
 
-    // Show progress
-    const status = document.createElement('div');
-    status.style.cssText = 'margin-top:8px;font-size:13px;color:var(--text-muted)';
-    document.getElementById('wordImportModal')?.querySelector('.modal-actions')?.before(status);
+  renderImportPreview(plan) {
+    this.currentPlan = plan;
+    const modal = document.querySelector('#wordImportModal .modal');
+    if (!modal) return;
+    const counts = plan.counts || {};
+    const failed = plan.categories?.failed?.length || 0;
+    modal.innerHTML = `
+      <h2>确认导入</h2>
+      <div class="word-import-preview" aria-live="polite">
+        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入学习词库。</p>
+        <div class="word-import-preview-grid">
+          <div class="word-import-preview-row"><span>识别到的有效词</span><strong>${counts.recognized || 0}</strong></div>
+          <div class="word-import-preview-row"><span>新增词</span><strong>${counts.new || 0}</strong></div>
+          <div class="word-import-preview-row"><span>可计外部复习</span><strong>${counts.externalReview || 0}</strong></div>
+          <div class="word-import-preview-row"><span>今日已处理</span><strong>${counts.todayIgnored || 0}</strong></div>
+          <div class="word-import-preview-row"><span>无法识别</span><strong>${counts.invalid || 0}</strong></div>
+          <div class="word-import-preview-row"><span>预分析失败</span><strong>${failed}</strong></div>
+        </div>
+        <div class="word-import-progress" role="status" aria-live="polite">等待确认：0/${counts.recognized || 0}</div>
+      </div>
+      <div class="modal-actions">
+        <button id="wordImportConfirm" class="btn btn-primary" type="button">确认导入</button>
+        <button id="wordImportBack" class="btn" type="button">返回修改</button>
+      </div>`;
+    modal.querySelector('#wordImportConfirm')?.addEventListener('click', () => this.confirmImport());
+    modal.querySelector('#wordImportBack')?.addEventListener('click', () => {
+      this.showModal();
+      const input = document.getElementById('wordPasteInput');
+      if (input) input.value = this._lastInputText;
+    });
+  },
 
-    let imported = 0;
-    for (const word of words) {
-      try {
-        // Look up translation for each word
-        let definition = null;
-        try {
-          definition = await Dictionary.lookup(word);
-        } catch {}
-        await DB.saveLearnWord({
-          word,
-          translation: getSavableTranslation(definition),
-          phonetic: definition?.phonetic || '',
-          pos: definition?.pos || '',
-          definitionSenses: getDefinitionSenses(definition),
-          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-          definitionLexiconVersion: definition?.lexiconVersion || '',
-          createdAt: Date.now()
-        });
-        imported++;
-        if (status) status.textContent = `正在导入... ${imported}/${words.length}`;
-      } catch {
-        // Duplicate word, skip
-      }
+  async confirmImport() {
+    if (!this.currentPlan) return;
+    const modal = document.querySelector('#wordImportModal .modal');
+    const confirm = modal?.querySelector('#wordImportConfirm');
+    const back = modal?.querySelector('#wordImportBack');
+    const progress = modal?.querySelector('.word-import-progress');
+    if (confirm) confirm.disabled = true;
+    if (back) back.disabled = true;
+    try {
+      const result = await wordImportService.execute(this.currentPlan, {
+        onProgress: ({ processed, recognized }) => {
+          if (progress) progress.textContent = `正在导入：${processed}/${recognized}`;
+        }
+      });
+      const summary = result.summary || {};
+      ChatView.addMessage('system', `导入完成：新增 ${summary.new || 0} 个，外部复习 ${summary.externalReview || 0} 个，调整排期 ${summary.scheduleAdjusted || 0} 个，Recovery 接触 ${summary.recoveryContact || 0} 个，今日已处理 ${summary.todayIgnored || 0} 个，失败 ${summary.failed || 0} 个。`);
+      modal?.closest('#wordImportModal')?.remove();
+      this.currentPlan = null;
+    } catch (error) {
+      if (progress) progress.textContent = `导入失败：${String(error?.message || error)}`;
+      if (confirm) confirm.disabled = false;
+      if (back) back.disabled = false;
     }
-
-    document.getElementById('wordImportModal')?.remove();
-    ChatView.addMessage('system', `成功导入 ${imported} 个单词到学习词库`);
   }
 };
 

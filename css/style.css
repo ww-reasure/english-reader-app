@@ -222,6 +222,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .import-status { min-height:18px; margin-top:7px; color:var(--muted); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
 .import-status[data-tone="success"] { color:var(--moss); }
 .import-status[data-tone="error"] { color:var(--danger); }
+.word-import-preview { display:grid; gap:14px; }
+.word-import-preview-lead { margin:0; color:var(--ink-soft); font-size:13px; line-height:1.6; }
+.word-import-preview-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.word-import-preview-row { min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 11px; border:1px solid var(--rule); border-radius:4px; background:var(--surface-soft); color:var(--ink-soft); font-size:12px; }
+.word-import-preview-row strong { color:var(--ink); font-size:16px; }
+.word-import-progress { min-height:44px; display:flex; align-items:center; padding:9px 11px; border:1px dashed var(--rule-strong); border-radius:4px; color:var(--moss); font-size:12px; font-weight:750; }
+.word-import-preview + .modal-actions button { min-height:44px; }
+@media (max-width:560px) {
+  .word-import-preview-grid { grid-template-columns:1fr; }
+  .word-import-preview + .modal-actions { display:grid; grid-template-columns:1fr; }
+  .word-import-preview + .modal-actions button { width:100%; }
+}
 
 /* Dialogs */
 .modal-overlay { position:fixed; inset:0; z-index:var(--z-modal); display:flex; align-items:flex-end; justify-content:center; padding:16px 12px calc(16px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); background:var(--overlay-backdrop); backdrop-filter:blur(4px); overscroll-behavior:contain; }
