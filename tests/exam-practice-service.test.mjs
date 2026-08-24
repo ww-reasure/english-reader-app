@@ -84,6 +84,7 @@ test('first attempt keeps original options; retry shuffles; grading uses stable 
     activeDurationMs: 1600
   });
   assert.equal(submitted.attempt.status, 'submitted');
+  assert.equal(submitted.attempt.activeDurationMs, 1600);
   assert.equal(submitted.responses[0].correct, true);
   assert.equal(submitted.attempt.packageVersionAtStart, '1.0.0');
   assert.match(submitted.attempt.paperHashAtStart, /^sha256:/);

@@ -16,8 +16,16 @@ import { bindSentenceLongPress, createLongPressSelectionGuard } from '../compone
 import { createSentenceRangeForTextNodes } from '../components/sentence-selection.mjs';
 import { paragraphTranslationService } from '../exam/paragraph-translation.mjs';
 import { resolveAttemptExam, sectionLabelOf, unitLabel } from '../exam/exam-context.mjs';
+import { DB } from '../db.js';
+import { ActivityType } from '../learning-activity.mjs';
+import { localDayKey } from '../learning-day.mjs';
+import { StudySessionTimer } from '../study-session-timer.mjs';
 const IDLE_PAUSE_MS = 2 * 60 * 1000;
 const AUTOSAVE_MS = 500;
+
+const examTypeKey = unit => unit?.type === 'matching' && unit.matchingVariant
+  ? `${unit.type}:${unit.matchingVariant}`
+  : unit?.type || 'unknown';
 
 function sectionLabel(unitType) {
   if (unitType === 'cloze_choice') return 'Section I';
@@ -62,10 +70,89 @@ function translationTrainingFeedbackHtml(feedback) {
 
 export const ExamPracticeView = {
   _dispose: null,
+  examStudyTimer: null,
+  restoredActiveDurationMs: 0,
+  _pendingActiveSlices: [],
+  _activeSliceFlush: null,
+
+  captureExamContext(unit = this.unit) {
+    return {
+      attemptId: this.attempt?.attemptId || '',
+      bankId: this.attempt?.bankId || this.paper?.bankId || '',
+      paperKey: this.attempt?.paperKey || this.paper?.paperKey || '',
+      unitKey: unit?.unitKey || '',
+      type: unit?.type || 'unknown',
+      matchingVariant: unit?.matchingVariant || '',
+      practiceKind: this.attempt?.practiceKind || 'unit',
+      practiceOrigin: this.attempt?.practiceOrigin || 'normal'
+    };
+  },
+
+  enqueueActiveSlices(slices = [], unit = this.unit) {
+    if (!Array.isArray(slices) || !slices.length) return;
+    const context = this.captureExamContext(unit);
+    this._pendingActiveSlices.push(...slices.map(slice => ({ slice, context })));
+    void this.flushActiveSlices();
+  },
+
+  async saveActiveSlice(entry) {
+    const { slice, context } = entry;
+    const occurredAt = Number(slice.endedAt) || Date.now();
+    await DB.saveLearningActivity({
+      id: `exam-active-slice:${slice.id}`,
+      type: ActivityType.EXAM_ACTIVE_SLICE,
+      occurredAt,
+      dayKey: slice.dayKey || localDayKey(occurredAt),
+      sessionId: slice.sessionId,
+      dedupeKey: `exam-active-slice:${slice.id}`,
+      payload: {
+        ...context,
+        contextKey: slice.contextKey,
+        startedAt: slice.startedAt,
+        endedAt: slice.endedAt,
+        durationMs: slice.durationMs,
+        dayKey: slice.dayKey || localDayKey(occurredAt)
+      }
+    });
+  },
+
+  flushActiveSlices() {
+    if (this._activeSliceFlush) return this._activeSliceFlush;
+    if (!this._pendingActiveSlices.length) return Promise.resolve();
+    const batch = this._pendingActiveSlices.splice(0);
+    this._activeSliceFlush = (async () => {
+      for (let index = 0; index < batch.length; index += 1) {
+        try {
+          await this.saveActiveSlice(batch[index]);
+        } catch (error) {
+          this._pendingActiveSlices.unshift(...batch.slice(index));
+          console.warn('真题有效时长活动保存失败', error);
+          break;
+        }
+      }
+    })().finally(() => {
+      this._activeSliceFlush = null;
+      if (this._pendingActiveSlices.length) void this.flushActiveSlices();
+    });
+    return this._activeSliceFlush;
+  },
+
+  async switchExamTimerContext(nextUnit) {
+    if (!this.examStudyTimer || this.examStudyTimer.finished) return;
+    const previousUnit = this.unit;
+    const slices = this.examStudyTimer.switchContext({ contextKey: examTypeKey(nextUnit) });
+    this.enqueueActiveSlices(slices, previousUnit);
+    this.examStudyTimer.acknowledge(slices);
+    await this.flushActiveSlices();
+  },
 
   async cleanup() {
     document.body.classList.remove('exam-page-compact');
-    if (this.attempt?.status === 'in_progress') await this.flushAutosave();
+    if (this.attempt?.status === 'in_progress') {
+      this.pauseTimer('cleanup');
+      await this.flushActiveSlices();
+      await this.flushAutosave();
+    }
     this._dispose?.();
     this._dispose = null;
     this._wordLookupCleanup?.();
@@ -88,6 +175,8 @@ export const ExamPracticeView = {
     this._paragraphTranslationState = new Map();
     this._paragraphTranslationRequestSequence = 0;
     this._contentUpdated = false;
+    this.examStudyTimer = null;
+    this.restoredActiveDurationMs = 0;
   },
 
   async render(container, attemptId, mode = null) {
@@ -119,6 +208,7 @@ export const ExamPracticeView = {
     if (this.currentIndex < 0) this.currentIndex = 0;
     this.sheetSnap = attempt.sheetSnap && SNAP_ORDER.includes(attempt.sheetSnap) ? attempt.sheetSnap : 'mid';
     this.activeDurationMs = Number(attempt.activeDurationMs) || 0;
+    this.restoredActiveDurationMs = this.activeDurationMs;
     this.active = false;
     this.lastActiveAt = Date.now();
     this._disposed = false;
@@ -280,6 +370,7 @@ export const ExamPracticeView = {
     const nextUnit = this.units[unitIndex];
     const nextQuestions = this.getQuestionsForUnit(nextUnit);
     if (!nextUnit || !nextQuestions.length) return false;
+    await this.switchExamTimerContext(nextUnit);
     this.unit = nextUnit;
     this.renderer = getExamRenderer(nextUnit.type);
     this.questions = nextQuestions;
@@ -475,7 +566,7 @@ export const ExamPracticeView = {
     add(document, 'touchstart', noteActivity, { passive: true });
     add(document, 'keydown', noteActivity);
     add(document, 'visibilitychange', () => {
-      if (document.hidden) this.pauseTimer();
+      if (document.hidden) this.pauseTimer('hidden');
       else this.noteActivity();
     });
 
@@ -677,38 +768,48 @@ export const ExamPracticeView = {
   },
 
   startTimer() {
+    this.examStudyTimer = new StudySessionTimer({
+      sessionId: `exam:${this.attempt?.attemptId || Date.now()}`,
+      mode: 'exam',
+      idleMs: IDLE_PAUSE_MS
+    });
+    this.examStudyTimer.start({ contextKey: examTypeKey(this.unit) });
     this.active = true;
     this.lastActiveAt = Date.now();
     this.scheduleIdle();
   },
 
-  pauseTimer() {
-    if (this.active) {
-      this.activeDurationMs += Date.now() - this.lastActiveAt;
-      this.active = false;
-    }
+  pauseTimer(reason = 'paused') {
+    const slices = this.examStudyTimer?.pause(reason) || [];
+    this.enqueueActiveSlices(slices, this.unit);
+    this.active = false;
+    this.activeDurationMs = this.getActiveDuration();
     if (this._idleTimer) clearTimeout(this._idleTimer);
     this._idleTimer = null;
   },
 
   noteActivity() {
     if (this._disposed) return;
-    if (!this.active) {
-      this.active = true;
-      this.lastActiveAt = Date.now();
+    if (!this.examStudyTimer || this.examStudyTimer.finished) return;
+    if (this.examStudyTimer.activeStartedAt === null || this.examStudyTimer.paused) {
+      this.examStudyTimer.start({ contextKey: examTypeKey(this.unit) });
     } else {
-      this.lastActiveAt = Date.now();
+      this.examStudyTimer.noteActivity();
+      this.enqueueActiveSlices(this.examStudyTimer.consumeNewSlices(), this.unit);
     }
+    this.active = true;
+    this.lastActiveAt = Date.now();
     this.scheduleIdle();
   },
 
   scheduleIdle() {
     if (this._idleTimer) clearTimeout(this._idleTimer);
-    this._idleTimer = setTimeout(() => this.pauseTimer(), IDLE_PAUSE_MS);
+    this._idleTimer = setTimeout(() => this.pauseTimer('idle'), IDLE_PAUSE_MS);
   },
 
   getActiveDuration() {
-    return this.activeDurationMs + (this.active ? Date.now() - this.lastActiveAt : 0);
+    if (!this.examStudyTimer) return Number(this.activeDurationMs) || 0;
+    return this.restoredActiveDurationMs + this.examStudyTimer.getActiveDuration();
   },
 
   scheduleAutosave() {
@@ -719,6 +820,7 @@ export const ExamPracticeView = {
   async persistDraft() {
     if (this._disposed || this.attempt?.status !== 'in_progress') return;
     if (this._savePromise) return this._savePromise;
+    this.activeDurationMs = this.getActiveDuration();
     const snapshot = {
       examId: this.attempt.examId,
       attempt: this.attempt,
@@ -1259,7 +1361,7 @@ export const ExamPracticeView = {
   },
 
   showExitModal() {
-    this.pauseTimer();
+    this.pauseTimer('exit-modal');
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
@@ -1274,6 +1376,7 @@ export const ExamPracticeView = {
       </div>`;
     document.body.appendChild(overlay);
     overlay.querySelector('#examExitSave').addEventListener('click', async () => {
+      await this.flushActiveSlices();
       await this.flushAutosave();
       overlay.remove();
       this._disposed = true;
@@ -1281,6 +1384,7 @@ export const ExamPracticeView = {
     });
     overlay.querySelector('#examExitDiscard').addEventListener('click', async () => {
       try {
+        await this.flushActiveSlices();
         await this.services.stateRepository.abandonAttempt({ examId: this.attempt.examId, attemptId: this.attempt.attemptId });
       } finally {
         overlay.remove();
@@ -1306,6 +1410,7 @@ export const ExamPracticeView = {
       this.submit();
       return;
     }
+    this.pauseTimer('submit-modal');
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
@@ -1332,7 +1437,8 @@ export const ExamPracticeView = {
     if (this._submitting) return;
     this._submitting = true;
     try {
-      this.pauseTimer();
+      this.pauseTimer('submit');
+      await this.flushActiveSlices();
       await this.flushAutosave();
       const submitQuestions = this.isFullPaper ? this.allQuestions : this.questions;
       const responses = submitQuestions.map(question => {
@@ -1350,6 +1456,7 @@ export const ExamPracticeView = {
         clearTimeout(this._autosaveTimer);
         this._autosaveTimer = null;
       }
+      this.examStudyTimer?.finish('submitted');
       this._disposed = true;
       location.hash = `#/exam/result/${this.attempt.attemptId}`;
     } finally {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { ExamPracticeService } from '../src/exam/practice-service.mjs';
 
 const paper = {
@@ -87,4 +88,14 @@ test('full paper practice returns the current unit and all units for cross-type 
   assert.deepEqual(practice.units.map(unit => unit.unitKey), ['cloze-1', 'reading-1']);
   assert.equal(practice.unit.unitKey, 'cloze-1');
   assert.equal(practice.questions.length, 2);
+});
+
+test('full paper view separates active time by unit type before navigation mutates the unit', async () => {
+  const source = (await readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
+  const switchIndex = source.indexOf('switchContext');
+  const unitMutationIndex = source.indexOf('this.unit = nextUnit', switchIndex);
+
+  assert.ok(switchIndex >= 0 && switchIndex < unitMutationIndex);
+  assert.match(source, /contextKey: examTypeKey\(nextUnit\)/);
+  assert.match(source, /ActivityType\.EXAM_ACTIVE_SLICE/);
 });
