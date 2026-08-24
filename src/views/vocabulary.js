@@ -9,7 +9,12 @@ import { esc } from '../helpers.js';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
 import { WordStudyDetail } from '../components/word-study-detail.js';
-import { resolvePracticeScope, createPracticeSession } from '../review-practice.mjs';
+import {
+  clearPracticeScopeDone,
+  createPracticeSession,
+  getPracticeScopeStatus,
+  resolvePracticeScope
+} from '../review-practice.mjs';
 
 function renderDefinitionPreview(word) {
   const primary = getDefinitionDisplayLines(word)[0];
@@ -34,12 +39,25 @@ export const VocabularyView = {
       if (key && !this.learnWordsByWord.has(key)) this.learnWordsByWord.set(key, learnWord);
     }
 
-    const practiceable = words.filter(word => this.learnWordsByWord.has(String(word.word || '').trim().toLowerCase()));
-    const dayMs = 24 * 60 * 60 * 1000;
-    const todayBoundary = new Date();
-    todayBoundary.setHours(0, 0, 0, 0);
-    const todayCount = practiceable.filter(word => Number(word.createdAt) >= todayBoundary.getTime()).length;
-    const recentCount = practiceable.filter(word => Number(word.createdAt) >= Date.now() - 7 * dayMs).length;
+    const now = Date.now();
+    const snapshotDb = {
+      getAllWords: async () => words,
+      getAllLearnWords: async () => learnWords
+    };
+    const [todayScope, recentScope] = await Promise.all([
+      resolvePracticeScope({ db: snapshotDb, scope: 'today_added', now }),
+      resolvePracticeScope({ db: snapshotDb, scope: 'recent_added', now })
+    ]);
+    const todayStatus = getPracticeScopeStatus({
+      scope: 'today_added',
+      currentWordIds: todayScope.words.map(word => word.id),
+      now
+    });
+    const recentStatus = getPracticeScopeStatus({
+      scope: 'recent_added',
+      currentWordIds: recentScope.words.map(word => word.id),
+      now
+    });
 
     let cards = '';
     if (words.length === 0) {
@@ -66,14 +84,8 @@ export const VocabularyView = {
           <h3 class="vocab-practice-title">专项复习</h3>
           <p class="vocab-practice-desc">只练你指定的词，不动正式复习计划。</p>
           <div class="vocab-practice-grid">
-            <button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('today_added')">
-              <span class="vocab-practice-entry-name">今日新增</span>
-              <span class="vocab-practice-entry-count">${todayCount} 词</span>
-            </button>
-            <button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('recent_added')">
-              <span class="vocab-practice-entry-name">最近 7 天</span>
-              <span class="vocab-practice-entry-count">${recentCount} 词</span>
-            </button>
+            ${this.renderPracticeEntry({ scope: 'today_added', name: '今日新增', status: todayStatus, skipped: todayScope.skipped })}
+            ${this.renderPracticeEntry({ scope: 'recent_added', name: '最近 7 天', status: recentStatus, skipped: recentScope.skipped })}
             <button type="button" class="vocab-practice-entry" onclick="VocabularyView.toggleSelection()">
               <span class="vocab-practice-entry-name">自选单词</span>
               <span class="vocab-practice-entry-count">手动勾选</span>
@@ -124,6 +136,39 @@ export const VocabularyView = {
       </section>`;
   },
 
+  renderPracticeEntry({ scope, name, status, skipped = 0 }) {
+    const reviewedCount = status.reviewedIds.length;
+    const newCount = status.newIds.length;
+    const totalCount = reviewedCount + newCount;
+    const skippedLabel = skipped > 0
+      ? `<span class="vocab-practice-entry-meta">${skipped} 个未进入学习词库</span>`
+      : '';
+
+    if (status.done) {
+      return `<div class="vocab-practice-entry vocab-practice-entry--done">
+        <div class="vocab-practice-entry-main" aria-label="${name}已完成">
+          <span class="vocab-practice-entry-name">${name}<span class="vocab-practice-done-badge">已完成</span></span>
+          <span class="vocab-practice-entry-count">已完成 ${reviewedCount} 词</span>
+          ${skippedLabel}
+        </div>
+        <button type="button" class="vocab-practice-again" onclick="VocabularyView.startPractice('${scope}', { reviewAll: true })">再练一轮</button>
+      </div>`;
+    }
+
+    const countLabel = status.hasCompletion && newCount > 0
+      ? `新增 ${newCount} 词`
+      : `${totalCount} 词`;
+    const priorLabel = status.hasCompletion && reviewedCount > 0
+      ? `<span class="vocab-practice-entry-meta">此前已完成 ${reviewedCount} 词</span>`
+      : '';
+    return `<button type="button" class="vocab-practice-entry" onclick="VocabularyView.startPractice('${scope}')" ${totalCount ? '' : 'disabled'}>
+      <span class="vocab-practice-entry-name">${name}</span>
+      <span class="vocab-practice-entry-count">${countLabel}</span>
+      ${priorLabel}
+      ${skippedLabel}
+    </button>`;
+  },
+
   // Toggle manage mode
   async toggleManage() {
     if (this.selectionMode) this.selectionMode = false;
@@ -146,15 +191,29 @@ export const VocabularyView = {
     if (button) button.textContent = `开始复习（${this.selectedWordIds.size}）`;
   },
 
-  async startPractice(scope) {
-    const result = await resolvePracticeScope({ db: DB, scope, now: Date.now() });
+  async startPractice(scope, options = {}) {
+    const now = Date.now();
+    const reviewAll = Boolean(options?.reviewAll);
+    const result = await resolvePracticeScope({ db: DB, scope, now });
     if (!result.words.length) {
       alert('这些词还没有进入学习词库。先在阅读页收藏并同步，或到“学习词库”导入后即可专项复习。');
       return;
     }
+    const allWordIds = result.words.map(word => word.id);
+    const status = getPracticeScopeStatus({ scope, currentWordIds: allWordIds, now });
+    let wordIds = allWordIds;
+    if (reviewAll) {
+      clearPracticeScopeDone(scope);
+    } else if (status.hasCompletion) {
+      wordIds = status.newIds;
+    }
+    if (!wordIds.length) {
+      alert('这一组已经完成。需要重复练习时，请点击“再练一轮”。');
+      return;
+    }
     createPracticeSession({
       scope,
-      wordIds: result.words.map(word => word.id),
+      wordIds,
       skipped: result.skipped
     });
     location.hash = `#/flashcard/practice/${scope}`;

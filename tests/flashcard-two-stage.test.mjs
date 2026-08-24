@@ -226,7 +226,8 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
   assert.match(source, /data-word-study-word/);
   assert.match(source, /Tooltip\.hide\(\);/);
-  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+  assert.match(source, /invalidateCardRequests\(\)\s*\{\s*this\.cardSession\+\+;\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+  assert.match(source, /cleanup\(\)\s*\{\s*this\.invalidateCardRequests\(\);/s);
 });
 
 test('study example lookup can switch words after a tooltip is open and keeps sentence context', async () => {
@@ -245,7 +246,8 @@ test('a recall card starts one cancellable automatic pronunciation', async () =>
   assert.match(source, /cancelCardPronunciation\(\);/);
   assert.match(source, /startCardPronunciation\(word\.word, session\);/);
   assert.match(source, /AudioCache\.getAudio\(word, \{ signal: controller\.signal, silent: true \}\)/);
-  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);[\s\S]*?this\.cleanupExampleWordLookup\(\);/);
+  assert.match(source, /invalidateCardRequests\(\)\s*\{[\s\S]*?this\.cancelCardPronunciation\(\);[\s\S]*?this\.cleanupExampleWordLookup\(\);/);
+  assert.match(source, /cleanup\(\)\s*\{\s*this\.invalidateCardRequests\(\);/s);
 });
 
 test('an aborted pronunciation request does not fetch or fall back to speech', async () => {

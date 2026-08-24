@@ -31,7 +31,11 @@ import { requiresTargetTrackSelection } from '../learning-track.mjs';
 import { formatPhonetic, getDefinitionDisplayLines, getSavableTranslation } from '../components/definition-trust.mjs';
 import { ensureSavedWordDefinition } from '../components/saved-word-definition.mjs';
 import { ReviewQueue } from '../review-queue.js';
-import { readPracticeSession } from '../review-practice.mjs';
+import {
+  clearPracticeSession,
+  finalizePracticeSession,
+  readPracticeSession
+} from '../review-practice.mjs';
 import {
   createSessionQueue,
   persistSessionQueue,
@@ -93,6 +97,9 @@ export const FlashcardView = {
   ratingAttempt: null,
   pendingKnowledgeEvidence: null,
   practiceScope: '',
+  practiceWordIds: [],
+  practiceCompletedWordIds: new Set(),
+  practiceMissingCount: 0,
   sessionQueue: null,
   studyNotice: '',
   _exampleLookupRoot: null,
@@ -123,16 +130,20 @@ export const FlashcardView = {
   loadTodayWords() {
     try {
       const data = JSON.parse(localStorage.getItem(this.TODAY_KEY));
-      if (data && data.date === this.getTodayKey()) return data.words;
+      if (data && data.date === this.getTodayKey() && Array.isArray(data.words)) return data.words;
     } catch {}
     return [];
   },
 
   saveTodayWords(words) {
-    localStorage.setItem(this.TODAY_KEY, JSON.stringify({
-      date: this.getTodayKey(),
-      words
-    }));
+    try {
+      localStorage.setItem(this.TODAY_KEY, JSON.stringify({
+        date: this.getTodayKey(),
+        words
+      }));
+    } catch {
+      // 复习结果的辅助汇总不可用时，评分本身仍应成功。
+    }
   },
 
   addTodayWord(wordData) {
@@ -149,17 +160,34 @@ export const FlashcardView = {
 
   // Render flashcard view
   async render(container, requestedScope = '') {
-    this.cleanupExampleWordLookup();
+    this.invalidateCardRequests();
     this.container = container;
     this.practiceScope = '';
+    this.practiceWordIds = [];
+    this.practiceCompletedWordIds = new Set();
+    this.practiceMissingCount = 0;
     const session = requestedScope ? readPracticeSession() : null;
+    if (requestedScope && (!session || session.scope !== requestedScope)) {
+      this.renderInvalidPracticeSession(container, '这次专项练习已失效或与当前入口不一致，请从生词本重新开始。');
+      return;
+    }
+
     let practiceWords = null;
-    if (session && session.scope === requestedScope) {
+    if (requestedScope) {
       practiceWords = [];
-      for (const wordId of session.wordIds) {
+      const uniqueWordIds = [...new Set(session.wordIds.map(id => Number(id)).filter(Number.isFinite))];
+      for (const wordId of uniqueWordIds) {
         const word = await DB.findLearnWordById(wordId);
         if (word) practiceWords.push({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) });
       }
+      this.practiceMissingCount = uniqueWordIds.length - practiceWords.length;
+      this.practiceWordIds = practiceWords.map(word => Number(word.id));
+      if (!practiceWords.length) {
+        clearPracticeSession();
+        this.renderInvalidPracticeSession(container, '这组单词已不在学习词库，未产生完成记录。请返回生词本重新选择。');
+        return;
+      }
+      this.practiceScope = requestedScope;
     }
     const allWords = practiceWords ?? await DB.getAllLearnWords();
     const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
@@ -172,11 +200,11 @@ export const FlashcardView = {
           <div class="flashcard-container flashcard-content" data-flashcard-content="empty">
           <h2 id="flashcardContentTitle" class="sr-only">单词复习内容</h2>
           <div class="empty-state flashcard-empty-sheet">
-            <p>${requestedScope && !session ? '这些词还没有进入学习词库，无法专项复习。' : '🎉 暂时没有需要复习的单词'}</p>
+            <p>🎉 暂时没有需要复习的单词</p>
             ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个进入长期巩固</p>` : ''}
             <p>去阅读页面收藏新单词，或导入单词到学习词库。</p>
             <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
-              <a href="${requestedScope && !session ? '#/vocab' : '#/chat'}" class="btn btn-primary">${requestedScope && !session ? '返回生词本' : '去阅读'}</a>
+              <a href="#/chat" class="btn btn-primary">去阅读</a>
               <a href="#/learn-words" class="btn btn-outline">学习词库</a>
             </div>
           </div>
@@ -185,7 +213,6 @@ export const FlashcardView = {
       return;
     }
 
-    this.practiceScope = practiceWords ? session.scope : '';
     if (this.practiceScope) {
       this.sessionQueue = null;
     } else {
@@ -204,6 +231,23 @@ export const FlashcardView = {
     this.reviewedWords = [];
 
     this.renderCard(container);
+  },
+
+  renderInvalidPracticeSession(container, message) {
+    container.innerHTML = `
+      <section class="app-standard-page flashcard-review-shell flashcard-review-shell--empty" aria-labelledby="flashcardContentTitle">
+        <div class="flashcard-container flashcard-content" data-flashcard-content="invalid-practice">
+          <h2 id="flashcardContentTitle" class="sr-only">专项练习不可用</h2>
+          <div class="empty-state flashcard-empty-sheet">
+            <p>${esc(message)}</p>
+            <p>没有任何单词被计为完成，正式复习计划也没有改变。</p>
+            <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
+              <a href="#/vocab" class="btn btn-primary">返回生词本</a>
+              <a href="#/learn-words" class="btn btn-outline">学习词库</a>
+            </div>
+          </div>
+        </div>
+      </section>`;
   },
 
   // Check how many words are due
@@ -794,6 +838,7 @@ export const FlashcardView = {
   },
 
   restart() {
+    if (this.practiceScope) return;
     if (!this.practiceScope) {
       void clearSessionQueue({ db: DB });
       this.sessionQueue = null;
@@ -816,6 +861,7 @@ export const FlashcardView = {
         sawAnswer: meaningRevealed,
         practiceScope: this.practiceScope
       });
+      this.practiceCompletedWordIds.add(Number(word.id));
     } else {
       const sessionDebt = this.sessionQueue?.getDebt(word.id) || 0;
       const srsData = settleSessionReview(attempt.baseline, quality, sessionDebt);
@@ -880,6 +926,7 @@ export const FlashcardView = {
           sawAnswer: true,
           practiceScope: this.practiceScope
         });
+        this.practiceCompletedWordIds.add(Number(word.id));
       } else {
         const sessionDebt = (this.sessionQueue?.getDebt(word.id) || 0) + sessionDebtValue(1);
         const correctedSrs = settleSessionReview(attempt.baseline, 1, sessionDebt);
@@ -955,10 +1002,20 @@ export const FlashcardView = {
 
   // Render completion result
   renderResult(container) {
-    this.cleanupExampleWordLookup();
+    const isPractice = Boolean(this.practiceScope);
+    const completedPracticeScope = this.practiceScope;
+    this.invalidateCardRequests();
+    const practiceCompleted = isPractice && finalizePracticeSession({
+      scope: completedPracticeScope,
+      expectedWordIds: this.practiceWordIds,
+      completedWordIds: [...this.practiceCompletedWordIds]
+    });
+    if (practiceCompleted) this.practiceScope = '';
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
-    const isPractice = Boolean(this.practiceScope);
+    const practiceRemaining = isPractice
+      ? this.practiceWordIds.filter(id => !this.practiceCompletedWordIds.has(Number(id))).length
+      : 0;
     // Today's accumulated words (across multiple review sessions)
     const todayWords = this.loadTodayWords();
     const todayTotal = todayWords.length;
@@ -971,8 +1028,12 @@ export const FlashcardView = {
       <main class="app-standard-page flashcard-review-shell flashcard-review-shell--result" aria-labelledby="flashcardResultTitle">
       <div class="flashcard-container">
         <section class="flashcard-result flashcard-result-sheet">
-          <h2 id="flashcardResultTitle">${isPractice ? '专项练习完成' : '复习完成'}</h2>
-          ${isPractice ? '<p class="flashcard-result-hint">本次为专项练习，结果已记录，但不影响正式复习计划。</p>' : ''}
+          <h2 id="flashcardResultTitle">${isPractice ? (practiceCompleted ? '专项练习完成' : '专项练习已结束') : '复习完成'}</h2>
+          ${isPractice
+            ? `<p class="flashcard-result-hint">${practiceCompleted
+              ? '本轮全部单词已评分并记录完成。'
+              : `还有 ${practiceRemaining} 个词未评分，本轮未标记完成。`}专项练习不影响正式复习计划。${this.practiceMissingCount > 0 ? ` ${this.practiceMissingCount} 个已从学习词库移除的词已跳过。` : ''}</p>`
+            : ''}
           <div class="flashcard-result-stats">
             <div class="flashcard-result-stat">
               <span class="flashcard-result-num">${total}</span>
@@ -1021,11 +1082,20 @@ export const FlashcardView = {
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
             <a href="${isPractice ? '#/vocab' : '#/chat'}" class="btn btn-outline">${isPractice ? '返回生词本' : '返回阅读'}</a>
             <a href="#/learn-words" class="btn btn-outline">词库管理</a>
-            <button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>
+            ${isPractice ? '' : '<button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>'}
           </div>
         </section>
       </div>
       </main>`;
+  },
+
+  invalidateCardRequests() {
+    this.cardSession++;
+    this.cancelCardPronunciation();
+    this.cancelPhraseRequest();
+    this.cancelSimilarRequest();
+    this.cancelRootRequest();
+    this.cleanupExampleWordLookup();
   },
 
   // Translate an example sentence
@@ -1097,13 +1167,12 @@ export const FlashcardView = {
   },
 
   cleanup() {
-    this.cancelCardPronunciation();
-    this.cancelPhraseRequest();
-    this.cancelSimilarRequest();
-    this.cancelRootRequest();
-    this.cleanupExampleWordLookup();
+    this.invalidateCardRequests();
     this.closeStudyInfo();
     this.practiceScope = '';
+    this.practiceWordIds = [];
+    this.practiceCompletedWordIds = new Set();
+    this.practiceMissingCount = 0;
     if (this._studyExampleKeyHandler) {
       document.removeEventListener('keydown', this._studyExampleKeyHandler);
       this._studyExampleKeyHandler = null;
