@@ -5,8 +5,9 @@
 
 import { getStemForm } from './helpers.js';
 import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
-import { localDayBounds } from './learning-day.mjs';
-import { ActivityType, normalizeLearningActivity } from './learning-activity.mjs';
+import { localDayBounds, localDayKey } from './learning-day.mjs';
+import { ActivityType, importWordDedupeKey, normalizeLearningActivity } from './learning-activity.mjs';
+import { scheduleExternalReview } from './external-review-scheduler.mjs';
 
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
@@ -877,6 +878,153 @@ export const DB = {
       source: 'practice-flashcard',
       sawAnswer: Boolean(sawAnswer),
       practiceScope: String(practiceScope || '')
+    });
+  },
+
+  async applyWordImportSignal(wordData = {}, context = {}) {
+    const lemma = getStemForm(wordData.word);
+    if (!lemma) throw new TypeError('导入信号需要有效的单词');
+    const occurredAt = numericValue(context.occurredAt, Date.now());
+    const dayKey = String(context.dayKey || localDayKey(occurredAt));
+    localDayBounds(dayKey);
+    const dedupeKey = importWordDedupeKey(dayKey, lemma);
+    const activityId = dedupeKey;
+    const timezoneOffset = Number.isFinite(Number(context.timezoneOffset))
+      ? Number(context.timezoneOffset)
+      : new Date(occurredAt).getTimezoneOffset();
+    const sessionId = String(context.sessionId || (context.batchId ? `import:${context.batchId}` : ''));
+    const batchId = String(context.batchId || '');
+    const db = await this.open();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'reviewEvents', 'learningActivityEvents'], 'readwrite');
+      const words = tx.objectStore('learnWords');
+      const reviewEvents = tx.objectStore('reviewEvents');
+      const activities = tx.objectStore('learningActivityEvents');
+      let result = null;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('导入信号保存失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const addDailyActivity = ({ wordId, status, reason, scheduleChanged = false, creditDays = 0 }) => {
+        const request = activities.add(normalizeLearningActivity({
+          id: activityId,
+          type: ActivityType.WORD_IMPORT_DAILY,
+          occurredAt,
+          dayKey,
+          timezoneOffset,
+          sessionId,
+          dedupeKey,
+          payload: {
+            lemma,
+            wordId,
+            batchId,
+            status,
+            reason,
+            scheduleChanged,
+            creditDays
+          }
+        }));
+        request.onerror = () => fail(request.error);
+      };
+
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else resolve(result);
+      };
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('导入信号保存失败'));
+
+      const dedupeRequest = activities.index('dedupeKey').get(dedupeKey);
+      dedupeRequest.onerror = () => fail(dedupeRequest.error);
+      dedupeRequest.onsuccess = () => {
+        const existingActivity = dedupeRequest.result;
+        if (existingActivity) {
+          result = {
+            status: 'today_ignored',
+            wordId: existingActivity.payload?.wordId ?? null,
+            lemma,
+            scheduleChanged: false,
+            reason: 'today_ignored'
+          };
+          return;
+        }
+
+        const wordRequest = words.index('word').get(lemma);
+        wordRequest.onerror = () => fail(wordRequest.error);
+        wordRequest.onsuccess = () => {
+          const word = wordRequest.result;
+          if (!word) {
+            const newWord = {
+              ...wordData,
+              word: lemma,
+              reviewRevision: Math.max(0, Number(wordData.reviewRevision) || 0),
+              createdAt: wordData.createdAt ?? occurredAt
+            };
+            const addWordRequest = words.add(newWord);
+            addWordRequest.onerror = () => fail(addWordRequest.error);
+            addWordRequest.onsuccess = () => {
+              const wordId = addWordRequest.result;
+              result = {
+                status: 'new',
+                wordId,
+                lemma,
+                scheduleChanged: false,
+                reason: 'new'
+              };
+              addDailyActivity({ wordId, status: 'new', reason: 'new' });
+            };
+            return;
+          }
+
+          const decision = scheduleExternalReview(word, occurredAt);
+          const updatedWord = { ...word, ...decision.patch };
+          const updateRequest = words.put(updatedWord);
+          updateRequest.onerror = () => fail(updateRequest.error);
+          updateRequest.onsuccess = () => {
+            const reviewRequest = reviewEvents.add({
+              wordId: word.id,
+              reviewedAt: occurredAt,
+              rating: null,
+              source: 'external-import',
+              sawAnswer: false,
+              schedulerVersion: 2,
+              evidenceStrength: 'medium',
+              scheduleChanged: Boolean(decision.scheduleChanged),
+              creditDays: decision.creditDays,
+              batchId,
+              reason: decision.reason,
+              previousInterval: Number(word.interval) || 0,
+              nextInterval: Number(word.interval) || 0,
+              previousState: word.state || (!word.reviewCount ? 'new' : 'legacy'),
+              nextState: updatedWord.state || (!updatedWord.reviewCount ? 'new' : 'legacy'),
+              reviewRevision: updatedWord.reviewRevision ?? Math.max(0, Number(word.reviewRevision) || 0)
+            });
+            reviewRequest.onerror = () => fail(reviewRequest.error);
+            reviewRequest.onsuccess = () => {
+              result = {
+                status: 'external_review',
+                wordId: word.id,
+                lemma,
+                scheduleChanged: Boolean(decision.scheduleChanged),
+                reason: decision.reason
+              };
+              addDailyActivity({
+                wordId: word.id,
+                status: 'external_review',
+                reason: decision.reason,
+                scheduleChanged: decision.scheduleChanged,
+                creditDays: decision.creditDays
+              });
+            };
+          };
+        };
+      };
     });
   },
 

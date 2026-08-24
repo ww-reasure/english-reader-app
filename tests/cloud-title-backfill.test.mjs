@@ -10,6 +10,7 @@ async function loadDatabaseModule() {
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
+  const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
@@ -17,7 +18,8 @@ async function loadDatabaseModule() {
     )
     .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
-    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`);
+    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
