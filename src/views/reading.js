@@ -28,6 +28,8 @@ import { buildExactWordFormIndex, renderExactWordMarking } from '../components/w
 import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
 import { splitSentences } from '../components/sentence-selection.mjs';
+import { localDayKey } from '../learning-day.mjs';
+import { ActivityType } from '../learning-activity.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -62,6 +64,7 @@ export const ReadingView = {
   _guideWordLookupCleanup: null,
   _viewportResizeHandler: null,
   _viewportResizeFrame: null,
+  _learningActivitySequence: 0,
 
   goBack() {
     if (window.Router?.back?.()) return;
@@ -411,6 +414,68 @@ export const ReadingView = {
     });
   },
 
+  _readingLookupContext(source = 'reading') {
+    const articleId = this.articleData?.id ?? null;
+    return {
+      source,
+      articleId,
+      articleTitle: this.articleData?.title || '',
+      sessionId: `reading:${articleId || 'article'}:${this.wordMarkingSession}`
+    };
+  },
+
+  _recordReadingLookupActivity({ lemma, lookupId, lookupContext = {} }) {
+    const occurredAt = Date.now();
+    const normalizedLemma = String(lemma || '').trim().toLowerCase();
+    const sessionId = String(lookupContext.sessionId || this._readingLookupContext().sessionId);
+    const bucket = Math.floor(occurredAt / 2000);
+    const dedupeKey = `lookup:${sessionId}:${normalizedLemma}:${bucket}`;
+    try {
+      void DB.saveLearningActivity({
+        id: `reading-lookup:${dedupeKey}`,
+        type: ActivityType.READING_WORD_LOOKUP,
+        occurredAt,
+        dayKey: localDayKey(occurredAt),
+        sessionId,
+        dedupeKey,
+        payload: {
+          lemma: normalizedLemma,
+          lookupId,
+          source: lookupContext.source || 'reading',
+          articleId: lookupContext.articleId ?? this.articleData?.id ?? null,
+          articleTitle: lookupContext.articleTitle || this.articleData?.title || ''
+        }
+      }).catch(error => console.warn('Reading lookup telemetry failed.', error));
+    } catch (error) {
+      console.warn('Reading lookup telemetry failed.', error);
+    }
+  },
+
+  _recordReadingWordSaved({ sessionId, ...provenance }) {
+    const occurredAt = Date.now();
+    const resolvedSessionId = String(sessionId || this._readingLookupContext().sessionId);
+    const lemma = String(provenance.lemma || '').trim().toLowerCase();
+    try {
+      void DB.saveLearningActivity({
+        id: `reading-saved:${resolvedSessionId}:${lemma}:${occurredAt}:${++this._learningActivitySequence}`,
+        type: ActivityType.READING_WORD_SAVED,
+        occurredAt,
+        dayKey: localDayKey(occurredAt),
+        sessionId: resolvedSessionId,
+        payload: {
+          ...provenance,
+          lemma,
+          createdLearnWord: Boolean(provenance.createdLearnWord),
+          source: provenance.source || 'reading',
+          articleId: provenance.articleId ?? this.articleData?.id ?? null,
+          articleTitle: provenance.articleTitle || this.articleData?.title || ''
+        }
+      }).catch(error => console.warn('Reading save telemetry failed.', error));
+    } catch (error) {
+      console.warn('Reading save telemetry failed.', error);
+    }
+  },
+
   initInteractions() {
     const articleBody = document.getElementById('articleBody');
     const titleLookupHost = document.getElementById('readingTitleLookup');
@@ -429,6 +494,12 @@ export const ReadingView = {
         return true;
       },
       onHide: () => AIAnalysis.hideButton(),
+      lookupContext: () => this._readingLookupContext('reading'),
+      onLookupResolved: payload => this._recordReadingLookupActivity(payload),
+      onWordSaved: provenance => this._recordReadingWordSaved({
+        ...provenance,
+        sessionId: this._readingLookupContext('reading').sessionId
+      }),
       onShown: ({ event, word, data, reviewWord, lookupId }) => {
         this._recordReadingLookup({
           word,
@@ -552,6 +623,12 @@ export const ReadingView = {
         getTargetTrack: () => resolveArticleTrack(this.articleData || {}).targetTrack,
         isReviewWord: word => this.reviewMode && this.reviewWordsMap.has(getStemForm(word.toLowerCase())),
         onHide: () => AIAnalysis.hideButton(),
+        lookupContext: () => this._readingLookupContext('reading-guide'),
+        onLookupResolved: payload => this._recordReadingLookupActivity(payload),
+        onWordSaved: provenance => this._recordReadingWordSaved({
+          ...provenance,
+          sessionId: this._readingLookupContext('reading-guide').sessionId
+        }),
         onShown: ({ word, data, reviewWord, lookupId }) => this._recordReadingLookup({
           word,
           data,

@@ -32,27 +32,35 @@ function normalizeSentence(value) {
 export function bindReadingStyleWordLookup({
   root,
   surface = 'reading',
+  dictionary = Dictionary,
+  tooltip: tooltipOverride = null,
   getContextSentence = event => getContextSentenceAtPoint(event, root),
   getTargetTrack = () => '',
   isReviewWord = () => false,
   shouldIgnoreClick = () => false,
   isEnabled = () => true,
   onHide = () => {},
-  onShown = () => {}
+  onShown = () => {},
+  onLookupResolved = null,
+  onWordSaved = null,
+  lookupContext = {}
 } = {}) {
-  const tooltip = document.getElementById('wordTooltip');
+  const tooltipApi = tooltipOverride && typeof tooltipOverride.beginLookup === 'function' ? tooltipOverride : Tooltip;
+  const tooltip = tooltipOverride && typeof tooltipOverride.contains === 'function'
+    ? tooltipOverride
+    : document.getElementById('wordTooltip');
   if (!root || !tooltip) return () => {};
 
   let disposed = false;
   const isolatedSurface = surface === 'guide' || surface === 'isolated';
 
   const hide = () => {
-    Tooltip.hide();
+    tooltipApi.hide();
     onHide();
   };
 
   const globalClickHandler = event => {
-    if (disposed || !Tooltip.isVisible() || tooltip.contains(event.target)) return;
+    if (disposed || !tooltipApi.isVisible() || tooltip.contains(event.target)) return;
     hide();
   };
 
@@ -75,31 +83,59 @@ export function bindReadingStyleWordLookup({
     if (event.type !== 'keydown' && selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
 
     // Match reading behavior: the first body click closes the current card.
-    if (Tooltip.isVisible()) {
+    if (tooltipApi.isVisible()) {
       event.stopPropagation?.();
       hide();
       return;
     }
 
-    const word = String(tokenTarget?.dataset?.wordLookupToken || Tooltip.getWordAtPoint(event) || '').trim();
+    const word = String(tokenTarget?.dataset?.wordLookupToken || tooltipApi.getWordAtPoint?.(event) || '').trim();
     if (!word || word.length < 2) return;
     event.stopPropagation?.();
 
     onHide();
     const { x, y } = pointForEvent(event, tokenTarget || target);
-    const lookupId = Tooltip.beginLookup(x, y);
+    const lookupId = tooltipApi.beginLookup(x, y);
 
     try {
-      const data = await Dictionary.lookup(word);
-      if (disposed || !Tooltip.isCurrent(lookupId)) return;
+      const data = await dictionary.lookup(word);
+      if (disposed || !tooltipApi.isCurrent(lookupId)) return;
       const contextSentence = normalizeSentence(await getContextSentence(event, { word, data }));
       const reviewWord = Boolean(await isReviewWord(word, data));
       const targetTrack = String(await getTargetTrack({ word, data }) || '').trim();
-      const shown = await Tooltip.show(lookupId, x, y, data, reviewWord, {
+      const resolvedLookupContext = typeof lookupContext === 'function'
+        ? await lookupContext({ event, word, data, surface })
+        : lookupContext || {};
+      const tooltipOptions = {
         contextSentence,
-        targetTrack
-      });
-      if (!shown || disposed) return;
+        targetTrack,
+        lookupContext: resolvedLookupContext,
+        onWordSaved
+      };
+      const shown = await tooltipApi.show(lookupId, x, y, data, reviewWord, tooltipOptions);
+      if (!shown || disposed || !tooltipApi.isCurrent(lookupId)) return;
+
+      const lookupPayload = {
+        event,
+        word,
+        lemma: word.toLowerCase(),
+        data,
+        reviewWord,
+        contextSentence,
+        targetTrack,
+        lookupId,
+        surface,
+        lookupContext: resolvedLookupContext
+      };
+      if (typeof onLookupResolved === 'function') {
+        try {
+          void Promise.resolve(onLookupResolved(lookupPayload)).catch(error => {
+            console.warn('Learning lookup telemetry failed.', error);
+          });
+        } catch (error) {
+          console.warn('Learning lookup telemetry failed.', error);
+        }
+      }
 
       const senses = getDefinitionSenses(data);
       if (contextSentence && senses.length) {
@@ -109,10 +145,9 @@ export function bindReadingStyleWordLookup({
           senses,
           lexiconVersion: data.lexiconVersion || ''
         }).then(contextualSense => {
-          if (!contextualSense || disposed || !Tooltip.isCurrent(lookupId)) return;
-          return Tooltip.show(lookupId, x, y, data, reviewWord, {
-            contextSentence,
-            targetTrack,
+          if (!contextualSense || disposed || !tooltipApi.isCurrent(lookupId)) return;
+          return tooltipApi.show(lookupId, x, y, data, reviewWord, {
+            ...tooltipOptions,
             contextualSenseIndex: contextualSense.senseIndex,
             contextualSenseReason: contextualSense.reasonZh
           });
@@ -131,8 +166,8 @@ export function bindReadingStyleWordLookup({
         surface
       })).catch(() => {});
     } catch {
-      if (!disposed && Tooltip.isCurrent(lookupId)) {
-        Tooltip.showError(lookupId, x, y, '暂时无法查询，请稍后重试');
+      if (!disposed && tooltipApi.isCurrent(lookupId)) {
+        tooltipApi.showError(lookupId, x, y, '暂时无法查询，请稍后重试');
       }
     }
   };
@@ -148,7 +183,7 @@ export function bindReadingStyleWordLookup({
   root.addEventListener('click', lookupWord);
   root.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', globalClickHandler);
-  const autoDismissCleanup = Tooltip.attachAutoDismiss();
+  const autoDismissCleanup = tooltipApi.attachAutoDismiss?.() || (() => {});
 
   return () => {
     disposed = true;
@@ -156,6 +191,6 @@ export function bindReadingStyleWordLookup({
     root.removeEventListener('keydown', keydownHandler);
     document.removeEventListener('click', globalClickHandler);
     autoDismissCleanup?.();
-    Tooltip.hide();
+    tooltipApi.hide();
   };
 }

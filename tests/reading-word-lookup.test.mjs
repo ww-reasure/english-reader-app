@@ -63,3 +63,12 @@ test('guide lookup is isolated, keyboard accessible and fully disposed while exa
   assert.match(point, /\.exam-practice-paragraph/);
   assert.match(point, /\.exam-question-stem/);
 });
+
+test('reading lookup binding exposes optional success and save telemetry callbacks', async () => {
+  const source = await readFile(new URL('../src/components/reading-word-lookup.js', import.meta.url), 'utf8');
+  assert.match(source, /onLookupResolved\s*=\s*null/);
+  assert.match(source, /onWordSaved\s*=\s*null/);
+  assert.match(source, /onLookupResolved/);
+  assert.match(source, /onWordSaved/);
+  assert.match(source, /lemma/);
+});
