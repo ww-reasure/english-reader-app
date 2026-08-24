@@ -1,5 +1,6 @@
 import { EXAM_CANONICAL_SCHEMA_VERSION, EXAM_MD_SCHEMA } from './constants.mjs';
 import { assertCanonicalPaper } from './schema.mjs';
+import { sanitizeReadingQuestionAnalyses } from './option-analysis-sanitizer.mjs';
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 const OPTION_PATTERN = /^[-*]\s*([A-H])([.):])\s+(.+)$/;
@@ -138,42 +139,43 @@ function buildCanonicalPaper({ meta, title, units }) {
   if (meta.schema !== EXAM_MD_SCHEMA) throw new Error(`exam-meta.schema 必须为 ${EXAM_MD_SCHEMA}`);
   if (!units.length) throw new Error('未找到任何 unit');
 
-  const buildQuestion = question => {
-      if (!question.meta || typeof question.meta !== 'object') {
-      throw new Error(`question 缺少 exam-item 元数据：${question.heading}`);
+  const buildQuestion = (question, unitType = '') => {
+    const parsed = sanitizeReadingQuestionAnalyses({ ...question, ...(unitType === 'reading_mcq' ? { readingUnit: true } : {}) }, { label: `${question.heading} 解析` });
+      if (!parsed.meta || typeof parsed.meta !== 'object') {
+      throw new Error(`question 缺少 exam-item 元数据：${parsed.heading}`);
     }
-    if (question.meta.type === 'translation_segment') {
+    if (parsed.meta.type === 'translation_segment') {
       const translationQuestion = {
-        questionKey: question.meta.questionKey,
-        segmentKey: question.meta.segmentKey,
-        type: question.meta.type,
-        points: Number(question.meta.points),
-        sourceText: question.sourceText.trim(),
-        location: question.location
+        questionKey: parsed.meta.questionKey,
+        segmentKey: parsed.meta.segmentKey,
+        type: parsed.meta.type,
+        points: Number(parsed.meta.points),
+        sourceText: parsed.sourceText.trim(),
+        location: parsed.location
       };
-      if (question.referenceTranslation.trim()) translationQuestion.referenceTranslation = question.referenceTranslation.trim();
-      if (question.localAnalysis.trim()) translationQuestion.localAnalysis = question.localAnalysis.trim();
+      if (parsed.referenceTranslation.trim()) translationQuestion.referenceTranslation = parsed.referenceTranslation.trim();
+      if (parsed.localAnalysis.trim()) translationQuestion.localAnalysis = parsed.localAnalysis.trim();
       return translationQuestion;
     }
     const built = {
-      questionKey: question.meta.questionKey,
-      type: question.meta.type,
-      points: Number(question.meta.points),
-      answer: question.meta.answer,
-      stem: question.stem.trim(),
-      options: question.options,
-      questionTranslation: question.questionTranslation,
-      questionType: question.questionType,
-      location: question.location,
-      evidence: question.evidence,
-      explanation: question.explanation,
-      optionAnalysis: question.optionAnalysis,
-      blankNumber: question.blankNumber || null,
-      slotNumber: question.slotNumber || null
+      questionKey: parsed.meta.questionKey,
+      type: parsed.meta.type,
+      points: Number(parsed.meta.points),
+      answer: parsed.meta.answer,
+      stem: parsed.stem.trim(),
+      options: parsed.options,
+      questionTranslation: parsed.questionTranslation,
+      questionType: parsed.questionType,
+      location: parsed.location,
+      evidence: parsed.evidence,
+      explanation: parsed.explanation,
+      optionAnalysis: parsed.optionAnalysis,
+      blankNumber: parsed.blankNumber || null,
+      slotNumber: parsed.slotNumber || null
     };
-    if (question.stemAnalysis.trim()) built.stemAnalysis = question.stemAnalysis.trim();
-    if (question.evidenceTranslation.trim()) built.evidenceTranslation = question.evidenceTranslation.trim();
-    if (question.optionTranslations.length) built.optionTranslations = question.optionTranslations;
+    if (parsed.stemAnalysis.trim()) built.stemAnalysis = parsed.stemAnalysis.trim();
+    if (parsed.evidenceTranslation.trim()) built.evidenceTranslation = parsed.evidenceTranslation.trim();
+    if (parsed.optionTranslations.length) built.optionTranslations = parsed.optionTranslations;
     return built;
   };
 
@@ -215,7 +217,7 @@ function buildCanonicalPaper({ meta, title, units }) {
       slots,
       fixedPlacements,
       answerSequence,
-      questions: unit.questions.map(buildQuestion)
+      questions: unit.questions.map(question => buildQuestion(question, meta.type))
     }, meta);
   };
 
@@ -233,7 +235,7 @@ function buildCanonicalPaper({ meta, title, units }) {
       const question = unit.questions.find(item => item.slotNumber === Number(slotNumber));
       return { slotNumber: Number(slotNumber), position, questionKey: question?.meta?.questionKey || null };
     }),
-    questions: unit.questions.map(buildQuestion)
+    questions: unit.questions.map(question => buildQuestion(question, unit.meta.type))
   }, unit.meta);
 
   const paper = {
@@ -263,7 +265,7 @@ function buildCanonicalPaper({ meta, title, units }) {
       if (unit.meta.type === 'matching') return buildMatchingUnit(unit);
       return {
         ...base,
-        questions: unit.questions.map(buildQuestion)
+        questions: unit.questions.map(question => buildQuestion(question, unit.meta.type))
       };
     })
   };

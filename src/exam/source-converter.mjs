@@ -1,5 +1,6 @@
 import { assertCanonicalPaper } from './schema.mjs';
 import { parseExamMarkdown } from './parser.mjs';
+import { sanitizeOptionAnalysisItems } from './option-analysis-sanitizer.mjs';
 import {
   assertUnitGate,
   detectPartBVariant,
@@ -109,10 +110,12 @@ function parseClozeOptions(source) {
 function parseOptionItems(source) {
   const normalized = String(source || '').replace(/^(?:##\s*)?【选项】\s*/mu, '');
   const matches = [...normalized.matchAll(/(?:^|\n)(?:##\s*)?([A-D])\)\s*([\s\S]*?)(?=(?:\n(?:##\s*)?[A-D]\)\s)|(?:\s+[A-D]\)\s)|$)/gu)];
-  return matches
+  return sanitizeOptionAnalysisItems(matches
     .map(match => ({ key: match[1], text: textFromSource(match[2]) }))
-    .filter(item => item.text);
+    .filter(item => item.text), { label: '来源选项解析' });
 }
+
+export { trimOptionAnalysisTail } from './option-analysis-sanitizer.mjs';
 
 function findClozeAnalysisStart(source, fromIndex = 0) {
   const match = String(source || '').slice(fromIndex).match(/^(?:##\s+)?1\.\s*$/mu);

@@ -2,31 +2,20 @@ import { createExamServices } from '../exam/create-services.js';
 import { buildExamCatalog, selectRandomPaper, selectRandomUnit } from '../exam/catalog.mjs';
 import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
-import { installExamPack } from '../exam/pack-installer.mjs';
-import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
+import { installPrivateExamPacks } from '../exam/private-pack-loader.mjs';
 import { SUPPORTED_EXAM_IDS } from '../exam/constants.mjs';
 import { listAcrossExams, readActiveBankId, resolveExamIdForBank, unitLabel } from '../exam/exam-context.mjs';
 import { esc } from '../helpers.js';
 
-async function installPrivatePacks(services) {
-  const response = await fetch('/exam-packs/private/index.json');
-  if (!response.ok) return;
-  const index = await response.json();
-  for (const entry of index.packs || []) {
-    const packResponse = await fetch(entry.path);
-    if (!packResponse.ok) continue;
-    const pack = await packResponse.json();
-    await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack));
-  }
-}
-
 async function loadPapers(services) {
-  if (shouldInstallPrivateExamPacks(import.meta.env.MODE)) await installPrivatePacks(services);
+  const packLoad = shouldInstallPrivateExamPacks(import.meta.env.MODE)
+    ? await installPrivateExamPacks({ openDb: services.openDb })
+    : { installed: [], failures: [] };
   const records = filterVisibleExamPapers(
     await listAcrossExams(examId => services.contentRepository.listPapers({ examId })),
     { isProduction: import.meta.env.MODE === 'public' }
   );
-  return Promise.all(records.map(async record => {
+  const papers = await Promise.all(records.map(async record => {
     const examId = resolveExamIdForBank(record.bankId) || 'kaoyan_en1';
     return {
       ...await services.contentRepository.getFullPaper({ examId, bankId: record.bankId, paperKey: record.paperKey }),
@@ -36,6 +25,7 @@ async function loadPapers(services) {
       sourceType: record.sourceType
     };
   }));
+  return { papers, packLoad };
 }
 
 function unitLabelFor(unit, examId) {
@@ -100,8 +90,9 @@ export const ExamCatalogView = {
 
   async render(container, unitType = 'reading_mcq', bankId = null) {
     this.cleanup();
+    container.innerHTML = '<div class="exam-loading-state" role="status"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>正在准备真题…</span></div>';
     const services = createExamServices();
-    const allPapers = await loadPapers(services);
+    const { papers: allPapers, packLoad } = await loadPapers(services);
     const installedBanks = (await listAcrossExams(examId => services.contentRepository.listBanks({ examId })))
       .filter(bank => allPapers.some(paper => paper.bankId === bank.bankId));
     const bankOptions = getExamBankOptions(installedBanks, allPapers);
@@ -119,6 +110,7 @@ export const ExamCatalogView = {
     const progressByUnit = new Map(units.map(unit => [unitProgressKey(unit), getUnitProgress(unit, attemptRows)]));
     container.innerHTML = `
       <div class="exam-catalog exam-catalog-screen">
+        ${packLoad.failures.length ? '<p class="exam-pack-warning" role="status">部分真题包未更新，仍可使用已安装内容。<button class="btn btn-outline btn-sm" type="button" data-retry-private-packs>重试</button></p>' : ''}
         <p class="exam-catalog-hint exam-catalog-intro">${fullPaper ? '选择年份查看整卷内容' : '选择年份查看题目'}</p>
         <div class="exam-catalog-years">
           ${catalog.length ? catalog.map(group => yearGroupHtml(group, { fullPaper, progressByUnit, examId: activeExamId })).join('') : '<div class="empty-state">暂无可用题组</div>'}
@@ -129,6 +121,7 @@ export const ExamCatalogView = {
 
     const handlers = [];
     const add = (target, event, handler) => { target?.addEventListener(event, handler); if (target) handlers.push(() => target.removeEventListener(event, handler)); };
+    add(container.querySelector('[data-retry-private-packs]'), 'click', () => this.render(container, unitType, bankId));
     const startUnit = async unit => {
       const examId = resolveExamIdForBank(unit.bankId) || 'kaoyan_en1';
       const attempt = await services.practiceService.startAttempt({

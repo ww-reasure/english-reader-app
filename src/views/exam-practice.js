@@ -125,6 +125,7 @@ export const ExamPracticeView = {
     this._savePromise = null;
     this._submitting = false;
     this._drag = null;
+    this._paneResize = null;
     this._autosaveTimer = null;
     this._idleTimer = null;
     this.isExplanation = false;
@@ -141,6 +142,7 @@ export const ExamPracticeView = {
             ${this.renderer.renderArticle(unit, { responses: this.responses, currentQuestionKey: attempt.currentQuestionKey })}
           </div>
         </section>
+        <div class="exam-pane-splitter" id="examPaneSplitter" role="separator" aria-orientation="vertical" aria-label="调整原文与题目面板宽度" aria-valuemin="420" tabindex="0"></div>
         <section class="exam-sheet is-${this.sheetSnap}" id="examSheet" aria-label="题目面板">
           <div class="exam-sheet-handle" id="examSheetHandle" role="slider" tabindex="0" aria-label="调整题目面板高度"></div>
           <div class="exam-sheet-header">
@@ -162,6 +164,7 @@ export const ExamPracticeView = {
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
 
     this.container = container;
+    this.practiceRoot = container.querySelector('#examPracticeRoot');
     this.articleScroll = container.querySelector('#examArticleScroll');
     this.articleInner = container.querySelector('.exam-practice-article-inner');
     this.sheet = container.querySelector('#examSheet');
@@ -202,6 +205,7 @@ export const ExamPracticeView = {
     this.sentenceLongPressGuard = createLongPressSelectionGuard();
     this._disposed = false;
     this._drag = null;
+    this._paneResize = null;
     const currentHashChecks = await Promise.all(this.questions.map(async question => {
       const response = this.responses.get(question.questionKey);
       return Boolean(response?.questionHashAtSubmit) && response.questionHashAtSubmit !== await hashQuestion(question);
@@ -217,6 +221,7 @@ export const ExamPracticeView = {
     container.innerHTML = `
       <div class="exam-practice exam-explanation-mode" id="examPracticeRoot">
         <section class="exam-practice-article" id="examArticleScroll"><div class="exam-practice-article-inner"></div></section>
+        <div class="exam-pane-splitter" id="examPaneSplitter" role="separator" aria-orientation="vertical" aria-label="调整原文与解析面板宽度" aria-valuemin="420" tabindex="0"></div>
         <section class="exam-sheet is-${this.sheetSnap}" id="examSheet" aria-label="解析面板">
           <div class="exam-sheet-handle" id="examSheetHandle" role="slider" tabindex="0" aria-label="调整解析面板高度"></div>
           <div class="exam-sheet-header"><button id="examSheetPrev" class="exam-sheet-nav" type="button" aria-label="上一题">‹</button><button id="examSheetProgress" class="exam-sheet-progress" type="button" aria-haspopup="dialog" aria-label="打开答题卡"></button><div class="exam-sheet-header-actions"><button id="examSheetNext" class="exam-sheet-nav" type="button" aria-label="下一题">›</button></div></div>
@@ -226,6 +231,7 @@ export const ExamPracticeView = {
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
     this.container = container;
+    this.practiceRoot = container.querySelector('#examPracticeRoot');
     this.articleScroll = container.querySelector('#examArticleScroll');
     this.articleInner = container.querySelector('.exam-practice-article-inner');
     this.sheet = container.querySelector('#examSheet');
@@ -494,13 +500,16 @@ export const ExamPracticeView = {
     add(window, 'orientationchange', () => {
       this.closeAnswerCard({ restoreFocus: false });
       this.clearSentenceAiConfirmation();
+      this.syncPaneSplitForViewport();
     });
+    this.bindPaneSplitter();
 
     this._dispose = () => {
       if (this._drag) {
         document.removeEventListener('pointermove', this._drag.onMove);
         document.removeEventListener('pointerup', this._drag.onUp);
       }
+      this._paneSplitterCleanup?.();
       if (this._idleTimer) clearTimeout(this._idleTimer);
       if (this._autosaveTimer) clearTimeout(this._autosaveTimer);
       this._disposed = true;
@@ -552,14 +561,119 @@ export const ExamPracticeView = {
       event.preventDefault();
       void this.toggleParagraphTranslation(button.dataset.paragraphKey);
     });
+    this.bindPaneSplitter();
     this._dispose = () => {
       if (this._drag) {
         document.removeEventListener('pointermove', this._drag.onMove);
         document.removeEventListener('pointerup', this._drag.onUp);
       }
+      this._paneSplitterCleanup?.();
       this._disposed = true;
       onCleanup.forEach(remove => remove());
     };
+  },
+
+  bindPaneSplitter() {
+    this._paneSplitterCleanup?.();
+    const splitter = this.container?.querySelector('#examPaneSplitter');
+    if (!splitter) return;
+    const onPointerDown = event => this.startPaneResize(event);
+    const onResize = () => this.syncPaneSplitForViewport();
+    const onKeyDown = event => {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        this.resizePaneWithKeyboard(event.key === 'ArrowLeft' ? -1 : 1);
+      }
+    };
+    splitter.addEventListener('pointerdown', onPointerDown);
+    splitter.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    this._paneSplitterCleanup = () => {
+      splitter.removeEventListener('pointerdown', onPointerDown);
+      splitter.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+      this.endPaneResize();
+      this._paneSplitterCleanup = null;
+    };
+  },
+
+  isWidePaneLayout() {
+    return Boolean(window.matchMedia?.('(min-width: 840px)').matches && this.practiceRoot && this.articleScroll && this.sheet);
+  },
+
+  syncPaneSplitForViewport() {
+    if (!this.isWidePaneLayout()) this.resetPaneSplit();
+  },
+
+  paneSplitBounds() {
+    const minLeft = 420;
+    const minRight = 340;
+    const divider = 10;
+    const rootWidth = this.practiceRoot?.getBoundingClientRect().width || 0;
+    const available = Math.max(0, rootWidth - divider);
+    if (available < minLeft + minRight) return { lower: 0, upper: available, divider };
+    const lower = minLeft;
+    const upper = available - minRight;
+    return { lower, upper, divider };
+  },
+
+  setPaneSplit(left) {
+    if (!this.isWidePaneLayout()) return;
+    const { lower, upper, divider } = this.paneSplitBounds();
+    const bounded = Math.min(upper, Math.max(lower, left));
+    this.practiceRoot.style.gridTemplateColumns = `${Math.round(bounded)}px ${divider}px minmax(340px, 1fr)`;
+    const splitter = this.container.querySelector('#examPaneSplitter');
+    splitter?.setAttribute('aria-valuemin', String(Math.round(lower)));
+    splitter?.setAttribute('aria-valuemax', String(Math.round(upper)));
+    splitter?.setAttribute('aria-valuenow', String(Math.round(bounded)));
+  },
+
+  resetPaneSplit() {
+    this.endPaneResize();
+    if (!this.practiceRoot) return;
+    this.practiceRoot.style.gridTemplateColumns = '';
+    const splitter = this.container?.querySelector('#examPaneSplitter');
+    splitter?.removeAttribute('aria-valuemax');
+    splitter?.removeAttribute('aria-valuenow');
+  },
+
+  resizePaneWithKeyboard(direction) {
+    if (!this.isWidePaneLayout()) return;
+    const left = this.articleScroll.getBoundingClientRect().width;
+    this.setPaneSplit(left + direction * 24);
+  },
+
+  startPaneResize(event) {
+    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    if (!this.isWidePaneLayout()) return;
+    event.preventDefault();
+    const splitter = event.currentTarget;
+    const rootLeft = this.practiceRoot.getBoundingClientRect().left;
+    const pointerId = event.pointerId;
+    splitter?.setPointerCapture?.(pointerId);
+    const onMove = moveEvent => {
+      if (moveEvent.pointerId !== pointerId) return;
+      this.setPaneSplit(moveEvent.clientX - rootLeft);
+    };
+    const onUp = upEvent => {
+      if (upEvent.pointerId !== pointerId) return;
+      this.endPaneResize();
+    };
+    this.endPaneResize();
+    this._paneResize = { onMove, onUp };
+    document.body.classList.add('exam-pane-resizing');
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  },
+
+  endPaneResize() {
+    if (!this._paneResize) return;
+    document.removeEventListener('pointermove', this._paneResize.onMove);
+    document.removeEventListener('pointerup', this._paneResize.onUp);
+    document.removeEventListener('pointercancel', this._paneResize.onUp);
+    document.body.classList.remove('exam-pane-resizing');
+    this._paneResize = null;
   },
 
   startTimer() {

@@ -1637,6 +1637,12 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   min-height: 520px;
   overflow: hidden;
 }
+.exam-pack-warning { margin:0 0 var(--space-3); color:var(--signal-deep); font-size:13px; line-height:1.5; }
+.exam-loading-state { min-height:40vh; display:grid; place-content:center; gap:12px; color:var(--ink-soft); text-align:center; }
+.exam-loading-state i { color:var(--signal); font-size:20px; }
+.route-render-error { display:grid; align-content:center; min-height:40vh; gap:var(--space-3); }
+.route-render-error h2,.route-render-error p { margin:0; }
+.exam-pane-splitter { display: none; }
 .exam-practice-article {
   position: absolute;
   inset: 0;
@@ -1738,6 +1744,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   flex-direction: column;
   transition: height var(--duration) var(--ease);
   z-index: var(--z-sticky);
+  min-width: 0;
 }
 .exam-sheet.is-low { height: 24%; }
 .exam-sheet.is-peek { height: 12%; min-height: 96px; }
@@ -1811,6 +1818,9 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .exam-sheet-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  max-width: 100%;
   padding: 0 var(--space-4) var(--space-3);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
@@ -2090,10 +2100,10 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .exam-word-lookup-toggle input:checked { background: var(--moss); }
 .exam-word-lookup-toggle input:checked::after { transform: translateX(14px); }
 .exam-word-lookup-toggle b { color: var(--moss); font-size: 11px; }
-.exam-original-options { padding-top: 5px; }
+.exam-original-options { padding-top: 5px; min-width: 0; max-width: 100%; }
 .exam-original-options h4 { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
-.exam-original-options ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.exam-original-options li { padding: 7px 9px; border-radius: 7px; background: var(--surface-soft); line-height: 1.45; }
+.exam-original-options ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; min-width: 0; max-width: 100%; }
+.exam-original-options li { padding: 7px 9px; border-radius: 7px; background: var(--surface-soft); line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
 .exam-original-options li.is-correct { background: var(--moss-soft); }
 .exam-original-options li.is-user-answer:not(.is-correct) { background: var(--error-surface); }
 .exam-option-marker { color: var(--moss-deep, var(--moss)); font-size: 11px; font-weight: 800; }
@@ -2105,6 +2115,15 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   .exam-bank-picker select { width: 100%; }
   .exam-full-paper-result .exam-result-metrics { grid-template-columns: repeat(2, 1fr); }
   .exam-word-lookup-toggle span { display: none; }
+}
+.exam-explanation-head,
+.exam-explanation-sections,
+.exam-explanation-section,
+.exam-option-analysis,
+.exam-explanation-section ul { min-width: 0; max-width: 100%; }
+.exam-sheet-body :is(.exam-question-stem, .exam-original-options, .exam-option-analysis, .exam-explanation-section, .exam-explanation-head) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .exam-explanation-head h3 {
   margin: 0 0 var(--space-2);
@@ -2258,6 +2277,8 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .exam-postsubmit-translations p {
   margin: 0;
   line-height: 1.7;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .exam-explanation-section > div + div {
   margin-top: var(--space-2);
@@ -2277,6 +2298,8 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   border-left: 2px solid transparent;
   padding: 6px 8px;
   line-height: 1.55;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .exam-option-analysis li.is-correct {
   border-color: var(--moss);
@@ -2935,9 +2958,18 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   .app-shell--focus.app-shell--exam .app-page-outlet { overflow:hidden; }
   .app-shell--focus .exam-practice {
     display:grid;
-    grid-template-columns:minmax(0,3fr) minmax(340px,2fr);
+    grid-template-columns:minmax(420px,3fr) 10px minmax(340px,2fr);
     height:100%;
   }
+  .app-shell--focus .exam-pane-splitter {
+    display:block;
+    grid-column:2;
+    min-width:10px;
+    cursor:col-resize;
+    touch-action:none;
+    background:linear-gradient(90deg, transparent 4px, var(--rule-strong) 4px 6px, transparent 6px);
+  }
+  .app-shell--focus .exam-pane-splitter:focus-visible { outline:2px solid var(--signal); outline-offset:-2px; }
   .app-shell--focus .exam-practice-article {
     position:relative;
     inset:auto;
@@ -2956,6 +2988,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
     width:100%;
     height:100%;
     min-height:0;
+    min-width:0;
     border-width:0 0 0 1px;
     border-radius:0;
     box-shadow:none;
@@ -2968,6 +3001,8 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   .app-shell--focus .exam-sheet-header { padding:20px 16px 12px; }
   /* end wide exam practice */
 }
+body.exam-pane-resizing,
+body.exam-pane-resizing * { cursor:col-resize !important; user-select:none !important; }
 
 /* Answer card and submitted-passage sentence actions */
 body.exam-answer-card-open { overflow:hidden; }

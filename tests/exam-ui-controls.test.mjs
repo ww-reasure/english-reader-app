@@ -129,13 +129,49 @@ test('only the exam desktop exposes a compact bank switcher', async () => {
 });
 
 test('every private exam pack entry point applies the shared installation migration policy', async () => {
+  const [homeSource, loaderSource, ...sources] = await Promise.all([
+    read('src/views/exam-home.js'),
+    read('src/exam/private-pack-loader.mjs'),
+    read('src/views/exam-catalog.js'),
+    read('src/views/exam-history.js')
+  ]);
+  assert.match(homeSource, /installPrivateExamPacks/);
+  assert.match(loaderSource, /getExamPackInstallOptions/);
+  assert.match(loaderSource, /installPack\([^\n]+getExamPackInstallOptions\(pack\)\)/);
+  for (const source of sources) {
+    assert.match(source, /installPrivateExamPacks/);
+    assert.doesNotMatch(source, /function installPrivatePacks/);
+  }
+});
+
+test('all private-pack pages render a visible loading state before awaiting pack installation', async () => {
   const sources = await Promise.all([
     read('src/views/exam-home.js'),
     read('src/views/exam-catalog.js'),
     read('src/views/exam-history.js')
   ]);
   for (const source of sources) {
-    assert.match(source, /getExamPackInstallOptions/);
-    assert.match(source, /installExamPack\([^\n]+getExamPackInstallOptions\(pack\)\)/);
+    assert.match(source, /正在准备真题/);
+    assert.match(source, /installPrivateExamPacks/);
   }
+});
+
+test('all private-pack pages expose a retry action when a pack cannot be updated', async () => {
+  const sources = await Promise.all([
+    read('src/views/exam-home.js'),
+    read('src/views/exam-catalog.js'),
+    read('src/views/exam-history.js')
+  ]);
+  for (const source of sources) {
+    assert.match(source, /data-retry-private-packs/);
+    assert.match(source, /部分真题包未更新/);
+  }
+});
+
+test('router shows a recoverable page instead of leaving the app outlet blank when rendering fails', async () => {
+  const source = await read('src/router.js');
+
+  assert.match(source, /try\s*\{\s*await view\.render\(/);
+  assert.match(source, /route-render-error/);
+  assert.match(source, /页面暂时无法打开/);
 });

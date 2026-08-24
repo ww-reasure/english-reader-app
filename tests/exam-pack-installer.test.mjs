@@ -175,6 +175,41 @@ test('rejects reusing the same bankId for a different exam', async () => {
   db.close();
 });
 
+test('skips full payload validation when the installed pack manifest is unchanged', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  module.DB.DB_NAME = `EnglishReaderExamUnchanged-${process.pid}-${sequence++}`;
+  const db = await module.DB.open();
+  const openDb = () => Promise.resolve(db);
+  const markdown = await readFile(fixtureUrl, 'utf8');
+  const pack = await buildExamPackFromMarkdown(markdown, { generatedAt, displayName: 'Synthetic' });
+  await installExamPack(openDb, pack);
+
+  const payloadWithAnInvalidBody = structuredClone(pack);
+  payloadWithAnInvalidBody.papers[0].units[0].questions[0].optionAnalysis[0].text += ' S E N T E N C E I N S I G H T S · 句子精讲';
+
+  const result = await installExamPack(openDb, payloadWithAnInvalidBody);
+  assert.deepEqual(result, { status: 'unchanged', packageId: pack.manifest.packageId });
+  db.close();
+});
+
+test('does not accept an invalid manifest on the unchanged-pack fast path', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  module.DB.DB_NAME = `EnglishReaderExamManifest-${process.pid}-${sequence++}`;
+  const db = await module.DB.open();
+  const openDb = () => Promise.resolve(db);
+  const markdown = await readFile(fixtureUrl, 'utf8');
+  const pack = await buildExamPackFromMarkdown(markdown, { generatedAt, displayName: 'Synthetic' });
+  await installExamPack(openDb, pack);
+
+  const malformedManifest = structuredClone(pack);
+  malformedManifest.manifest.schemaVersion = 999;
+
+  await assert.rejects(installExamPack(openDb, malformedManifest), /manifest\.schemaVersion/);
+  db.close();
+});
+
 test('a known contaminated pack hash can reset only that bank test state during upgrade', async () => {
   globalThis.indexedDB = indexedDB;
   const module = await loadDatabaseModule();

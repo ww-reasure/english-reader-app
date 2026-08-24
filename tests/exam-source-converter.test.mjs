@@ -7,7 +7,8 @@ import {
   convertYearSource,
   normalizeClozeBlankMarkers,
   parsePartBAnswerSequence,
-  extractTranslationSegments
+  extractTranslationSegments,
+  trimOptionAnalysisTail
 } from '../src/exam/source-converter.mjs';
 
 test('normalizeClozeBlankMarkers turns source-provided numbered blanks into canonical markers', () => {
@@ -49,6 +50,31 @@ test('extractTranslationSegments reads source text and reference translation fro
   assert.deepEqual(result.map(item => item.questionKey), ['kaoyan_en1_2025_part_c_q46', 'kaoyan_en1_2025_part_c_q50']);
   assert.equal(result[0].sourceText, 'Recent decades have seen science move.');
   assert.equal(result[1].referenceTranslation, '他们汇集资源并协作。');
+});
+
+test('option analysis keeps legitimate evidence headings but removes the following teaching appendix', () => {
+  const source = [
+    '✓ 正确 Every Justice rightly rejected this remarkable claim ↔ ## Evidence',
+    'The Court rejected the claim.',
+    'S E N T E N C E I N S I G H T S · 句子精讲',
+    'This appendix belongs to the article, not option D.',
+    'H I G H - F R E Q U E N C Y · 真题高频词'
+  ].join('\n');
+  assert.equal(
+    trimOptionAnalysisTail(source),
+    '✓ 正确 Every Justice rightly rejected this remarkable claim ↔ ## Evidence\nThe Court rejected the claim.'
+  );
+});
+
+test('installed English I pack keeps teaching appendices out of all reading option analyses', { skip: !existsSync('public/exam-packs/private/local.kaoyan.en1.json') }, async () => {
+  const pack = JSON.parse(await readFile('public/exam-packs/private/local.kaoyan.en1.json', 'utf8'));
+  const appendix = /(?:S\s*E\s*N\s*T\s*E\s*N\s*C\s*E\s+I\s*N\s*S\s*I\s*G\s*H\s*T\s*S|H\s*I\s*G\s*H\s*-?\s*F\s*R\s*E\s*Q\s*U\s*E\s*N\s*C\s*Y|句子精讲|真题高频词|下一篇题目)/iu;
+  const polluted = pack.papers.flatMap(paper => paper.units.flatMap(unit => unit.type === 'reading_mcq'
+    ? unit.questions.flatMap(question => (question.optionAnalysis || [])
+      .filter(option => appendix.test(option.text || ''))
+      .map(option => `${paper.paperKey}:${question.questionKey}:${option.key}`))
+    : []));
+  assert.deepEqual(polluted, []);
 });
 
 for (const [year, variant] of [[2021, 'sentence_insertion'], [2020, 'heading_matching']]) {

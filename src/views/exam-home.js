@@ -1,8 +1,7 @@
 import { createExamServices } from '../exam/create-services.js';
 import { filterVisibleExamPapers, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
 import { getExamBankOptions, resolveExamBankId } from '../exam/bank-selector.mjs';
-import { installExamPack } from '../exam/pack-installer.mjs';
-import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
+import { installPrivateExamPacks } from '../exam/private-pack-loader.mjs';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
 import { SUPPORTED_EXAM_IDS } from '../exam/constants.mjs';
 import { examDisplayName, listAcrossExams, persistActiveBankId, readActiveBankId, resolveExamIdForBank, unitLabel } from '../exam/exam-context.mjs';
@@ -22,20 +21,6 @@ const TYPE_CARDS_BY_EXAM = {
     { type: 'translation', title: '翻译', subtitle: 'Part IV · 汉译英', icon: 'fa-solid fa-language' }
   ]
 };
-
-async function installPrivatePacks(services) {
-  const response = await fetch('/exam-packs/private/index.json');
-  if (!response.ok) return [];
-  const index = await response.json();
-  const installed = [];
-  for (const entry of index.packs || []) {
-    const packResponse = await fetch(entry.path);
-    if (!packResponse.ok) continue;
-    const pack = await packResponse.json();
-    installed.push(await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack)));
-  }
-  return installed;
-}
 
 async function loadVisiblePapers(services, records) {
   return Promise.all(records.map(async record => {
@@ -74,8 +59,11 @@ export const ExamHomeView = {
 
   async render(container, bankId = null) {
     this.cleanup();
+    container.innerHTML = '<div class="exam-loading-state" role="status"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>正在准备真题…</span></div>';
     const services = createExamServices();
-    if (shouldInstallPrivateExamPacks(import.meta.env.MODE)) await installPrivatePacks(services);
+    const packLoad = shouldInstallPrivateExamPacks(import.meta.env.MODE)
+      ? await installPrivateExamPacks({ openDb: services.openDb })
+      : { installed: [], failures: [] };
     const [records, banks, attempts] = await Promise.all([
       listAcrossExams(examId => services.contentRepository.listPapers({ examId })),
       listAcrossExams(examId => services.contentRepository.listBanks({ examId })),
@@ -126,6 +114,7 @@ export const ExamHomeView = {
           <h1>${esc(examDisplayName(activeExamId, activeBankId))}</h1>
           <p>最近练习 <strong>${esc(recentLabel)}</strong></p>
         </section>
+        ${packLoad.failures.length ? `<p class="exam-pack-warning" role="status">部分真题包未更新，仍可使用已安装内容。<button class="btn btn-outline btn-sm" type="button" data-retry-private-packs>重试</button></p>` : ''}
         ${primaryResume ? `<button class="exam-resume-card" type="button" data-resume="${esc(primaryResume.attempt.attemptId)}"><span class="exam-progress-ring" aria-label="已完成 ${primaryResume.progress.percent}%"><i class="fa-solid fa-circle-notch" aria-hidden="true"></i><b>${primaryResume.progress.percent}%</b></span><span class="exam-resume-copy"><strong>继续练习</strong><small>${esc(primaryResume.unit ? unitLabel(primaryResume.unit, { examId: activeExamId }) : '整卷练习')}</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></button>` : ''}
         <a class="exam-full-paper-card" href="#/exam/catalog/full_paper"><i class="fa-regular fa-file-lines exam-card-icon" aria-hidden="true"></i><span><strong>整卷练习</strong><small>全真模拟，完整体验考试节奏</small></span><i class="fa-solid fa-chevron-right exam-card-arrow" aria-hidden="true"></i></a>
         <section class="exam-special-section">
@@ -145,6 +134,7 @@ export const ExamHomeView = {
       headerActions.replaceChildren(bankPicker.closest('label') || bankPicker);
     }
     container.querySelectorAll('[data-resume]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.resume}`; }));
+    add(container.querySelector('[data-retry-private-packs]'), 'click', () => this.render(container, bankId));
     add(bankPicker, 'change', event => { persistActiveBankId(event.target.value); this.render(container, event.target.value); });
     this._cleanupHandlers = handlers;
   }

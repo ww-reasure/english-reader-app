@@ -1,22 +1,9 @@
 import { createExamServices } from '../exam/create-services.js';
 import { filterVisibleExamPapers, isSyntheticExamPaper, shouldInstallPrivateExamPacks } from '../exam/home-visibility.mjs';
-import { installExamPack } from '../exam/pack-installer.mjs';
-import { getExamPackInstallOptions } from '../exam/pack-install-policy.mjs';
+import { installPrivateExamPacks } from '../exam/private-pack-loader.mjs';
 import { esc } from '../helpers.js';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
 import { listAcrossExams, unitLabel } from '../exam/exam-context.mjs';
-
-async function installPrivatePacks(services) {
-  const response = await fetch('/exam-packs/private/index.json');
-  if (!response.ok) return;
-  const index = await response.json();
-  for (const entry of index.packs || []) {
-    const packResponse = await fetch(entry.path);
-    if (!packResponse.ok) continue;
-    const pack = await packResponse.json();
-    await installExamPack(services.openDb, pack, getExamPackInstallOptions(pack));
-  }
-}
 
 function formatDuration(value) {
   const seconds = Math.round((Number(value) || 0) / 1000);
@@ -31,8 +18,11 @@ export const ExamHistoryView = {
 
   async render(container) {
     this.cleanup();
+    container.innerHTML = '<div class="exam-loading-state" role="status"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>正在准备真题…</span></div>';
     const services = createExamServices();
-    if (shouldInstallPrivateExamPacks(import.meta.env.MODE)) await installPrivatePacks(services);
+    const packLoad = shouldInstallPrivateExamPacks(import.meta.env.MODE)
+      ? await installPrivateExamPacks({ openDb: services.openDb })
+      : { installed: [], failures: [] };
     const [attempts, records] = await Promise.all([
       listAcrossExams(examId => services.stateRepository.listAttempts({ examId })),
       listAcrossExams(examId => services.contentRepository.listPapers({ examId }))
@@ -54,6 +44,7 @@ export const ExamHistoryView = {
     container.innerHTML = `
       <div class="exam-history">
         <header class="exam-catalog-head"><div><p class="page-eyebrow">LEARNING RECORD</p><h1 class="reading-title">学习记录</h1><p class="text-muted">最近完成、暂停和继续中的真题练习。</p></div></header>
+        ${packLoad.failures.length ? '<p class="exam-pack-warning" role="status">部分真题包未更新，仍可使用已安装内容。<button class="btn btn-outline btn-sm" type="button" data-retry-private-packs>重试</button></p>' : ''}
         <div class="exam-history-list">
           ${rows.length ? rows.map(({ attempt, paper, unit, responses, accuracy }) => {
             const isFull = attempt.practiceKind === 'full_paper';
@@ -66,6 +57,12 @@ export const ExamHistoryView = {
         ${renderExamBottomNav('history')}
       </div>`;
     const handlers = [];
+    const retry = container.querySelector('[data-retry-private-packs]');
+    if (retry) {
+      const handler = () => this.render(container);
+      retry.addEventListener('click', handler);
+      handlers.push(() => retry.removeEventListener('click', handler));
+    }
     container.querySelectorAll('[data-resume]').forEach(button => {
       const handler = () => { location.hash = `#/exam/practice/${button.dataset.resume}`; };
       button.addEventListener('click', handler);

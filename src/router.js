@@ -141,7 +141,12 @@ export const Router = {
     }
 
     const outlet = AppShell.mount(app, AppShell.getRouteMeta(hash), hash === '#/chat' ? 'chat' : 'standard', hash);
-    await view.render(outlet, ...args);
+    try {
+      await view.render(outlet, ...args);
+    } catch (error) {
+      console.error(`[router] render failed for ${hash}`, error);
+      outlet.innerHTML = `<section class="app-standard-page route-render-error"><p class="page-eyebrow">TEMPORARY ERROR</p><h2>页面暂时无法打开</h2><p>请返回后重试；已有学习记录不会丢失。</p><a class="btn btn-primary" href="#/exam">返回真题训练</a></section>`;
+    }
     this.currentView = view;
   },
 

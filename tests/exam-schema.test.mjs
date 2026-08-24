@@ -44,3 +44,18 @@ test('rejects invalid points and empty stems', async () => {
   assert.throws(() => assertCanonicalPaper(paper), /stem 必须是非空字符串/);
 });
 
+test('rejects reading option analysis that contains a teaching appendix marker', async () => {
+  const paper = structuredClone(await loadPaper());
+  const question = paper.units[0].questions[0];
+  question.optionAnalysis[0].text += ' S E N T E N C E I N S I G H T S · 句子精讲';
+  assert.throws(() => assertCanonicalPaper(paper), /optionAnalysis.*教学附录/u);
+});
+
+test('keeps CET4 legacy reading explanations valid when they contain a teaching appendix', async () => {
+  const paper = structuredClone(await loadPaper());
+  paper.examId = 'cet4';
+  paper.units[0].questions[0].explanation += ' S E N T E N C E I N S I G H T S · 句子精讲';
+
+  assert.equal(assertCanonicalPaper(paper), paper);
+});
+

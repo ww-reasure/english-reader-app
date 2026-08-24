@@ -8,6 +8,7 @@ import {
   SUPPORTED_SOURCE_TYPES,
   SUPPORTED_UNIT_TYPES
 } from './constants.mjs';
+import { hasTeachingAppendixMarker } from './option-analysis-sanitizer.mjs';
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -24,6 +25,12 @@ function assertId(value, field, errors) {
 function assertOptionalString(value, field, errors) {
   if (value !== undefined && value !== null && typeof value !== 'string') {
     errors.push(`${field} 必须是字符串`);
+  }
+}
+
+function assertNoTeachingAppendix(value, field, errors) {
+  if (typeof value === 'string' && hasTeachingAppendixMarker(value)) {
+    errors.push(`${field} 不得包含教学附录标记`);
   }
 }
 
@@ -104,7 +111,7 @@ function assertCandidateTranslations(translations, candidates, field, errors) {
   });
 }
 
-function assertQuestion(question, errors) {
+function assertQuestion(question, errors, { isReading = false } = {}) {
   if (!question || typeof question !== 'object') {
     errors.push('question 必须是对象');
     return;
@@ -168,9 +175,18 @@ function assertQuestion(question, errors) {
   assertOptionalString(question.evidence, `${label}.evidence`, errors);
   assertOptionalString(question.evidenceTranslation, `${label}.evidenceTranslation`, errors);
   assertOptionalString(question.explanation, `${label}.explanation`, errors);
+  if (isReading) {
+    assertNoTeachingAppendix(question.stemAnalysis, `${label}.stemAnalysis`, errors);
+    assertNoTeachingAppendix(question.evidence, `${label}.evidence`, errors);
+    assertNoTeachingAppendix(question.evidenceTranslation, `${label}.evidenceTranslation`, errors);
+    assertNoTeachingAppendix(question.explanation, `${label}.explanation`, errors);
+  }
   assertOptionTranslations(question.optionTranslations, question.options, `${label}.optionTranslations`, errors);
   if (question.optionAnalysis !== undefined && question.optionAnalysis !== null && question.optionAnalysis.length) {
     const analysisKeys = assertOptionArray(question.optionAnalysis, `${label}.optionAnalysis`, errors);
+    if (isReading) question.optionAnalysis.forEach((option, index) => {
+      assertNoTeachingAppendix(option?.text, `${label}.optionAnalysis[${index}].text`, errors);
+    });
     for (const key of analysisKeys) {
       if (optionKeys.size && !optionKeys.has(key)) {
         errors.push(`${label}.optionAnalysis.key 不在 options 中：${key}`);
@@ -328,7 +344,7 @@ function assertTranslationAlignment(unit, label, passageKeys, errors) {
   }
 }
 
-function assertReadingMcqUnit(unit, errors) {
+function assertReadingMcqUnit(unit, errors, { rejectTeachingAppendices = false } = {}) {
   const label = `unit.${unit.unitKey || '<missing>'}`;
   const passageKeys = assertParagraphArray(unit.passage, `${label}.passage`, errors);
   assertPracticePassageIsEnglish(unit.passage, `${label}.passage`, errors);
@@ -337,7 +353,7 @@ function assertReadingMcqUnit(unit, errors) {
     errors.push(`${label}.questions 必须至少包含一个题目`);
   } else {
     unit.questions.forEach(question => {
-      assertQuestion(question, errors);
+      assertQuestion(question, errors, { isReading: rejectTeachingAppendices });
       assertReadingOptionIsEnglish(question, errors);
       if (question.type !== 'single_choice') errors.push(`${label}.questions 类型必须为 single_choice`);
     });
@@ -516,7 +532,7 @@ function assertTranslationUnit(unit, errors) {
   }
 }
 
-function assertUnit(unit, errors) {
+function assertUnit(unit, errors, { rejectTeachingAppendices = false } = {}) {
   if (!unit || typeof unit !== 'object') {
     errors.push('unit 必须是对象');
     return;
@@ -537,7 +553,7 @@ function assertUnit(unit, errors) {
   }
   assertCandidateTranslations(unit.candidateTranslations, unit.candidates, `${label}.candidateTranslations`, errors);
 
-  if (unit.type === 'reading_mcq') assertReadingMcqUnit(unit, errors);
+  if (unit.type === 'reading_mcq') assertReadingMcqUnit(unit, errors, { rejectTeachingAppendices });
   else if (unit.type === 'cloze_choice') assertClozeUnit(unit, errors);
   else if (unit.type === 'paragraph_ordering') assertOrderingUnit(unit, errors);
   else if (unit.type === 'matching') assertMatchingUnit(unit, errors);
@@ -567,7 +583,8 @@ export function assertCanonicalPaper(paper) {
   if (!Array.isArray(paper.units) || !paper.units.length) {
     errors.push('units 必须至少包含一个 unit');
   } else {
-    paper.units.forEach(unit => assertUnit(unit, errors));
+    const rejectTeachingAppendices = paper.examId === 'kaoyan_en1';
+    paper.units.forEach(unit => assertUnit(unit, errors, { rejectTeachingAppendices }));
   }
 
   const unitKeys = new Set();
@@ -589,7 +606,7 @@ export function assertCanonicalPaper(paper) {
   return paper;
 }
 
-export function assertExamPackShape(pack) {
+export function assertExamPackManifest(pack) {
   const errors = [];
   if (!pack || typeof pack !== 'object') throw new Error('Exam Pack 必须是对象');
   const manifest = pack.manifest;
@@ -631,6 +648,14 @@ export function assertExamPackShape(pack) {
       });
     }
   }
+
+  if (errors.length) throw new Error(`Exam Pack 无效：${errors.join('；')}`);
+  return manifest;
+}
+
+export function assertExamPackShape(pack) {
+  const errors = [];
+  const manifest = assertExamPackManifest(pack);
 
   if (!Array.isArray(pack.papers) || !pack.papers.length) {
     errors.push('pack.papers 必须至少包含一个 paper');

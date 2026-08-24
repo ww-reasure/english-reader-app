@@ -1,5 +1,6 @@
 import { EXAM_STORES_V14 } from './constants.mjs';
 import { assertExamPack, hashQuestion } from './pack.mjs';
+import { assertExamPackManifest } from './schema.mjs';
 import { getByKey } from './db-helpers.mjs';
 
 async function buildExamPackRecords(pack) {
@@ -111,15 +112,17 @@ function deleteByIndex(tx, storeName, indexName, indexValue, onDone, onError) {
 }
 
 export async function installExamPack(openDb, pack, { resetStateForContentHashes = [] } = {}) {
-  await assertExamPack(pack);
+  const manifest = assertExamPackManifest(pack);
   const db = await openDb();
-  const existing = await getByKey(() => Promise.resolve(db), 'examPackMeta', pack.manifest.packageId);
+  const existing = await getByKey(() => Promise.resolve(db), 'examPackMeta', manifest.packageId);
   const status = existing
-    ? existing.packageVersion === pack.manifest.packageVersion && existing.contentHash === pack.manifest.contentHash
+    ? existing.packageVersion === manifest.packageVersion && existing.contentHash === manifest.contentHash
       ? 'unchanged'
       : 'upgraded'
     : 'installed';
-  if (status === 'unchanged') return { status, packageId: pack.manifest.packageId };
+  if (status === 'unchanged') return { status, packageId: manifest.packageId };
+
+  await assertExamPack(pack);
 
   const existingBank = await getByKey(() => Promise.resolve(db), 'examBanks', pack.manifest.bankId);
   if (existingBank && existingBank.examId !== pack.manifest.examId) {

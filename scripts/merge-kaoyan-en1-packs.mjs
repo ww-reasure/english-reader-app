@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createExamPack, assertExamPack, hashPaper } from '../src/exam/pack.mjs';
 import { combineCanonicalPaperUnits, mergeExamPacks } from '../src/exam/pack-merge.mjs';
 import { parseExamMarkdown } from '../src/exam/parser.mjs';
+import { hasTeachingAppendixMarker, sanitizeReadingUnitAnalyses, trimOptionAnalysisTail } from '../src/exam/option-analysis-sanitizer.mjs';
 
 function readArg(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -28,6 +29,42 @@ async function safeWriteJson(path, value) {
   const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
   await rename(temporary, target);
+}
+
+function sanitizeReadingOptionAnalyses(paper) {
+  return {
+    ...paper,
+    units: paper.units.map(unit => sanitizeReadingUnitAnalyses(unit, { label: `${paper.paperKey}:${unit.unitKey}` }))
+  };
+}
+
+function assertOnlyTeachingAppendixTailChanged(original, sanitized) {
+  const originalQuestions = new Map(original.units.flatMap(unit => unit.type === 'reading_mcq'
+    ? unit.questions.map(question => [`${unit.unitKey}:${question.questionKey}`, question])
+    : []));
+  for (const unit of sanitized.units.filter(item => item.type === 'reading_mcq')) {
+    for (const question of unit.questions) {
+      const before = originalQuestions.get(`${unit.unitKey}:${question.questionKey}`);
+      if (!before) throw new Error(`2026 重建缺少原题：${question.questionKey}`);
+      const analysisFields = ['stemAnalysis', 'explanation', 'evidence', 'evidenceTranslation'];
+      const beforeRest = Object.fromEntries(Object.entries(before).filter(([key]) => !['optionAnalysis', ...analysisFields].includes(key)));
+      const afterRest = Object.fromEntries(Object.entries(question).filter(([key]) => !['optionAnalysis', ...analysisFields].includes(key)));
+      if (JSON.stringify(beforeRest) !== JSON.stringify(afterRest)) {
+        throw new Error(`2026 ${question.questionKey} 出现非选项解析改动，拒绝写入`);
+      }
+      for (const field of analysisFields) {
+        const raw = before[field];
+        const expected = hasTeachingAppendixMarker(raw) ? trimOptionAnalysisTail(raw) : raw;
+        if (question[field] !== expected) throw new Error(`2026 ${question.questionKey}.${field} 超出已识别附录尾巴，拒绝写入`);
+      }
+      const beforeOptions = new Map((before.optionAnalysis || []).map(item => [item.key, item.text]));
+      for (const option of question.optionAnalysis || []) {
+        const raw = beforeOptions.get(option.key);
+        const expected = hasTeachingAppendixMarker(raw) ? trimOptionAnalysisTail(raw) : String(raw || '').trim();
+        if (option.text !== expected) throw new Error(`2026 ${question.questionKey} ${option.key} 的解析超出已识别附录尾巴，拒绝写入`);
+      }
+    }
+  }
 }
 
 export async function buildYearPack({ sourceDir, packageVersion = '1.1.0' }) {
@@ -61,12 +98,14 @@ export async function rebuildKaoyanEn1Packs({
   years = Array.from({ length: 16 }, (_, index) => 2025 - index),
   outputPath = existingPath,
   indexPath = `${projectRoot}/public/exam-packs/private/index.json`,
-  packageVersion = '1.1.2'
+  packageVersion = '1.1.3'
 } = {}) {
-  const existingPack = JSON.parse(await readFile(resolve(existingPath), 'utf8'));
-  await assertExamPack(existingPack);
+  const rawExistingPack = JSON.parse(await readFile(resolve(existingPath), 'utf8'));
+  const existingPack = { ...rawExistingPack, papers: rawExistingPack.papers.map(sanitizeReadingOptionAnalyses) };
+  const rawProtectedPaper = rawExistingPack.papers.find(paper => paper.paperKey === 'kaoyan_en1_2026');
   const protectedPaper = existingPack.papers.find(paper => paper.paperKey === 'kaoyan_en1_2026');
   if (!protectedPaper) throw new Error('现有 pack 缺少受保护的 2026 paper');
+  assertOnlyTeachingAppendixTailChanged(rawProtectedPaper, protectedPaper);
   const protectedHash = await hashPaper(protectedPaper);
   let rebuilt = await createExamPack({
     meta: {
@@ -159,7 +198,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     sourceRoot: readArg('source-root') || undefined,
     outputPath: readArg('output') || undefined,
     indexPath: readArg('index') || undefined,
-    packageVersion: readArg('package-version') || (process.argv.includes('--rebuild-all') ? '1.1.2' : '1.1.0'),
+    packageVersion: readArg('package-version') || (process.argv.includes('--rebuild-all') ? '1.1.3' : '1.1.0'),
     rebuildIncoming: process.argv.includes('--rebuild-incoming')
   }).catch(error => {
     process.stderr.write(`${error?.stack || error}\n`);
