@@ -148,11 +148,11 @@ test('draft and submitted explanation reuse the shared reading-style word lookup
   assert.match(practiceSource, /bindReadingStyleWordLookup/);
   assert.ok((practiceSource.match(/this\.bindExamWordLookup\(\)/g) || []).length >= 2);
   assert.match(practiceSource, /id="wordTooltip" class="word-tooltip"/);
-  assert.match(lookupSource, /Tooltip\.beginLookup/);
-  assert.match(lookupSource, /Dictionary\.lookup/);
+  assert.match(lookupSource, /(?:Tooltip|tooltipApi)\.beginLookup/);
+  assert.match(lookupSource, /(?:Dictionary|dictionary)\.lookup/);
   assert.match(lookupSource, /ContextualSense\.resolve/);
-  assert.match(lookupSource, /Tooltip\.attachAutoDismiss/);
-  assert.match(lookupSource, /Tooltip\.isCurrent/);
+  assert.match(lookupSource, /(?:Tooltip|tooltipApi)\.attachAutoDismiss/);
+  assert.match(lookupSource, /(?:Tooltip|tooltipApi)\.isCurrent/);
   assert.match(lookupSource, /return \(\) =>/);
 });
 
