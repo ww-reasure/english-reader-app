@@ -19,8 +19,12 @@ test('tooltip keeps definition quality out of the compact word card', async () =
 });
 
 test('shared word-point lookup falls back to DOM Range hit testing when caret APIs are unavailable', async () => {
-  const source = await readFile(new URL('../src/components/word-point.js', import.meta.url), 'utf8');
+  const [entry, source] = await Promise.all([
+    readFile(new URL('../src/components/word-point.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/word-point.mjs', import.meta.url), 'utf8')
+  ]);
 
+  assert.match(entry, /export \{ getRangeAtPoint \} from '\.\/word-point\.mjs'/);
   assert.match(source, /elementFromPoint/);
   assert.match(source, /createTreeWalker/);
   assert.match(source, /getClientRects/);
