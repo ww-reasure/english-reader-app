@@ -121,6 +121,11 @@ test('copying uses visible copy content, caps at 12000 characters, and exposes a
   const actions = await loadOptional('../src/components/message-actions.mjs');
   assert.ok(actions, 'message-actions.mjs must exist before copy behavior can be used');
   assert.equal(actions.normalizeCopyText(`  ${'x'.repeat(12050)}  `).length, 12000);
+  assert.equal(actions.readCopyText({
+    dataset: { copyValue: '# 英语学习日报\n\n## 今日概览' },
+    getAttribute: name => name === 'data-copy-value' ? '# 英语学习日报\n\n## 今日概览' : null,
+    querySelector: () => ({ innerText: '折叠卡片摘要' })
+  }), '# 英语学习日报\n\n## 今日概览');
 
   const container = new ElementFake();
   const message = new ElementFake({ parentElement: container });

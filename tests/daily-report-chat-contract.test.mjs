@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+import { readCopyText } from '../src/components/message-actions.mjs';
+
+async function loadStore() {
+  const source = await readFile(new URL('../src/components/conversation-store.js', import.meta.url), 'utf8');
+  return import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+}
+
+function memory(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key)
+  };
+}
+
+function nodeWithCopyValue(value) {
+  return {
+    dataset: { copyValue: value },
+    getAttribute(name) {
+      return name === 'data-copy-value' ? value : null;
+    },
+    querySelector() {
+      return { innerText: '折叠卡片中的可见摘要', textContent: '折叠卡片中的可见摘要' };
+    }
+  };
+}
+
+test('copy action prefers explicit full Markdown over collapsed text', () => {
+  const root = nodeWithCopyValue('# 英语学习日报\n\n## 今日概览');
+  assert.equal(readCopyText(root), '# 英语学习日报\n\n## 今日概览');
+});
+
+test('conversation stores only report reference fields', async () => {
+  const { ConversationStore } = await loadStore();
+  const store = new ConversationStore(memory(), () => 1000);
+  store.append('home', {
+    role: 'assistant',
+    kind: 'daily_report',
+    reportId: 'daily:2026-08-24',
+    dateKey: '2026-08-24',
+    markdown: '# 不应持久化',
+    report: { facts: { secret: '不应持久化' } }
+  });
+  const saved = store.getSession('home').messages.at(-1);
+  assert.deepEqual(
+    Object.keys(saved).filter(key => !['createdAt', 'role', 'kind'].includes(key)),
+    ['reportId', 'dateKey']
+  );
+  assert.equal(saved.markdown, undefined);
+  assert.equal(saved.report, undefined);
+});
+
+test('home exposes the daily report quick action and service fallback contract', async () => {
+  const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
+  assert.match(source, /data-action="daily-report"/);
+  assert.match(source, /DailyLearningReportService/);
+  assert.match(source, /getOrCreate\(localDayKey\(\)/);
+  assert.match(source, /withAnalysis:\s*Config\.hasApiKey\(\)/);
+});

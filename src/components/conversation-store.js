@@ -1,5 +1,5 @@
 const KEY = 'learningConversationsV2';
-const VERSION = 4;
+const VERSION = 5;
 const MAX_HOME_ACTIVITIES = 50;
 const MAX_HOME_ROUNDS = 50;
 const MAX_CONTEXT_ROUNDS = 24;
@@ -7,6 +7,30 @@ const CONTEXT_BATCH_ROUNDS = 8;
 
 const emptySession = now => ({ updatedAt: now(), summary: '', contextSummary: '', messages: [], activities: [] });
 const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+const DAILY_REPORT_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const validDateKey = value => {
+  const match = DAILY_REPORT_DATE.exec(String(value || '').trim());
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+};
+
+const normalizeMessage = message => {
+  if (!message || typeof message !== 'object') return null;
+  if (message.kind !== 'daily_report') return message;
+  const dateKey = String(message.dateKey || '').trim();
+  const reportId = String(message.reportId || '').trim();
+  if (!validDateKey(dateKey) || reportId !== `daily:${dateKey}`) return null;
+  return {
+    role: 'assistant',
+    kind: 'daily_report',
+    reportId,
+    dateKey,
+    createdAt: message.createdAt
+  };
+};
 
 const legacyActivityFromMessage = message => {
   if (message?.kind === 'article') {
@@ -45,7 +69,9 @@ const legacyActivityFromMessage = message => {
 const normalizeSession = (session, now, key) => {
   const nowFn = typeof now === 'function' ? now : () => now;
   const safe = session && typeof session === 'object' ? session : {};
-  const messages = Array.isArray(safe.messages) ? safe.messages : [];
+  const messages = (Array.isArray(safe.messages) ? safe.messages : [])
+    .map(normalizeMessage)
+    .filter(Boolean);
   const existingActivities = Array.isArray(safe.activities) ? safe.activities : null;
   const activities = existingActivities || (key === 'home'
     ? messages.map(legacyActivityFromMessage).filter(Boolean)
@@ -99,15 +125,14 @@ export class ConversationStore {
   readState() {
     try {
       const value = JSON.parse(this.storage.getItem(KEY));
-      if (value?.version === VERSION && value.sessions) return value;
-      if ((value?.version === 2 || value?.version === 3) && value.sessions) {
+      if ((value?.version === VERSION || value?.version === 2 || value?.version === 3 || value?.version === 4) && value.sessions) {
         const migrated = {
           version: VERSION,
           sessions: Object.fromEntries(
             Object.entries(value.sessions).map(([key, session]) => [key, normalizeSession(session, this.now(), key)])
           )
         };
-        this.writeState(migrated);
+        if (value.version !== VERSION || JSON.stringify(migrated) !== JSON.stringify(value)) this.writeState(migrated);
         return migrated;
       }
     } catch {

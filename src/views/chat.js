@@ -34,23 +34,74 @@ import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
 import { WordImportService, normalizeImportWords } from '../word-import-service.mjs';
+import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
+import { localDayKey } from '../learning-day.mjs';
 import { toDailyReportAgentSummary } from '../daily-learning-report.mjs';
+import { renderDailyReportCard } from '../components/daily-report-card.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { createExamServices } from '../exam/create-services.js';
 import { createExamLearningOverviewProvider } from '../exam/learning-overview-provider.mjs';
+import { isSyntheticExamPaper } from '../exam/home-visibility.mjs';
+import { SUPPORTED_EXAM_IDS } from '../exam/constants.mjs';
 import { buildResearchBrief, createWebResearch, normalizeResearchSources } from '../components/web-research.mjs';
 import { buildNativeResearchArtifact, messagesToResponsesItems, resolveWebResearchPlan } from '../components/deepseek-responses.mjs';
 
 const conversationStore = new ConversationStore();
-const examLearningProvider = createExamLearningOverviewProvider({ services: createExamServices() });
+const examServices = createExamServices();
+const examLearningProvider = createExamLearningOverviewProvider({ services: examServices });
+const examRecordIdentity = value => `${value?.bankId || ''}:${value?.paperKey || ''}`;
+const dailyExamProvider = {
+  async getDailyFacts() {
+    const [paperGroups, attemptGroups, wrongGroups, translationGroups] = await Promise.all([
+      Promise.all(SUPPORTED_EXAM_IDS.map(examId => examServices.contentRepository.listPapers({ examId }))),
+      Promise.all(SUPPORTED_EXAM_IDS.map(examId => examServices.stateRepository.listAttempts({ examId }))),
+      Promise.all(SUPPORTED_EXAM_IDS.map(examId => examServices.stateRepository.listWrongStates({ examId }))),
+      Promise.all(SUPPORTED_EXAM_IDS.map(examId => examServices.stateRepository.listTranslationReviews({ examId })))
+    ]);
+    const allPapers = paperGroups.flat();
+    const realPapers = allPapers.filter(paper => !isSyntheticExamPaper(paper));
+    const papers = (realPapers.length ? realPapers : allPapers);
+    const visiblePaperKeys = new Set(papers.map(examRecordIdentity));
+    const attempts = attemptGroups.flat().filter(item => visiblePaperKeys.has(examRecordIdentity(item)));
+    const wrongStates = wrongGroups.flat().filter(item => visiblePaperKeys.has(examRecordIdentity(item)));
+    const translationReviews = translationGroups.flat().filter(item => visiblePaperKeys.has(examRecordIdentity(item)));
+    const responseRows = await Promise.all(attempts.map(async attempt => [
+      attempt.attemptId,
+      await examServices.stateRepository.getResponses({ examId: attempt.examId, attemptId: attempt.attemptId })
+    ]));
+    return {
+      papers,
+      attempts,
+      responsesByAttempt: Object.fromEntries(responseRows),
+      wrongStates,
+      translationReviews
+    };
+  }
+};
+const dailyReportAnalyzer = async (request, { signal } = {}) => {
+  const message = await API.chat([
+    {
+      role: 'system',
+      content: '你是英语学习日报分析器。只根据用户提供的结构化事实，用中文返回 JSON，包含 summary、observations、nextActions；不要复述文章、题干、答案或对话原文。'
+    },
+    { role: 'user', content: JSON.stringify(request) }
+  ], { signal, temperature: 0.2 });
+  return message?.content || '';
+};
+const dailyLearningReportService = new DailyLearningReportService({
+  db: DB,
+  examProvider: dailyExamProvider,
+  analyze: dailyReportAnalyzer
+});
 const webResearch = createWebResearch({ config: Config });
 const learningAgent = new LearningAgent({
   db: DB,
   srs: SpacedRepetition,
   examCorpus: ExamCorpus,
   examLearningProvider,
+  dailyReportProvider: dailyLearningReportService,
   targetTrack: () => Config.get('exam_level') || ''
 });
 const contextBuilder = new ContextBuilder({ capabilityIndex: AppCapabilityRegistry.compactIndex() });
@@ -264,6 +315,7 @@ export const ChatView = {
             <button class="quick-action" type="button" data-action="topic" data-topic="travel"><i class="fa-solid fa-plane" aria-hidden="true"></i>旅行</button>
             <button class="quick-action" type="button" data-action="import-article"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>导入文章</button>
             <button class="quick-action" type="button" data-action="import-words"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i>导入单词</button>
+            <button class="quick-action" type="button" data-action="daily-report"><i class="fa-solid fa-chart-line" aria-hidden="true"></i>今日日报</button>
             <a class="quick-action" href="#/learn-words"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>学习词库</a>
           </div>
           <div id="composerOptions" class="composer-options" hidden>
@@ -329,7 +381,7 @@ export const ChatView = {
         this.addWelcomeWithAssessment();
       }
     } else {
-      session.messages.forEach(message => {
+      for (const message of session.messages) {
         if (message.kind === 'article') {
           this.addArticleCardToDOM(message.article);
         } else if (message.kind === 'generation_failure') {
@@ -340,10 +392,12 @@ export const ChatView = {
           this.addResearchSourcesToDOM(message.research || message);
         } else if (message.kind === 'activity') {
           // Activity events are model context, not duplicate visible chat bubbles.
+        } else if (message.kind === 'daily_report') {
+          await this.restoreDailyReportReference(message);
         } else {
           this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
         }
-      });
+      }
     }
 
     // Check for due words and show reminder
@@ -848,6 +902,8 @@ export const ChatView = {
         Modal.showImport();
       } else if (name === 'import-words') {
         WordImport.showModal();
+      } else if (name === 'daily-report') {
+        void this.handleDailyReport();
       }
     });
 
@@ -939,7 +995,7 @@ export const ChatView = {
       if (reply.content) {
         this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
       }
-      reply.artifacts.forEach(artifact => {
+      for (const artifact of reply.artifacts) {
         if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
           this.addArticleCard(artifact.article);
         }
@@ -953,7 +1009,10 @@ export const ChatView = {
         if (artifact.type === 'app_actions' && artifact.actions?.length) {
           this.addAppActions(artifact.actions);
         }
-      });
+        if (artifact.type === 'daily_learning_report') {
+          await this.publishDailyReportArtifact(artifact);
+        }
+      }
       if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
 
     } catch (error) {
@@ -971,6 +1030,28 @@ export const ChatView = {
         role: 'assistant',
         kind: 'error',
         content: reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。'
+      });
+    }
+  },
+
+  async handleDailyReport() {
+    const epoch = this.homeEpoch;
+    this.showThinking('正在整理今日日报…');
+    try {
+      const report = await dailyLearningReportService.getOrCreate(localDayKey(), {
+        withAnalysis: Config.hasApiKey()
+      });
+      if (epoch !== this.homeEpoch) return;
+      this.removeThinking();
+      this.publishDailyReport(report);
+    } catch (error) {
+      if (epoch !== this.homeEpoch) return;
+      this.removeThinking();
+      const reason = redactAgentSecrets(String(error?.message || '').trim()).slice(0, 180);
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: reason ? `日报暂时无法生成：${reason}` : '日报暂时无法生成，请稍后重试。'
       });
     }
   },
@@ -1383,8 +1464,10 @@ export const ChatView = {
       this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
     } else if (message.kind === 'app_actions') {
       this.addAppActionsToDOM(message.actions || []);
-        } else if (message.kind === 'research_sources') {
-          this.addResearchSourcesToDOM(message.research || message);
+    } else if (message.kind === 'research_sources') {
+      this.addResearchSourcesToDOM(message.research || message);
+    } else if (message.kind === 'daily_report') {
+      void this.restoreDailyReportReference(message);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       this.addMessageToDOM(type, message.content);
@@ -1592,6 +1675,125 @@ export const ChatView = {
     dismiss?.addEventListener('click', () => div.remove());
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
+  },
+
+  findDailyReportElement(reportId) {
+    const wanted = String(reportId || '');
+    return [...document.querySelectorAll('[data-daily-report-message]')]
+      .find(element => element.dataset.reportId === wanted) || null;
+  },
+
+  addExpiredDailyReportToDOM(reference = {}) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return null;
+    const reportId = String(reference.reportId || `daily:${reference.dateKey || ''}`);
+    const existing = this.findDailyReportElement(reportId);
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.className = 'message ai-message daily-report-message daily-report-expired-message';
+    div.dataset.dailyReportMessage = 'true';
+    div.dataset.reportId = reportId;
+    div.innerHTML = `<section class="daily-report-card daily-report-expired-card" aria-label="日报已过期">
+      <div class="daily-report-expired-copy"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><div><strong>日报已过期</strong><p>${esc(reference.dateKey || '这一天')} 的日报已从本地保留期中移除。</p></div></div>
+    </section>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  },
+
+  addDailyReportToDOM(report, artifact = null) {
+    const container = document.getElementById('chatMessages');
+    if (!container || !report) return null;
+    const resolvedArtifact = artifact || dailyReportArtifactOf(report);
+    if (!resolvedArtifact) return null;
+    const existing = this.findDailyReportElement(resolvedArtifact.reportId);
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.className = 'message ai-message daily-report-message';
+    div.dataset.dailyReportMessage = 'true';
+    div.dataset.reportId = resolvedArtifact.reportId;
+    div.dataset.reportFingerprint = resolvedArtifact.dataFingerprint || String(report.dataFingerprint || '');
+    div.setAttribute('data-copyable', 'true');
+    div.setAttribute('data-copy-value', String(report.markdown || ''));
+    div.innerHTML = renderDailyReportCard(report);
+    const markdown = div.querySelector('[data-daily-report-markdown="true"]');
+    if (markdown && report.markdown) markdown.innerHTML = renderLearningMarkdown(report.markdown);
+    const toggle = div.querySelector('.daily-report-toggle');
+    const expanded = div.querySelector('[data-daily-report-expanded="true"]');
+    toggle?.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      toggle.textContent = open ? '展开日报' : '收起日报';
+      if (expanded) expanded.hidden = open;
+    });
+    div.appendChild(createCopyButton({ label: '复制日报' }));
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  },
+
+  async restoreDailyReportReference(reference = {}) {
+    const dateKey = String(reference.dateKey || '').trim();
+    const reportId = String(reference.reportId || `daily:${dateKey}`);
+    if (!dateKey || reportId !== `daily:${dateKey}`) return this.addExpiredDailyReportToDOM({ dateKey, reportId });
+    let report = null;
+    try {
+      report = await DB.getDailyLearningReport(dateKey);
+    } catch {
+      report = null;
+    }
+    if (!report || (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now())) {
+      return this.addExpiredDailyReportToDOM({ dateKey, reportId });
+    }
+    return this.addDailyReportToDOM(report);
+  },
+
+  async publishDailyReportArtifact(artifact = {}) {
+    const dateKey = String(artifact.dateKey || '').trim();
+    const reportId = String(artifact.reportId || `daily:${dateKey}`);
+    if (!dateKey || reportId !== `daily:${dateKey}`) return null;
+    let report = null;
+    try {
+      report = await DB.getDailyLearningReport(dateKey);
+    } catch {
+      report = null;
+    }
+    if (!report || (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now())) {
+      const reference = { role: 'assistant', kind: 'daily_report', reportId, dateKey };
+      if (!conversationStore.getSession('home').messages.some(message => message.kind === 'daily_report' && message.reportId === reportId)) {
+        conversationStore.append('home', reference);
+        conversationStore.maintainHomeConversation();
+      }
+      return this.addExpiredDailyReportToDOM(reference);
+    }
+    return this.publishDailyReport(report, artifact);
+  },
+
+  publishDailyReport(report, artifact = null) {
+    const resolvedArtifact = artifact || dailyReportArtifactOf(report);
+    if (!resolvedArtifact) return false;
+    const session = conversationStore.getSession('home');
+    const existingReference = session.messages.find(message => (
+      message.kind === 'daily_report' && message.reportId === resolvedArtifact.reportId
+    ));
+    const existingElement = this.findDailyReportElement(resolvedArtifact.reportId);
+    const existingFingerprint = existingElement?.dataset.reportFingerprint || '';
+    if (existingReference && existingFingerprint === (resolvedArtifact.dataFingerprint || String(report.dataFingerprint || ''))) return false;
+    if (!existingReference) {
+      conversationStore.append('home', {
+        role: 'assistant',
+        kind: 'daily_report',
+        reportId: resolvedArtifact.reportId,
+        dateKey: resolvedArtifact.dateKey
+      });
+      conversationStore.maintainHomeConversation();
+    }
+    if (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now()) {
+      this.addExpiredDailyReportToDOM(resolvedArtifact);
+    } else {
+      this.addDailyReportToDOM(report, resolvedArtifact);
+    }
+    return true;
   },
 
   createGenerationFailure(error, generation, topic) {

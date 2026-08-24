@@ -5,6 +5,17 @@ export function normalizeCopyText(value) {
   return String(value ?? '').replace(/\r\n?/g, '\n').trim().slice(0, MAX_COPY_LENGTH);
 }
 
+export function readCopyText(root) {
+  if (!root) return '';
+  const attributeValue = typeof root.getAttribute === 'function'
+    ? root.getAttribute('data-copy-value')
+    : null;
+  const explicit = typeof attributeValue === 'string' ? attributeValue : root.dataset?.copyValue;
+  if (typeof explicit === 'string' && explicit.trim()) return normalizeCopyText(explicit);
+  const content = root.querySelector?.('[data-copy-content]');
+  return normalizeCopyText(typeof content?.innerText === 'string' ? content.innerText : content?.textContent);
+}
+
 export async function copyPlainText(value, {
   navigatorObject = globalThis.navigator,
   documentObject = globalThis.document
@@ -91,12 +102,11 @@ export function bindMessageCopy(container, {
     const button = event.target?.closest?.('[data-message-action="copy"]');
     if (!button || !container.contains?.(button) || button.disabled) return;
     const message = button.closest?.('[data-copyable="true"], [data-copyable]');
-    const content = message?.querySelector?.('[data-copy-content]');
-    if (!message || !content) return;
+    if (!message) return;
 
     event.preventDefault?.();
     event.stopPropagation?.();
-    const copyText = normalizeCopyText(typeof content.innerText === 'string' ? content.innerText : content.textContent);
+    const copyText = readCopyText(message);
     if (!copyText) return;
     const label = button.dataset.copyLabel || '复制回复';
     button.disabled = true;
