@@ -135,3 +135,83 @@ test('archiveLearnWords hides words without clearing schedule or review events',
   assert.equal(archived.reviewRevision, 3);
   assert.equal((await DB.getReviewEventsForWord(id)).length, 1);
 });
+
+test('saving an imported word activates reading source without a second canonical row', async () => {
+  const { DB } = await createDatabase();
+
+  const id = await DB.saveLearnWord({
+    word: 'derive',
+    interval: 20,
+    reviewRevision: 6,
+    librarySourceVersion: LIBRARY_SOURCE_VERSION,
+    librarySources: createLibrarySources({ importAt: 10 }),
+    libraryAddedAt: 10
+  });
+  const result = await DB.saveVocabularyWord({ word: 'Derive', translation: '获得', articleId: 4 }, { occurredAt: 50 });
+
+  assert.equal(result.learnWordId, id);
+  assert.equal(result.createdLearnWord, false);
+  assert.equal((await DB.getAllLearnWords()).length, 1);
+  const word = await DB.findLearnWordById(id);
+  assert.equal(word.librarySources.reading.active, true);
+  assert.equal(word.librarySources.import.active, true);
+  assert.equal(word.interval, 20);
+  assert.equal(word.reviewRevision, 6);
+});
+
+test('saving an archived word restores the same id', async () => {
+  const { DB } = await createDatabase();
+
+  const id = await DB.saveLearnWord({
+    word: 'derive',
+    translation: '获得',
+    librarySourceVersion: LIBRARY_SOURCE_VERSION,
+    librarySources: createLibrarySources(),
+    libraryAddedAt: 10,
+    archivedAt: 40
+  });
+  const result = await DB.saveVocabularyWord({ word: 'derive', translation: '获得' }, { occurredAt: 80 });
+
+  assert.equal(result.learnWordId, id);
+  assert.equal((await DB.findLearnWordById(id)).archivedAt, null);
+});
+
+test('same-day import restores an archived source without adding another review event', async () => {
+  const { DB } = await createDatabase();
+
+  const id = await DB.saveLearnWord({
+    word: 'derive',
+    translation: '获得',
+    librarySourceVersion: LIBRARY_SOURCE_VERSION,
+    librarySources: createLibrarySources({ importAt: 10 }),
+    libraryAddedAt: 10,
+    archivedAt: 40
+  });
+  await DB.applyWordImportSignal({ word: 'derive' }, { dayKey: '2026-08-24', occurredAt: 50, batchId: 'a' });
+  await DB.archiveLearnWords([id], { occurredAt: 60 });
+  const second = await DB.applyWordImportSignal({ word: 'derive' }, { dayKey: '2026-08-24', occurredAt: 70, batchId: 'b' });
+
+  assert.equal(second.status, 'today_ignored');
+  assert.equal((await DB.findLearnWordById(id)).archivedAt, null);
+  assert.equal((await DB.getReviewEventsForWord(id)).filter(event => event.source === 'external-import').length, 1);
+});
+
+test('importing a reading-only word activates import source and keeps one id', async () => {
+  const { DB } = await createDatabase();
+
+  await DB.saveWord({ word: 'derive', translation: '获得', createdAt: 10 });
+  const id = await DB.saveLearnWord({
+    word: 'derive',
+    translation: '获得',
+    librarySourceVersion: LIBRARY_SOURCE_VERSION,
+    librarySources: createLibrarySources({ readingAt: 10 }),
+    libraryAddedAt: 10,
+    archivedAt: null
+  });
+  await DB.applyWordImportSignal({ word: 'derive' }, { dayKey: '2026-08-24', occurredAt: 90, batchId: 'c' });
+
+  const word = await DB.findLearnWordById(id);
+  assert.equal(word.librarySources.reading.active, true);
+  assert.equal(word.librarySources.import.active, true);
+  assert.equal((await DB.getAllLearnWords()).length, 1);
+});

@@ -1097,22 +1097,18 @@ export const ReadingView = {
     let skipped = 0;
     for (const w of this.clickedWords) {
       try {
-        const existing = await DB.findLearnWord(w.word);
-        if (existing) {
-          skipped++;
-          continue;
-        }
-        await DB.saveLearnWord({
+        const saved = await DB.saveVocabularyWord({
+          articleId: this.articleData?.id ?? null,
           word: w.word,
           translation: w.translation || '',
           phonetic: w.phonetic || '',
           pos: w.pos || '',
           definitionSenses: w.definitionSenses || [],
           definitionSchemaVersion: w.definitionSchemaVersion || 0,
-          definitionLexiconVersion: w.definitionLexiconVersion || '',
-          createdAt: Date.now()
+          definitionLexiconVersion: w.definitionLexiconVersion || ''
         });
-        added++;
+        if (saved.createdVocabulary || saved.createdLearnWord || saved.restored) added++;
+        else skipped++;
       } catch {}
     }
     const msg = added > 0

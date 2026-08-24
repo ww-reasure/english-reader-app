@@ -308,7 +308,7 @@ export const Tooltip = {
       const hash = location.hash;
       const match = hash.match(/#\/reading\/(\d+)/);
       const articleId = match ? parseInt(match[1]) : null;
-      const vocabularyId = await DB.saveWord({
+      const saved = await DB.saveVocabularyWord({
         articleId,
         word,
         translation: savedTranslation,
@@ -320,27 +320,11 @@ export const Tooltip = {
         contextSentence: ''
       });
 
-      // Read provenance before auto-syncing to the formal learning library.
-      const existingLearnWord = await DB.findLearnWord(word);
-      let insertedId = existingLearnWord?.id || null;
-      if (!existingLearnWord) {
-        insertedId = await DB.saveLearnWord({
-          word: word.toLowerCase(),
-          translation: savedTranslation,
-          phonetic: phonetic || '',
-          pos,
-          definitionSenses,
-          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-          ...(wordData?.lexiconVersion ? { definitionLexiconVersion: wordData.lexiconVersion } : {}),
-          createdAt: Date.now()
-        });
-      }
-
       const provenance = {
         lemma: getStemForm(word.toLowerCase()),
-        createdLearnWord: !existingLearnWord,
-        learnWordId: existingLearnWord?.id || insertedId,
-        vocabularyId,
+        createdLearnWord: saved.createdLearnWord,
+        learnWordId: saved.learnWordId,
+        vocabularyId: saved.vocabularyId,
         source: lookupContext?.source || 'unknown',
         articleId: lookupContext?.articleId ?? articleId ?? null,
         articleTitle: lookupContext?.articleTitle || ''

@@ -259,6 +259,11 @@ export class WordImportService {
     state.summary = { ...summary };
     state.progress = { processed: state.completedLemmas.length + failures.length, recognized };
     await this.saveBatch(state);
+    if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function') {
+      document.dispatchEvent(new CustomEvent('word-library-changed', {
+        detail: { reason: 'import', batchId: state.batchId || '' }
+      }));
+    }
     return clone(state);
   }
 

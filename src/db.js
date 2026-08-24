@@ -9,11 +9,22 @@ import { localDayBounds, localDayKey } from './learning-day.mjs';
 import { ActivityType, importWordDedupeKey, normalizeLearningActivity } from './learning-activity.mjs';
 import { scheduleExternalReview } from './external-review-scheduler.mjs';
 import {
+  LIBRARY_SOURCE_VERSION,
   activateLibrarySource,
+  createLibrarySources,
   deactivateLibrarySource,
   planLegacyVocabularyMigration,
   projectUnifiedVocabulary
 } from './vocabulary-library.mjs';
+
+const TRUSTED_VOCABULARY_DEFINITION_FIELDS = [
+  'translation',
+  'phonetic',
+  'pos',
+  'definitionSenses',
+  'definitionSchemaVersion',
+  'definitionLexiconVersion'
+];
 
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
@@ -629,6 +640,117 @@ export const DB = {
     });
   },
 
+  async saveVocabularyWord(wordData = {}, { occurredAt = Date.now() } = {}) {
+    const lemma = getStemForm(wordData.word);
+    if (!lemma) throw new TypeError('收藏需要有效的单词');
+    const savedAt = numericValue(occurredAt, Date.now());
+    const createdAt = numericValue(wordData.createdAt, savedAt);
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const savedRequest = savedStore.getAll();
+      const wordRequest = wordStore.index('word').get(lemma);
+      let savedRows = null;
+      let previous;
+      let result = null;
+      let applied = false;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('收藏单词失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (applied || savedRows === null || previous === undefined) return;
+        applied = true;
+        try {
+          const activeSaved = savedRows.find(row =>
+            row && row.archivedAt == null && getStemForm(row.word) === lemma
+          );
+          let vocabularyId = activeSaved?.id ?? null;
+          let learnWordId = previous?.id ?? null;
+          const createdVocabulary = !activeSaved;
+          const createdLearnWord = !previous;
+
+          if (createdVocabulary) {
+            const savedRow = {
+              ...wordData,
+              word: String(wordData.word || lemma).trim(),
+              createdAt
+            };
+            const addVocabularyRequest = savedStore.add(savedRow);
+            addVocabularyRequest.onsuccess = () => {
+              vocabularyId = addVocabularyRequest.result;
+              maybeFinish();
+            };
+            addVocabularyRequest.onerror = () => fail(addVocabularyRequest.error);
+          }
+
+          if (createdLearnWord) {
+            const canonical = {
+              word: lemma,
+              createdAt,
+              libraryAddedAt: createdAt,
+              librarySourceVersion: LIBRARY_SOURCE_VERSION,
+              librarySources: createLibrarySources({ readingAt: savedAt }),
+              archivedAt: null
+            };
+            for (const field of TRUSTED_VOCABULARY_DEFINITION_FIELDS) {
+              if (wordData[field] !== undefined) canonical[field] = clonePlain(wordData[field]);
+            }
+            const addWordRequest = wordStore.add(canonical);
+            addWordRequest.onsuccess = () => {
+              learnWordId = addWordRequest.result;
+              maybeFinish();
+            };
+            addWordRequest.onerror = () => fail(addWordRequest.error);
+          } else {
+            const updated = activateLibrarySource(previous, 'reading', savedAt);
+            const updateWordRequest = wordStore.put(updated);
+            updateWordRequest.onsuccess = () => maybeFinish();
+            updateWordRequest.onerror = () => fail(updateWordRequest.error);
+          }
+
+          function maybeFinish() {
+            if (result || vocabularyId == null || learnWordId == null) return;
+            result = {
+              vocabularyId,
+              learnWordId,
+              createdVocabulary,
+              createdLearnWord,
+              restored: Boolean(previous?.archivedAt != null)
+            };
+          }
+        } catch (error) {
+          fail(error);
+        }
+      };
+
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      wordRequest.onsuccess = () => {
+        previous = wordRequest.result || null;
+        apply();
+      };
+      wordRequest.onerror = () => fail(wordRequest.error);
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else if (result) resolve(result);
+        else reject(new Error('收藏单词未完成'));
+      };
+      tx.onerror = () => reject(failure || tx.error || new Error('收藏单词失败'));
+      tx.onabort = () => reject(failure || tx.error || new Error('收藏单词失败'));
+    });
+  },
+
   async getAllWords() {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -1107,27 +1229,42 @@ export const DB = {
       dedupeRequest.onerror = () => fail(dedupeRequest.error);
       dedupeRequest.onsuccess = () => {
         const existingActivity = dedupeRequest.result;
-        if (existingActivity) {
-          result = {
-            status: 'today_ignored',
-            wordId: existingActivity.payload?.wordId ?? null,
-            lemma,
-            scheduleChanged: false,
-            reason: 'today_ignored'
-          };
-          return;
-        }
-
         const wordRequest = words.index('word').get(lemma);
         wordRequest.onerror = () => fail(wordRequest.error);
         wordRequest.onsuccess = () => {
           const word = wordRequest.result;
+          const activatedWord = word ? activateLibrarySource(word, 'import', occurredAt) : null;
+          const resolveTodayIgnored = () => {
+            result = {
+              status: 'today_ignored',
+              wordId: word?.id ?? existingActivity?.payload?.wordId ?? null,
+              lemma,
+              scheduleChanged: false,
+              reason: 'today_ignored'
+            };
+          };
+
+          if (existingActivity) {
+            if (!activatedWord) {
+              resolveTodayIgnored();
+              return;
+            }
+            const reactivateRequest = words.put(activatedWord);
+            reactivateRequest.onerror = () => fail(reactivateRequest.error);
+            reactivateRequest.onsuccess = resolveTodayIgnored;
+            return;
+          }
+
           if (!word) {
             const newWord = {
               ...wordData,
               word: lemma,
               reviewRevision: Math.max(0, Number(wordData.reviewRevision) || 0),
-              createdAt: wordData.createdAt ?? occurredAt
+              createdAt: wordData.createdAt ?? occurredAt,
+              librarySourceVersion: LIBRARY_SOURCE_VERSION,
+              librarySources: createLibrarySources({ importAt: occurredAt }),
+              libraryAddedAt: occurredAt,
+              archivedAt: null
             };
             const addWordRequest = words.add(newWord);
             addWordRequest.onerror = () => fail(addWordRequest.error);
@@ -1145,8 +1282,8 @@ export const DB = {
             return;
           }
 
-          const decision = scheduleExternalReview(word, occurredAt);
-          const updatedWord = { ...word, ...decision.patch };
+          const decision = scheduleExternalReview(activatedWord, occurredAt);
+          const updatedWord = { ...activatedWord, ...decision.patch };
           const updateRequest = words.put(updatedWord);
           updateRequest.onerror = () => fail(updateRequest.error);
           updateRequest.onsuccess = () => {
