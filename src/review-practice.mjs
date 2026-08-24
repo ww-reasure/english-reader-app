@@ -4,8 +4,8 @@
  * Scope 决定“复习哪些词”，练习模式绝不更新正式 SRS 计划：
  * nextReview / interval / state / easeFactor / reviewCount / reviewRevision 全部保持不变。
  *
- * 词集来源只认 vocabulary 表的 createdAt（收藏进单词本的时间），
- * 但最终只练习 learnWords 里存在的词（按小写词形匹配）。
+ * 词集来源只认 learnWords 中的 active canonical rows，收藏与导入通过 source
+ * metadata 共用同一个练习身份。
  */
 
 export const PRACTICE_SCOPES = Object.freeze(['today_added', 'recent_added', 'manual']);
@@ -14,8 +14,6 @@ export const PRACTICE_SESSION_KEY = 'review-practice-session-v1';
 export const PRACTICE_DONE_PREFIX = 'review-practice-done-v2:';
 export const PRACTICE_DONE_LEGACY_PREFIX = 'review-practice-done-v1:';
 export const PRACTICE_DONE_VERSION = 2;
-
-const lower = word => String(word || '').trim().toLowerCase();
 
 function startOfDay(now) {
   const date = new Date(now);
@@ -26,6 +24,8 @@ function startOfDay(now) {
 function normalizeIds(wordIds) {
   return [...new Set((wordIds || []).map(id => Number(id)).filter(Number.isFinite))];
 }
+
+const addedAtOf = word => Number(word?.libraryAddedAt ?? word?.createdAt) || 0;
 
 function defaultStorage(name) {
   try {
@@ -216,9 +216,9 @@ export function getPracticeScopeStatus({
  * 解析专项复习词集。
  *
  * @param {object} options
- * @param {object} options.db            实现 getAllWords / getAllLearnWords 的存储
+ * @param {object} options.db            实现 getAllLearnWords 的存储
  * @param {'today_added'|'recent_added'|'manual'} options.scope
- * @param {number[]} [options.wordIds]    manual 时传 vocabulary 记录 id
+ * @param {number[]} [options.wordIds]    manual 时传 canonical learnWords 记录 id
  * @param {number} [options.days]         recent_added 的天数（默认 7）
  * @param {number} [options.now]          当前时间戳，测试可注入
  * @returns {Promise<{ words: object[], skipped: number, scope: string }>}
@@ -227,44 +227,30 @@ export async function resolvePracticeScope({ db, scope, wordIds = [], days = REC
   if (!PRACTICE_SCOPES.includes(scope)) {
     throw new TypeError(`不支持的专项复习范围: ${scope}`);
   }
-  const [savedWords, learnWords] = await Promise.all([
-    db.getAllWords(),
-    db.getAllLearnWords()
-  ]);
-  const libraryByWord = new Map();
-  for (const word of learnWords || []) {
-    const key = lower(word?.word);
-    if (key && !libraryByWord.has(key)) libraryByWord.set(key, word);
-  }
-
-  let candidates = [];
-  if (scope === 'manual') {
-    const ids = new Set((wordIds || []).map(id => Number(id)).filter(Number.isFinite));
-    candidates = (savedWords || []).filter(word => ids.has(Number(word.id)));
-  } else if (scope === 'today_added') {
-    const boundary = startOfDay(now);
-    candidates = (savedWords || []).filter(word => Number(word.createdAt) >= boundary);
-  } else {
-    const boundary = now - Number(days) * 24 * 60 * 60 * 1000;
-    candidates = (savedWords || []).filter(word => Number(word.createdAt) >= boundary);
-  }
-
-  const words = [];
+  const allWords = await db.getAllLearnWords();
   const seen = new Set();
-  let skipped = 0;
-  for (const saved of candidates) {
-    const libraryWord = libraryByWord.get(lower(saved?.word));
-    if (!libraryWord) {
-      skipped++;
-      continue;
-    }
-    const id = Number(libraryWord.id);
-    if (!seen.has(id)) {
-      seen.add(id);
-      words.push({ ...libraryWord });
-    }
+  const activeWords = (allWords || []).filter(word => {
+    if (!word || word.archivedAt != null) return false;
+    const key = Number.isFinite(Number(word.id))
+      ? `id:${Number(word.id)}`
+      : `word:${String(word.word || '').trim().toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (scope === 'manual') {
+    const requested = new Set(normalizeIds(wordIds));
+    const words = activeWords
+      .filter(word => requested.has(Number(word.id)))
+      .map(word => ({ ...word }));
+    return { words, skipped: requested.size - words.length, scope };
   }
-  return { words, skipped, scope };
+
+  const candidates = scope === 'today_added'
+    ? activeWords.filter(word => addedAtOf(word) >= startOfDay(now) && addedAtOf(word) <= Number(now))
+    : activeWords.filter(word => addedAtOf(word) >= Number(now) - Number(days) * 24 * 60 * 60 * 1000);
+  return { words: candidates.map(word => ({ ...word })), skipped: 0, scope };
 }
 
 export function createPracticeSession({ scope, wordIds = [], skipped = 0 }) {

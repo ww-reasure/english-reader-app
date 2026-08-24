@@ -17,12 +17,32 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-08-11T12:00:00+08:00').getTime();
+const LIBRARY_NOW = new Date(2026, 7, 24, 12).getTime();
+const LIBRARY_DAY = 24 * 60 * 60 * 1000;
 
-function makeDb({ saved = [], library = [] } = {}) {
+function canonical({ id, word = `word-${id}`, libraryAddedAt = LIBRARY_NOW, source = 'import', createdAt = libraryAddedAt } = {}) {
+  const reading = source === 'reading' || source === 'both';
+  const imported = source === 'import' || source === 'both';
   return {
-    getAllWords: async () => saved,
-    getAllLearnWords: async () => library
+    id,
+    word,
+    createdAt,
+    libraryAddedAt,
+    archivedAt: null,
+    librarySourceVersion: 1,
+    librarySources: {
+      reading: { active: reading, firstAddedAt: reading ? libraryAddedAt : null, lastAddedAt: reading ? libraryAddedAt : null },
+      import: { active: imported, firstAddedAt: imported ? libraryAddedAt : null, lastAddedAt: imported ? libraryAddedAt : null }
+    }
   };
+}
+
+function archived(values) {
+  return { ...canonical(values), archivedAt: LIBRARY_NOW - 1 };
+}
+
+function canonicalDb(learnWords) {
+  return { getAllLearnWords: async () => learnWords.filter(word => word.archivedAt == null) };
 }
 
 function installSessionStorage() {
@@ -47,70 +67,37 @@ function createStorage() {
   };
 }
 
-test('today_added scope only keeps words added since local midnight that exist in the library', async () => {
-  const midnight = new Date(NOW);
-  midnight.setHours(0, 0, 0, 0);
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'inevitable', createdAt: NOW - 1000 },
-      { id: 2, word: 'oldword', createdAt: midnight.getTime() - 1000 },
-      { id: 3, word: 'notinlibrary', createdAt: NOW - 500 }
-    ],
-    library: [
-      { id: 11, word: 'inevitable', reviewRevision: 2 },
-      { id: 12, word: 'oldword', reviewRevision: 5 }
-    ]
-  });
-
-  const result = await resolvePracticeScope({ db, scope: 'today_added', now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [11]);
-  assert.equal(result.skipped, 1);
-});
-
-test('recent_added honors the configurable day window and deduplicates library matches', async () => {
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'fresh', createdAt: NOW - DAY * 6 },
-      { id: 2, word: 'edge', createdAt: NOW - DAY * 7 + 1000 },
-      { id: 3, word: 'expired', createdAt: NOW - DAY * 7 - 1000 },
-      { id: 4, word: 'fresh', createdAt: NOW - 2000 }
-    ],
-    library: [
-      { id: 21, word: 'fresh', reviewRevision: 1 },
-      { id: 22, word: 'edge', reviewRevision: 1 },
-      { id: 23, word: 'expired', reviewRevision: 1 }
-    ]
-  });
-
-  const result = await resolvePracticeScope({ db, scope: 'recent_added', days: 7, now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [21, 22]);
+test('today_added includes imported and saved canonical words once', async () => {
+  const db = canonicalDb([
+    canonical({ id: 1, word: 'imported', libraryAddedAt: new Date(2026, 7, 24, 9).getTime(), source: 'import' }),
+    canonical({ id: 2, word: 'saved', libraryAddedAt: new Date(2026, 7, 24, 10).getTime(), source: 'reading' }),
+    canonical({ id: 3, word: 'both', libraryAddedAt: new Date(2026, 7, 24, 11).getTime(), source: 'both' })
+  ]);
+  const result = await resolvePracticeScope({ db, scope: 'today_added', now: LIBRARY_NOW });
+  assert.deepEqual(result.words.map(word => word.id), [1, 2, 3]);
   assert.equal(result.skipped, 0);
 });
 
-test('manual scope follows vocabulary ids and keeps vocabulary insertion order', async () => {
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'alpha', createdAt: NOW },
-      { id: 2, word: 'beta', createdAt: NOW },
-      { id: 3, word: 'gamma', createdAt: NOW }
-    ],
-    library: [
-      { id: 31, word: 'gamma', reviewRevision: 0 },
-      { id: 32, word: 'alpha', reviewRevision: 0 },
-      { id: 33, word: 'beta', reviewRevision: 0 }
-    ]
-  });
+test('manual uses canonical ids and skips archived or missing ids', async () => {
+  const db = canonicalDb([canonical({ id: 2 }), canonical({ id: 1 }), archived({ id: 3 })]);
+  const result = await resolvePracticeScope({ db, scope: 'manual', wordIds: [3, 1, 99, 2] });
+  assert.deepEqual(result.words.map(word => word.id), [2, 1]);
+  assert.equal(result.skipped, 2);
+});
 
-  const result = await resolvePracticeScope({ db, scope: 'manual', wordIds: [3, 1], now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [32, 31]);
+test('recent_added uses seven local calendar days and libraryAddedAt fallback', async () => {
+  const db = canonicalDb([
+    canonical({ id: 4, libraryAddedAt: LIBRARY_NOW - LIBRARY_DAY * 6 }),
+    canonical({ id: 5, libraryAddedAt: null, createdAt: LIBRARY_NOW - LIBRARY_DAY * 6 }),
+    canonical({ id: 6, libraryAddedAt: LIBRARY_NOW - LIBRARY_DAY * 8 })
+  ]);
+  const result = await resolvePracticeScope({ db, scope: 'recent_added', days: 7, now: LIBRARY_NOW });
+  assert.deepEqual(result.words.map(word => word.id), [4, 5]);
   assert.equal(result.skipped, 0);
 });
 
 test('unknown scopes are rejected', async () => {
-  const db = makeDb();
+  const db = canonicalDb([]);
   await assert.rejects(resolvePracticeScope({ db, scope: 'article' }), /不支持的专项复习范围/);
 });
 

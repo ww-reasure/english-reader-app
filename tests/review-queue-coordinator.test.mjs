@@ -50,3 +50,17 @@ test('uses exam priority only as a tie-breaker inside the shared due queue', asy
   assert.deepEqual(due.map(word => word.word), ['frequent', 'ordinary']);
   assert.equal(due.some(word => word.word === 'future'), false);
 });
+
+test('coordinator never returns an archived recovery or due word', async () => {
+  const words = [
+    { id: 1, word: 'active', nextReview: 1, reviewRevision: 0, archivedAt: null },
+    { id: 2, word: 'archived', nextReview: 1, reviewRevision: 0, recoveryStage: 3, archivedAt: 10 }
+  ];
+  const coordinator = new ReviewQueueCoordinator({
+    db: { getAllLearnWords: async () => words },
+    srs: { getDueWords: input => input.filter(word => word.nextReview <= 10) },
+    now: () => 10
+  });
+  const rows = await coordinator.getDueWords();
+  assert.deepEqual(rows.map(word => word.id), [1]);
+});
