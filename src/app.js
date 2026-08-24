@@ -87,6 +87,7 @@ export const App = {
     document.getElementById('modelPreset')?.addEventListener('change', () => Modal.onModelPresetChange());
 
     // Import modal
+    document.getElementById('importFile')?.addEventListener('change', event => Modal.handleImportFile(event));
     document.getElementById('importSubmit')?.addEventListener('click', () => Modal.handleImport());
     document.getElementById('importCancel')?.addEventListener('click', () => Modal.hideImport());
   }

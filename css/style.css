@@ -216,6 +216,12 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--signal); outline-offset:2px; border-color:var(--signal); }
 .form-group { margin-bottom:16px; }
 .form-group label { display:block; margin-bottom:6px; color:var(--ink-soft); font-size:12px; font-weight:800; letter-spacing:.04em; }
+.import-file-control { padding:13px 14px; border:1px dashed var(--rule-strong); border-radius:5px; background:var(--surface-soft); }
+.import-file-control input[type="file"] { min-width:0; padding:8px; background:var(--surface); font-size:12px; }
+.import-file-hint { margin:7px 0 0; color:var(--muted); font-size:11px; line-height:1.55; }
+.import-status { min-height:18px; margin-top:7px; color:var(--muted); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.import-status[data-tone="success"] { color:var(--moss); }
+.import-status[data-tone="error"] { color:var(--danger); }
 
 /* Dialogs */
 .modal-overlay { position:fixed; inset:0; z-index:var(--z-modal); display:flex; align-items:flex-end; justify-content:center; padding:16px 12px calc(16px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); background:var(--overlay-backdrop); backdrop-filter:blur(4px); overscroll-behavior:contain; }

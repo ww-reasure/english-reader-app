@@ -78,3 +78,24 @@ test('catalog repository persists and retrieves one versioned metadata snapshot'
 
   assert.deepEqual(await module.DB.getArticleCatalog(), record);
 });
+
+test('article storage preserves imported-file metadata without a schema upgrade', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  module.DB.DB_NAME = `EnglishReaderImportedArticle-${process.pid}-${sequence++}`;
+  const article = {
+    title: 'Imported note',
+    content: 'This is a stored imported article.',
+    sourceType: 'imported',
+    source: 'local',
+    fileName: 'note.md',
+    wordCount: 6,
+    contentFingerprint: 'v1-abcdef'
+  };
+  const id = await module.DB.saveArticle(article);
+  const saved = await module.DB.getArticle(id);
+  assert.equal(saved.sourceType, 'imported');
+  assert.equal(saved.source, 'local');
+  assert.equal(saved.fileName, 'note.md');
+  assert.equal(saved.contentFingerprint, 'v1-abcdef');
+});

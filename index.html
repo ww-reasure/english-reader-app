@@ -80,11 +80,19 @@
         <select id="importDifficulty">
           <option value="cet4">四级</option>
           <option value="cet6">六级</option>
-          <option value="graduate">考研</option>
+          <option value="kaoyan1">考研英语一</option>
+          <option value="kaoyan2">考研英语二</option>
+          <option value="graduate">考研通用</option>
         </select>
       </div>
+      <div class="form-group import-file-control">
+        <label for="importFile">从本地文件读取（可选）</label>
+        <input type="file" id="importFile" accept=".txt,.md,.markdown,.html,.htm">
+        <p class="import-file-hint">支持 TXT、Markdown、HTML，最大 2 MiB。读取后仍可在下方编辑。</p>
+        <div id="importStatus" class="import-status" aria-live="polite"></div>
+      </div>
       <div class="form-group">
-        <label>英文内容（粘贴到这里）</label>
+        <label for="importContent">英文内容（可直接粘贴）</label>
         <textarea id="importContent" name="articleContent" rows="10" placeholder="把英文正文粘贴在这里…" autocomplete="off"></textarea>
       </div>
       <div class="form-group">
