@@ -18,6 +18,8 @@ import { ChatService } from '../components/chat-service.js';
 import { classifyComposerIntent } from '../components/composer-intent.js';
 import { isGenerationAuthorized } from '../components/generation-authorization.mjs';
 import { renderLearningMarkdown } from '../components/rich-text.js';
+import { bindMessageCopy, createCopyButton } from '../components/message-actions.mjs';
+import { ChatSelectionActions, normalizeSelectedExcerpt } from '../components/chat-selection-actions.mjs';
 import { ArticleGenerationTool, GENERATE_READING_TOOL, admitArticle, normalizeTargetWords } from '../components/article-generation-tool.js';
 import { resolveGenerationRequest } from '../components/generation-request.js';
 import {
@@ -194,6 +196,9 @@ export const ChatView = {
   _generationPreviewQueue: new Map(),
   _generationPreviewTimer: null,
   _searchCallCounts: new Map(),
+  _messageCopyCleanup: null,
+  _chatSelectionActions: null,
+  _chatFollowUpExcerpt: '',
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -212,6 +217,7 @@ export const ChatView = {
 
   // Render chat view
   async render(container) {
+    this.releaseChatActions();
     conversationStore.pruneExpiredArticleSessions(7 * 86400000);
     const topicOptions = this.topics.map(t =>
       `<option value="${t.value}">${t.label}</option>`
@@ -230,6 +236,13 @@ export const ChatView = {
         <div id="chatMessages" class="chat-messages">${this.studyAnchorMarkup()}</div>
 
         <footer class="chat-composer">
+          <div id="chatFollowUpChip" class="chat-follow-up-chip" hidden>
+            <div class="chat-follow-up-copy">
+              <span>引用上一条回复</span>
+              <p id="chatFollowUpText"></p>
+            </div>
+            <button id="chatFollowUpClear" type="button" aria-label="取消引用">×</button>
+          </div>
           <div id="quickActionRail" class="quick-action-rail" aria-label="快捷操作">
             <button class="quick-action" type="button" data-action="random"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>随机生成</button>
             <button class="quick-action" type="button" data-action="review"><i class="fa-solid fa-book-open" aria-hidden="true"></i>复习阅读</button>
@@ -393,6 +406,7 @@ export const ChatView = {
     this.beginHomeRequest({ cancelGeneration: true, cancelReason: 'clear_context' });
     conversationStore.clear('home');
     ChatHistory.clear();
+    this.clearChatFollowUp();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
@@ -767,11 +781,25 @@ export const ChatView = {
     document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
 
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this._chatFollowUpExcerpt) {
+        e.preventDefault();
+        this.clearChatFollowUp();
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.submitComposer();
       }
     });
+    document.getElementById('chatFollowUpClear')?.addEventListener('click', () => this.clearChatFollowUp());
+
+    const messages = document.getElementById('chatMessages');
+    this._messageCopyCleanup = bindMessageCopy(messages);
+    this._chatSelectionActions = new ChatSelectionActions({
+      root: messages,
+      onAsk: excerpt => this.setChatFollowUp(excerpt)
+    });
+    this._chatSelectionActions.bind();
 
     document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
     document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
@@ -832,6 +860,35 @@ export const ChatView = {
     button.setAttribute('aria-expanded', String(open));
   },
 
+  setChatFollowUp(excerpt) {
+    const selectedExcerpt = normalizeSelectedExcerpt(excerpt);
+    if (!selectedExcerpt) return this.clearChatFollowUp();
+    this._chatFollowUpExcerpt = selectedExcerpt;
+    const chip = document.getElementById('chatFollowUpChip');
+    const text = document.getElementById('chatFollowUpText');
+    if (text) text.textContent = selectedExcerpt;
+    if (chip) chip.hidden = false;
+    document.querySelector('#promptInput')?.focus();
+  },
+
+  clearChatFollowUp(expectedExcerpt = null) {
+    if (expectedExcerpt && expectedExcerpt !== this._chatFollowUpExcerpt) return false;
+    this._chatFollowUpExcerpt = '';
+    const chip = document.getElementById('chatFollowUpChip');
+    const text = document.getElementById('chatFollowUpText');
+    if (text) text.textContent = '';
+    if (chip) chip.hidden = true;
+    return true;
+  },
+
+  releaseChatActions() {
+    this._messageCopyCleanup?.();
+    this._messageCopyCleanup = null;
+    this._chatSelectionActions?.destroy?.();
+    this._chatSelectionActions = null;
+    this._chatFollowUpExcerpt = '';
+  },
+
   async submitComposer() {
     const input = document.getElementById('promptInput');
     const value = input?.value.trim();
@@ -841,6 +898,7 @@ export const ChatView = {
       return;
     }
 
+    const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
@@ -854,6 +912,7 @@ export const ChatView = {
         session,
         userMessage: value,
         kind: 'home',
+        pageContext: selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : null,
         tools: HOME_LEARNING_TOOLS,
         executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, value, requestVersion)
       });
@@ -861,6 +920,7 @@ export const ChatView = {
       this.removeThinking();
       this.removeArticleGenerationStatus();
       if (reply.toolSupport === 'unsupported' && classifyComposerIntent(value) === 'generate') {
+        if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
         return this.handleGenerate({ prompt: value, alreadyAdded: true, requestVersion });
       }
       if (reply.content) {
@@ -881,6 +941,7 @@ export const ChatView = {
           this.addAppActions(artifact.actions);
         }
       });
+      if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
 
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -1609,8 +1670,20 @@ export const ChatView = {
     if (!container) return;
     const div = document.createElement('div');
     div.className = `message ${type}-message`;
-    if (type === 'user') div.textContent = text;
-    else div.innerHTML = renderLearningMarkdown(text);
+    if (type === 'user') {
+      div.textContent = text;
+    } else if (type === 'assistant' || type === 'ai') {
+      div.setAttribute('data-copyable', 'true');
+      const content = document.createElement('div');
+      content.className = 'chat-ai-content';
+      content.setAttribute('data-copy-content', 'true');
+      content.setAttribute('data-chat-selectable', 'true');
+      content.innerHTML = renderLearningMarkdown(text);
+      div.appendChild(content);
+      div.appendChild(createCopyButton());
+    } else {
+      div.innerHTML = renderLearningMarkdown(text);
+    }
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
   },
@@ -1649,6 +1722,7 @@ export const ChatView = {
     this.resetGenerateButton();
     this.removeThinking();
     this.removeArticleGenerationStatus();
+    this.releaseChatActions();
     if (this._generationPreviewTimer) clearTimeout(this._generationPreviewTimer);
     this._generationPreviewTimer = null;
     this._generationPreviewQueue.clear();

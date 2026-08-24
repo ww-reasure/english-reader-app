@@ -17,6 +17,7 @@ import { ChatService } from './chat-service.js';
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { renderLearningMarkdown } from './rich-text.js';
+import { bindMessageCopy, createCopyButton } from './message-actions.mjs';
 import { createSentenceRangeForTextNodes, findSentenceOffsets } from './sentence-selection.mjs';
 import { bindSentenceLongPress } from './sentence-long-press.mjs';
 
@@ -44,6 +45,7 @@ export const AIAnalysis = {
   _detailSelectionAction: null,
   _detailSelectionModal: null,
   _followUpController: null,
+  _messageCopyCleanup: null,
 
   setArticleContext(article, paragraph = '') {
     this.articleContext = {
@@ -92,6 +94,8 @@ export const AIAnalysis = {
   },
 
   _removeResultModal() {
+    this._messageCopyCleanup?.();
+    this._messageCopyCleanup = null;
     this.clearDetailSelection();
     Tooltip.hide();
     const existing = document.getElementById('aiResultModal');
@@ -199,8 +203,10 @@ export const AIAnalysis = {
       <div class="ai-result-body">
         <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
         <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
-        <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
-          ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+        <div class="ai-analysis-copyable" ${isLoading ? '' : 'data-copyable="true"'}>
+          <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}" ${isLoading ? '' : 'data-copy-content data-chat-selectable="true"'}>
+            ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+          </div>
         </div>
         ${!isLoading && analysisContext?.id != null ? `
         <section class="ai-followup" aria-label="继续追问">
@@ -229,6 +235,10 @@ export const AIAnalysis = {
     }
     (host || document.body).appendChild(overlay);
     modal.querySelector('#aiResultClose')?.addEventListener('click', () => this.closeResultModal());
+    if (!isLoading) {
+      modal.querySelector('[data-copyable]')?.appendChild(createCopyButton({ label: '复制分析' }));
+      this._messageCopyCleanup = bindMessageCopy(modal);
+    }
     this.bindWordLookup(modal);
     this.bindFollowUp(modal, sentence, content, analysisContext);
     this.bindDetailSelection(modal, analysisContext);

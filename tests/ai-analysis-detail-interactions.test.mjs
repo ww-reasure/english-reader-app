@@ -9,7 +9,7 @@ async function loadAIAnalysis(mocks) {
   const imports = `
     const { Tooltip, API, Dictionary, esc, debounce, SentenceAnalysisCache, Config, Modal,
       ConversationStore, LearningAgent, ContextBuilder, ChatService, DB, SpacedRepetition,
-      renderLearningMarkdown } = globalThis.__aiAnalysisMocks;
+    renderLearningMarkdown, createCopyButton, bindMessageCopy } = globalThis.__aiAnalysisMocks;
   `;
   const testSource = source
     .replace(/^import .+;\r?\n/gm, '')
@@ -74,6 +74,8 @@ function baseMocks(overrides = {}) {
       DB: {},
       SpacedRepetition: {},
       renderLearningMarkdown: value => String(value),
+      createCopyButton: () => ({ addEventListener() {} }),
+      bindMessageCopy: () => () => {},
       ...overrides
     }
   };
@@ -139,6 +141,17 @@ test('analysis modal source wires selection into the existing follow-up panel an
   assert.match(source, /bindFollowUp\(modal, sentence, content, analysisContext\)/);
   assert.match(source, /closeResultModal\(\)/);
   assert.match(source, /clearDetailSelection\(\)/);
+});
+
+test('analysis results reuse the shared copy module without copying the original sentence or follow-up UI', async () => {
+  const source = await readFile(sourceUrl, 'utf8');
+
+  assert.match(source, /message-actions\.mjs/);
+  assert.match(source, /data-copyable/);
+  assert.match(source, /data-copy-content/);
+  assert.match(source, /data-chat-selectable="true"/);
+  assert.match(source, /createCopyButton\(\{\s*label:\s*['"]复制分析['"]/);
+  assert.match(source, /bindMessageCopy\(modal/);
 });
 
 test('the selected-detail follow-up action remains reachable near the bottom of a mobile viewport', async () => {
