@@ -77,3 +77,15 @@ test('traditional recall also consumes the shared revision-aware queue', async (
   assert.match(flashcard, /ReviewQueue\.revalidate/);
   assert.match(flashcard, /expectedRevision/);
 });
+
+test('context review persists an active session summary without changing scoring', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /StudySessionTimer/);
+  assert.match(source, /ActivityType\.REVIEW_SESSION_SUMMARY/);
+  assert.match(source, /buildReviewSummary/);
+  assert.match(source, /persistReviewSummary\('completed'\)/);
+  assert.match(source, /persistReviewSummary\('partial'\)/);
+  assert.match(source, /await this\.persistSession\(\)/);
+  assert.match(source, /counts\[result\] \+= 1/);
+});

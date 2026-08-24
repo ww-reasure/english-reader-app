@@ -13,6 +13,9 @@ import { createLexiconLoader } from '../lexicon-runtime.mjs';
 import { createKnowledgeEvidenceBridge } from '../components/knowledge-evidence-bridge.mjs';
 import { getTrackLabel, requiresTargetTrackSelection } from '../learning-track.mjs';
 import { makeContextReviewCacheKey } from '../components/context-review-runtime.mjs';
+import { ActivityType } from '../learning-activity.mjs';
+import { localDayKey } from '../learning-day.mjs';
+import { StudySessionTimer } from '../study-session-timer.mjs';
 
 const ACTIVE_SESSION_ID = 'context-review-active';
 const TODAY_KEY = 'todayReviewedWords';
@@ -42,6 +45,17 @@ function rememberToday(word, result, attemptId = '') {
   if (index >= 0) rows[index] = { ...rows[index], ...item };
   else rows.push(item);
   localStorage.setItem(TODAY_KEY, JSON.stringify({ date: todayKey(), words: rows }));
+}
+
+export function buildReviewSummary({ counts = {}, missing = 0 } = {}) {
+  const count = value => Math.max(0, Number(value) || 0);
+  return {
+    known: count(counts.known),
+    uncertain: count(counts.uncertain),
+    unknown: count(counts.unknown),
+    skipped: count(counts.skipped),
+    missing: count(missing)
+  };
 }
 
 function wordTokens(sentence, item, answered) {
@@ -112,6 +126,69 @@ export const ContextReviewView = {
   correctionDone: false,
   pendingEvidence: null,
   tooltipWord: '',
+  reviewSessionId: '',
+  reviewTimer: null,
+  reviewTimerBaseDuration: 0,
+  reviewTimerStartedAt: 0,
+  reviewSummarySaved: false,
+  completedWordIds: new Set(),
+
+  startReviewTimer() {
+    if (!this.session || (this.reviewTimer && !this.reviewSummarySaved)) return;
+    const startedAt = Math.max(0, Number(this.session.startedAt) || Number(this.session.createdAt) || Date.now());
+    this.reviewSessionId = String(this.session.sessionId || `context-review:${startedAt}`);
+    this.session.sessionId = this.reviewSessionId;
+    this.session.startedAt = startedAt;
+    this.reviewTimerBaseDuration = Math.max(0, Number(this.session.activeDurationMs) || 0);
+    this.reviewTimerStartedAt = startedAt;
+    this.reviewTimer = new StudySessionTimer({
+      sessionId: this.reviewSessionId,
+      mode: 'context'
+    });
+    this.reviewTimer.start({ contextKey: 'context-review' });
+    this.reviewSummarySaved = false;
+  },
+
+  noteReviewActivity() {
+    this.reviewTimer?.noteActivity();
+  },
+
+  async persistReviewSummary(status) {
+    if (!this.reviewTimer || this.reviewSummarySaved) return;
+    const counts = buildReviewSummary({ counts: this.counts, missing: this.session?.missingCount });
+    const durationMs = Math.max(0, Math.round(this.reviewTimerBaseDuration + this.reviewTimer.getActiveDuration()));
+    const completedWordIds = [...this.completedWordIds].map(Number).filter(Number.isFinite);
+    const hasActivity = durationMs > 0 || completedWordIds.length > 0 || Object.values(counts).some(value => value > 0);
+
+    this.reviewTimer.finish(status);
+    this.reviewTimerBaseDuration = durationMs;
+    if (this.session) this.session.activeDurationMs = durationMs;
+    this.reviewSummarySaved = true;
+    if (status === 'partial' && !hasActivity) return;
+
+    const occurredAt = Date.now();
+    try {
+      await DB.saveLearningActivity({
+        id: `review-session-summary:${this.reviewSessionId}`,
+        type: ActivityType.REVIEW_SESSION_SUMMARY,
+        occurredAt,
+        dayKey: localDayKey(occurredAt),
+        sessionId: this.reviewSessionId,
+        dedupeKey: `review-summary:${this.reviewSessionId}`,
+        payload: {
+          mode: 'context',
+          scope: 'scheduled',
+          status,
+          durationMs,
+          counts,
+          completedWordIds,
+          recovery: { fragile: 0, relearning: 0, difficult: 0, reducedStages: 0, stubborn: 0 }
+        }
+      });
+    } catch (error) {
+      console.warn('语境复习活动汇总保存失败', error);
+    }
+  },
 
   async render(container) {
     this.cleanup();
@@ -121,6 +198,12 @@ export const ContextReviewView = {
     this.answered = null;
     this.assistedLookupCount = 0;
     this.counts = { known: 0, uncertain: 0, unknown: 0, skipped: 0 };
+    this.completedWordIds = new Set();
+    this.reviewSessionId = '';
+    this.reviewTimer = null;
+    this.reviewTimerBaseDuration = 0;
+    this.reviewTimerStartedAt = 0;
+    this.reviewSummarySaved = false;
     this.notice = '';
     this.pendingEvidence = null;
     this.controller = new AbortController();
@@ -129,10 +212,14 @@ export const ContextReviewView = {
       const restored = await DB.getContextReviewSession(ACTIVE_SESSION_ID);
       if (restored?.items?.length) {
         this.session = restored;
+        this.session.sessionId ||= `context-review:${Number(this.session.createdAt) || Date.now()}`;
+        this.session.startedAt ||= Number(this.session.createdAt) || Date.now();
+        this.session.activeDurationMs = Math.max(0, Number(this.session.activeDurationMs) || 0);
         this.session.sourceTrack ||= this.session.targetTrack || '';
         this.session.targetTrack ||= this.session.sourceTrack;
         this.currentIndex = Math.max(0, Number(restored.currentIndex) || 0);
         this.counts = { ...this.counts, ...(restored.counts || {}) };
+        this.completedWordIds = new Set((restored.completedWordIds || []).map(Number).filter(Number.isFinite));
         this.pendingEvidence = restored.pendingEvidence || null;
       } else {
         const sourceTrack = Config.get('exam_level');
@@ -152,10 +239,14 @@ export const ContextReviewView = {
         if (words.length && !this.session.items.length) {
           throw new Error('没有可用的本地语境句子，在线生成也未完成');
         }
+        this.session.sessionId ||= String(this.session.id || `context-review:${Date.now()}`);
+        this.session.startedAt ||= Number(this.session.createdAt) || Date.now();
+        this.session.activeDurationMs = Math.max(0, Number(this.session.activeDurationMs) || 0);
         this.session.id = ACTIVE_SESSION_ID;
         this.currentIndex = 0;
         await this.persistSession();
       }
+      this.startReviewTimer();
       await this.showCurrent();
     } catch (error) {
       if (error?.name === 'AbortError' || !this.container) return;
@@ -197,6 +288,7 @@ export const ContextReviewView = {
     this.correctionAttemptId = '';
     this.correctionDone = false;
     this.pendingEvidence = null;
+    this.noteReviewActivity();
     await this.persistSession();
     this.renderCard();
   },
@@ -246,6 +338,7 @@ export const ContextReviewView = {
     this._clickHandler = event => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+      this.noteReviewActivity();
       const result = target.closest('[data-context-result]')?.dataset.contextResult;
       if (result) return void this.submit(result);
       if (target.closest('[data-context-next]')) return void this.next();
@@ -337,6 +430,7 @@ export const ContextReviewView = {
       };
       this.answered = result;
       this.counts[result] += 1;
+      this.completedWordIds.add(Number(item.wordId));
       rememberToday(saved.word, result, this.correctionAttemptId);
       this.notice = this.assistedLookupCount ? `本题查询了 ${this.assistedLookupCount} 个辅助词，目标词评分不受直接影响。` : '';
       await this.persistSession();
@@ -386,6 +480,7 @@ export const ContextReviewView = {
 
   async correctMistake() {
     if (this.answered !== ContextReviewResult.KNOWN || this.correctionDone || !this.correctionAttemptId) return;
+    this.noteReviewActivity();
     const item = this.session.items[this.currentIndex];
     try {
       const corrected = scheduleContextReview(this.correctionBaseline, ContextReviewResult.UNKNOWN, Date.now());
@@ -411,6 +506,7 @@ export const ContextReviewView = {
 
   async next() {
     if (!this.answered) return;
+    this.noteReviewActivity();
     this.commitPendingKnowledgeEvidence();
     this.currentIndex += 1;
     await this.persistSession();
@@ -425,17 +521,23 @@ export const ContextReviewView = {
 
   async persistSession() {
     if (!this.session) return;
+    if (this.reviewTimer && !this.reviewSummarySaved) {
+      this.session.startedAt ||= this.reviewTimerStartedAt || Date.now();
+      this.session.activeDurationMs = Math.max(0, Math.round(this.reviewTimerBaseDuration + this.reviewTimer.getActiveDuration()));
+    }
     await DB.saveContextReviewSession({
       ...this.session,
       id: ACTIVE_SESSION_ID,
       currentIndex: this.currentIndex,
       counts: this.counts,
+      completedWordIds: [...this.completedWordIds],
       pendingEvidence: this.pendingEvidence,
       updatedAt: Date.now()
     });
   },
 
   renderResult() {
+    void this.persistReviewSummary('completed');
     const completed = this.counts.known + this.counts.uncertain + this.counts.unknown;
     this.container.innerHTML = `
       <main class="app-standard-page context-review-page context-review-content context-review-result-page" data-context-review-content="result">
@@ -463,6 +565,7 @@ export const ContextReviewView = {
   },
 
   cleanup() {
+    void this.persistReviewSummary('partial');
     this.commitPendingKnowledgeEvidence();
     if (this.session && this.currentIndex < (this.session.items?.length || 0)) {
       void this.persistSession().catch(() => {});

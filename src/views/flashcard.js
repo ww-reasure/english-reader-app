@@ -41,9 +41,13 @@ import {
   persistSessionQueue,
   clearSessionQueue,
   loadSessionQueue,
-  sessionDebtValue
+  sessionDebtValue,
+  ACTIVE_SESSION_KEY
 } from '../review-session.mjs';
 import { settleSessionReview } from '../recovery-scheduler.mjs';
+import { ActivityType } from '../learning-activity.mjs';
+import { localDayKey } from '../learning-day.mjs';
+import { StudySessionTimer } from '../study-session-timer.mjs';
 import { WordPhrases } from '../components/word-phrases.js';
 import { WordSimilar } from '../components/word-similar.js';
 import { renderExamCorpusDetail, selectExamCorpusPresentation } from '../components/exam-corpus-presentation.mjs';
@@ -79,11 +83,29 @@ const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   storage: DB
 });
 
+const numberOrZero = value => Math.max(0, Number(value) || 0);
+
+function reviewRecoveryTransition(before = {}, after = {}, stubborn = false) {
+  const beforeStage = Math.max(0, Math.trunc(Number(before.recoveryStage) || 0));
+  const afterStage = Math.max(0, Math.trunc(Number(after.recoveryStage) || 0));
+  const target = Math.max(afterStage, Math.trunc(Number(after.recoveryTarget) || 0));
+  return {
+    fragile: target === 1 ? 1 : 0,
+    relearning: target === 2 ? 1 : 0,
+    difficult: target >= 3 ? 1 : 0,
+    reducedStages: afterStage < beforeStage ? 1 : 0,
+    stubborn: stubborn || Number(after.stubbornUntil) > 0 ? 1 : 0
+  };
+}
+
 export const FlashcardView = {
   words: [],
   currentIndex: 0,
   ratingCounts: { 1: 0, 3: 0, 5: 0 },
+  skippedCount: 0,
   reviewedWords: [],       // Current session
+  reviewedWordIds: new Set(),
+  recoverySummary: { fragile: 0, relearning: 0, difficult: 0, reducedStages: 0, stubborn: 0 },
   reviewState: createReviewState(),
   studyTab: 'examples',
   studyExampleIndex: 0,
@@ -101,6 +123,9 @@ export const FlashcardView = {
   practiceCompletedWordIds: new Set(),
   practiceMissingCount: 0,
   sessionQueue: null,
+  reviewSessionId: '',
+  reviewTimer: null,
+  reviewSummarySaved: false,
   studyNotice: '',
   _exampleLookupRoot: null,
   _exampleLookupHandler: null,
@@ -158,10 +183,91 @@ export const FlashcardView = {
     this.saveTodayWords(today);
   },
 
+  resetReviewTelemetry() {
+    this.skippedCount = 0;
+    this.reviewedWordIds = new Set();
+    this.recoverySummary = { fragile: 0, relearning: 0, difficult: 0, reducedStages: 0, stubborn: 0 };
+    this.reviewSessionId = '';
+    this.reviewTimer = null;
+    this.reviewSummarySaved = false;
+  },
+
+  startReviewTimer({ practiceSession = null, persistedSession = null } = {}) {
+    if (this.reviewTimer && !this.reviewSummarySaved) return;
+    const mode = this.practiceScope ? 'practice' : 'flashcard';
+    const seed = this.practiceScope
+      ? practiceSession?.createdAt
+      : persistedSession?.createdAt || this.sessionQueue?.snapshot?.().createdAt;
+    this.reviewSessionId = `review:${mode}:${Number(seed) || Date.now()}`;
+    this.reviewTimer = new StudySessionTimer({
+      sessionId: this.reviewSessionId,
+      mode: this.practiceScope ? 'practice' : 'flashcard'
+    });
+    this.reviewTimer.start({ contextKey: 'recall' });
+    this.reviewSummarySaved = false;
+  },
+
+  noteReviewActivity() {
+    this.reviewTimer?.noteActivity();
+  },
+
+  recordRecoveryTransition(before, after, stubborn = false) {
+    const transition = reviewRecoveryTransition(before, after, stubborn);
+    for (const key of Object.keys(this.recoverySummary)) {
+      this.recoverySummary[key] += transition[key] || 0;
+    }
+  },
+
+  async persistReviewSummary(requestedStatus, practiceCompleted = null) {
+    if (!this.reviewTimer || this.reviewSummarySaved) return;
+
+    const mode = this.practiceScope ? 'practice' : 'flashcard';
+    const status = mode === 'practice' && practiceCompleted === false ? 'partial' : requestedStatus;
+    const durationMs = Math.max(0, Math.round(this.reviewTimer.getActiveDuration()));
+    const completedWordIds = mode === 'practice'
+      ? [...this.practiceCompletedWordIds].map(Number).filter(Number.isFinite)
+      : [...this.reviewedWordIds].map(Number).filter(Number.isFinite);
+    const hasActivity = durationMs > 0 || completedWordIds.length > 0 || Object.values(this.ratingCounts).some(numberOrZero);
+
+    this.reviewTimer.finish(status);
+    this.reviewSummarySaved = true;
+    if (status === 'partial' && !hasActivity) return;
+
+    const occurredAt = Date.now();
+    try {
+      await DB.saveLearningActivity({
+        id: `review-session-summary:${this.reviewSessionId}`,
+        type: ActivityType.REVIEW_SESSION_SUMMARY,
+        occurredAt,
+        dayKey: localDayKey(occurredAt),
+        sessionId: this.reviewSessionId,
+        dedupeKey: `review-summary:${this.reviewSessionId}`,
+        payload: {
+          mode: this.practiceScope ? 'practice' : 'flashcard',
+          scope: this.practiceScope || 'scheduled',
+          status,
+          durationMs,
+          counts: {
+            known: numberOrZero(this.ratingCounts[5]),
+            uncertain: numberOrZero(this.ratingCounts[3]),
+            unknown: numberOrZero(this.ratingCounts[1]),
+            skipped: numberOrZero(this.skippedCount)
+          },
+          completedWordIds,
+          recovery: { ...this.recoverySummary }
+        }
+      });
+    } catch (error) {
+      console.warn('复习活动汇总保存失败', error);
+    }
+  },
+
   // Render flashcard view
   async render(container, requestedScope = '') {
+    await this.persistReviewSummary('partial');
     this.invalidateCardRequests();
     this.container = container;
+    this.resetReviewTelemetry();
     this.practiceScope = '';
     this.practiceWordIds = [];
     this.practiceCompletedWordIds = new Set();
@@ -191,6 +297,12 @@ export const FlashcardView = {
     }
     const allWords = practiceWords ?? await DB.getAllLearnWords();
     const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
+    let persistedSession = null;
+    if (!requestedScope) {
+      persistedSession = await (DB.getReviewSession
+        ? DB.getReviewSession(ACTIVE_SESSION_KEY).catch(() => null)
+        : null);
+    }
 
     if (dueWords.length === 0) {
       const totalWords = allWords.length;
@@ -229,6 +341,7 @@ export const FlashcardView = {
     this.currentIndex = 0;
     this.ratingCounts = { 1: 0, 3: 0, 5: 0 };
     this.reviewedWords = [];
+    this.startReviewTimer({ practiceSession: session, persistedSession: requestedScope ? null : persistedSession });
 
     this.renderCard(container);
   },
@@ -322,6 +435,7 @@ export const FlashcardView = {
     this.currentPhonetic = phonetic;
     this.currentDefinitionLines = definitionLines;
     this.renderRecall(container);
+    this.noteReviewActivity();
     this.startCardPronunciation(word.word, session);
   },
 
@@ -402,6 +516,7 @@ export const FlashcardView = {
   showMeaning() {
     const nextState = revealMeaning(this.reviewState);
     if (nextState === this.reviewState) return;
+    this.noteReviewActivity();
     this.reviewState = nextState;
     this.renderRecall(this.container);
   },
@@ -409,6 +524,7 @@ export const FlashcardView = {
   async submitRating(quality) {
     const submittingState = startRating(this.reviewState, quality);
     if (!submittingState) return;
+    this.noteReviewActivity();
 
     const session = this.cardSession;
     this.reviewState = submittingState;
@@ -535,6 +651,7 @@ export const FlashcardView = {
 
   setStudyTab(tab) {
     if (this.reviewState.phase !== REVIEW_PHASES.STUDY || !isWordStudyTab(tab)) return;
+    this.noteReviewActivity();
     this.studyTab = tab;
     this.studyExamplesExpanded = false;
     this.renderStudy(this.container);
@@ -555,6 +672,7 @@ export const FlashcardView = {
     });
     this.container?.querySelectorAll('[data-study-audio]').forEach(button => {
       button.addEventListener('click', () => {
+        this.noteReviewActivity();
         void AudioCache.getAudio(button.dataset.studyAudio).catch(() => {});
       });
     });
@@ -600,9 +718,11 @@ export const FlashcardView = {
       if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
       if (event.key === 'ArrowRight') {
         event.preventDefault();
+        this.noteReviewActivity();
         this.selectStudyExample(this.studyExampleIndex + 1);
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
+        this.noteReviewActivity();
         this.selectStudyExample(this.studyExampleIndex - 1);
       }
     };
@@ -620,16 +740,19 @@ export const FlashcardView = {
     if (!total) return;
     const nextIndex = Math.min(Math.max(0, index), total - 1);
     if (nextIndex === this.studyExampleIndex) return;
+    this.noteReviewActivity();
     this.studyExampleIndex = nextIndex;
     this.renderStudy(this.container);
   },
 
   showAllStudyExamples() {
+    this.noteReviewActivity();
     this.studyExamplesExpanded = true;
     this.renderStudy(this.container);
   },
 
   showFocusedStudyExample() {
+    this.noteReviewActivity();
     this.studyExamplesExpanded = false;
     this.renderStudy(this.container);
   },
@@ -637,6 +760,7 @@ export const FlashcardView = {
   openStudyInfo() {
     const overlay = this.container?.querySelector('[data-study-info-overlay]');
     if (!overlay) return;
+    this.noteReviewActivity();
     overlay.hidden = false;
     this.container?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'true');
     document.body.classList.add('flashcard-study-info-open');
@@ -648,6 +772,7 @@ export const FlashcardView = {
   },
 
   closeStudyInfo() {
+    this.noteReviewActivity();
     this.container?.querySelector('[data-study-info-overlay]')?.setAttribute('hidden', '');
     this.container?.querySelector('[data-study-info-open]')?.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('flashcard-study-info-open');
@@ -827,6 +952,7 @@ export const FlashcardView = {
 
   advanceToNextWord() {
     if (!nextWord(this.reviewState)) return;
+    this.noteReviewActivity();
     this.commitPendingKnowledgeEvidence();
     if (!this.practiceScope && this.sessionQueue) {
       this.currentIndex++;
@@ -873,6 +999,7 @@ export const FlashcardView = {
         expectedRevision: word.expectedRevision,
         sessionDebt
       });
+      this.recordRecoveryTransition(word, updatedWord || srsData, this.sessionQueue?.isStubborn(word.id));
       Object.assign(word, updatedWord || srsData, { expectedRevision: updatedWord?.reviewRevision ?? word.expectedRevision });
       if (this.sessionQueue) {
         const outcome = this.sessionQueue.rate(word.id, quality, { expectedRevision: word.expectedRevision });
@@ -895,6 +1022,7 @@ export const FlashcardView = {
     };
 
     this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
+    this.reviewedWordIds.add(Number(word.id));
 
     const wordData = {
       word: word.word,
@@ -912,6 +1040,7 @@ export const FlashcardView = {
     const correctingState = startRatingCorrection(this.reviewState);
     const attempt = this.ratingAttempt;
     if (!correctingState || !attempt) return;
+    this.noteReviewActivity();
 
     const session = this.cardSession;
     const word = this.words[this.currentIndex];
@@ -938,6 +1067,7 @@ export const FlashcardView = {
           expectedRevision: word.expectedRevision,
           sessionDebt
         });
+        this.recordRecoveryTransition(attempt.baseline, correctedWord || correctedSrs, this.sessionQueue?.isStubborn(word.id));
         Object.assign(word, correctedWord || correctedSrs, { expectedRevision: correctedWord?.reviewRevision ?? word.expectedRevision });
         if (this.sessionQueue) {
           const outcome = this.sessionQueue.rate(word.id, 1, { expectedRevision: word.expectedRevision });
@@ -954,6 +1084,7 @@ export const FlashcardView = {
 
       this.ratingCounts[5] = Math.max(0, (this.ratingCounts[5] || 0) - 1);
       this.ratingCounts[1] = (this.ratingCounts[1] || 0) + 1;
+      this.reviewedWordIds.add(Number(word.id));
       const reviewed = this.reviewedWords.find(item => item.attemptId === attempt.id);
       if (reviewed) reviewed.quality = 1;
       this.addTodayWord({
@@ -996,6 +1127,8 @@ export const FlashcardView = {
   // Skip current word (don't rate)
   skip() {
     if (!skipWord(this.reviewState)) return;
+    this.noteReviewActivity();
+    this.skippedCount += 1;
     this.currentIndex++;
     this.renderCard(this.container);
   },
@@ -1010,6 +1143,7 @@ export const FlashcardView = {
       expectedWordIds: this.practiceWordIds,
       completedWordIds: [...this.practiceCompletedWordIds]
     });
+    void this.persistReviewSummary('completed', practiceCompleted);
     if (practiceCompleted) this.practiceScope = '';
     const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
     const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
@@ -1168,6 +1302,7 @@ export const FlashcardView = {
 
   cleanup() {
     this.invalidateCardRequests();
+    void this.persistReviewSummary('partial');
     this.closeStudyInfo();
     this.practiceScope = '';
     this.practiceWordIds = [];

@@ -239,6 +239,17 @@ test('study example lookup can switch words after a tooltip is open and keeps se
   assert.doesNotMatch(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
 });
 
+test('flashcard review telemetry is best effort and does not replace the two-stage flow', async () => {
+  const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
+
+  assert.match(source, /StudySessionTimer/);
+  assert.match(source, /DB\.saveLearningActivity/);
+  assert.match(source, /reviewedWordIds/);
+  assert.match(source, /practiceCompletedWordIds/);
+  assert.match(source, /review-session-summary/);
+  assert.match(source, /commitPendingKnowledgeEvidence\(\)/);
+});
+
 test('a recall card starts one cancellable automatic pronunciation', async () => {
   const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
 
