@@ -10,9 +10,12 @@ import { buildReadingAnalytics, summarizeReadingPeriod } from '../reading-analyt
 
 export const ReportView = {
   async render(container) {
-    const articles = await DB.getAllArticles();
-    const learnWords = await DB.getAllLearnWords();
-    const readingStats = await DB.getAllReadingStats();
+    const [articles, activeLearnWords, allLearnWords, readingStats] = await Promise.all([
+      DB.getAllArticles(),
+      DB.getAllLearnWords(),
+      DB.getAllLearnWords({ includeArchived: true }),
+      DB.getAllReadingStats()
+    ]);
 
     // This week stats
     const weekStart = new Date();
@@ -27,11 +30,11 @@ export const ReportView = {
     const monthReading = summarizeReadingPeriod(readingStats, monthStart.getTime());
 
     // Vocabulary stats
-    const totalLearnWords = learnWords.length;
-    const masteredWords = learnWords.filter(w => w.interval >= 21).length;
-    const learningWords = learnWords.filter(w => w.reviewCount > 0 && w.interval < 21).length;
-    const newWords = learnWords.filter(w => !w.reviewCount || w.reviewCount === 0).length;
-    const dueWords = SpacedRepetition.getDueCount(learnWords);
+    const totalLearnWords = allLearnWords.length;
+    const masteredWords = activeLearnWords.filter(w => w.interval >= 21).length;
+    const learningWords = activeLearnWords.filter(w => w.reviewCount > 0 && w.interval < 21).length;
+    const newWords = activeLearnWords.filter(w => !w.reviewCount || w.reviewCount === 0).length;
+    const dueWords = SpacedRepetition.getDueCount(activeLearnWords);
 
     const reading = buildReadingAnalytics({ articles, readingStats });
     const streak = reading.streak;

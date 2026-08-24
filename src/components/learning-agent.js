@@ -1,6 +1,7 @@
 import { buildReadingAnalytics } from '../reading-analytics.mjs';
 
 const clip = (value, limit) => String(value || '').slice(0, limit);
+const activeLearnWords = words => (Array.isArray(words) ? words : []).filter(word => word?.archivedAt == null);
 
 const articleMeta = article => ({
   id: article.id,
@@ -182,12 +183,13 @@ export class LearningAgent {
       this.db.getAllArticles(),
       this.db.getAllReadingStats()
     ]);
+    const activeWords = activeLearnWords(words);
     const reading = buildReadingAnalytics({ articles, readingStats: stats, now: this.now() });
     return {
       source: 'learning_overview',
       totals: {
-        words: words.length,
-        due: this.srs.getDueCount(words),
+        words: activeWords.length,
+        due: this.srs.getDueCount(activeWords),
         favorites: articles.filter(article => article.favorite).length,
         libraryArticles: reading.libraryArticleCount,
         effectiveReadings: reading.effectiveReadingCount,
@@ -200,7 +202,7 @@ export class LearningAgent {
 
   async findLearningWords(query = '') {
     const needle = String(query).trim().toLowerCase();
-    const words = (await this.db.getAllLearnWords())
+    const words = activeLearnWords(await this.db.getAllLearnWords())
       .filter(word => !needle || String(word.word || '').toLowerCase().includes(needle) || String(word.translation || '').includes(needle))
       .slice(0, 20)
       .map(word => ({
@@ -222,7 +224,7 @@ export class LearningAgent {
   }
 
   async getReviewQueue() {
-    const words = this.srs.getDueWords(await this.db.getAllLearnWords())
+    const words = this.srs.getDueWords(activeLearnWords(await this.db.getAllLearnWords()))
       .slice(0, 20)
       .map(word => ({
         word: word.word,
@@ -238,7 +240,7 @@ export class LearningAgent {
     if (!targetTrack || !this.examCorpus?.lookup) {
       return { source: 'exam_learning_priorities', targetTrack, status: 'unavailable', highFrequencyUnmastered: [], duePriorityWords: [] };
     }
-    const words = await this.db.getAllLearnWords();
+    const words = activeLearnWords(await this.db.getAllLearnWords());
     const dueIds = new Set(this.srs.getDueWords(words).map(word => word.id));
     const rows = (await Promise.all(words.map(async word => {
       if (this.srs.getStatus(word) === 'stable') return null;

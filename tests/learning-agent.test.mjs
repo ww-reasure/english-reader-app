@@ -49,6 +49,33 @@ test('rejects mutating and unknown tool names', async () => {
   );
 });
 
+test('agent current vocabulary tools exclude archived words', async () => {
+  const { LearningAgent } = await loadAgent();
+  const allWords = [
+    { id: 1, word: 'active', translation: '活跃', archivedAt: null, nextReview: 1 },
+    { id: 2, word: 'archived', translation: '归档', archivedAt: 10, nextReview: 1 }
+  ];
+  const db = {
+    getAllLearnWords: async ({ includeArchived = false } = {}) => includeArchived
+      ? allWords
+      : allWords.filter(word => word.archivedAt == null),
+    getAllArticles: async () => [],
+    getAllReadingStats: async () => []
+  };
+  const agent = new LearningAgent({
+    db,
+    srs: {
+      getDueCount: words => words.length,
+      getDueWords: words => words,
+      getStatus: () => 'review'
+    },
+    now: () => 100
+  });
+  assert.equal((await agent.execute('get_learning_overview')).totals.words, 1);
+  assert.deepEqual((await agent.execute('find_learning_words', {})).words.map(word => word.word), ['active']);
+  assert.deepEqual((await agent.execute('get_review_queue')).words.map(word => word.word), ['active']);
+});
+
 test('learning overview distinguishes saved article inventory from qualified reading activity', async () => {
   const { LearningAgent } = await loadAgent();
   const agent = new LearningAgent({

@@ -7,7 +7,7 @@ const DATE_KEY = '2026-08-24';
 const NOW = new Date(2026, 7, 24, 12).getTime();
 const at = (hour, minute = 0) => new Date(2026, 7, 24, hour, minute).getTime();
 
-function createFixture({ analyze = null } = {}) {
+function createFixture({ analyze = null, learnWords = [], reviewEvents = [] } = {}) {
   const activities = [{
     id: 'lookup-1',
     type: ActivityType.READING_WORD_LOOKUP,
@@ -17,11 +17,17 @@ function createFixture({ analyze = null } = {}) {
   }];
   const reports = new Map();
   const pruneCalls = [];
+  const learnWordReadOptions = [];
   const db = {
     async getAllArticles() { return []; },
     async getAllReadingStats() { return []; },
-    async getAllLearnWords() { return []; },
-    async getAllReviewEvents() { return []; },
+    async getAllLearnWords(options = {}) {
+      learnWordReadOptions.push(structuredClone(options));
+      return options.includeArchived
+        ? structuredClone(learnWords)
+        : structuredClone(learnWords.filter(word => word.archivedAt == null));
+    },
+    async getAllReviewEvents() { return structuredClone(reviewEvents); },
     async listLearningActivities() { return activities.slice(); },
     async listDailyLearningReports() { return [...reports.values()]; },
     async getDailyLearningReport(dateKey) { return reports.get(dateKey) || null; },
@@ -46,7 +52,7 @@ function createFixture({ analyze = null } = {}) {
     }
   };
   const service = new DailyLearningReportService({ db, examProvider, analyze, now: () => NOW });
-  return { service, activities, reports, pruneCalls };
+  return { service, activities, reports, pruneCalls, learnWordReadOptions };
 }
 
 const successfulAnalysis = async () => ({
@@ -126,4 +132,14 @@ test('activity details are category bounded and recent reports are capped', asyn
 
   const recent = await service.listRecent(100);
   assert.equal(recent.length <= 30, true);
+});
+
+test('daily report resolves an archived word referenced by a historical review event', async () => {
+  const { service, learnWordReadOptions } = createFixture({
+    learnWords: [{ id: 4, word: 'derive', archivedAt: at(11), createdAt: at(8) }],
+    reviewEvents: [{ id: 8, wordId: 4, source: 'external-import', reviewedAt: at(9), scheduleChanged: true }]
+  });
+  const report = await service.getOrCreate(DATE_KEY);
+  assert.deepEqual(report.facts.vocabulary.externalReviewWords, ['derive']);
+  assert.equal(learnWordReadOptions.some(options => options.includeArchived === true), true);
 });
