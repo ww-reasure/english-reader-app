@@ -44,3 +44,26 @@ test('sentence guide uses an independently scrollable mobile sheet with fixed na
   assert.match(css, /\.sentence-guide-body\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.sentence-guide-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,1fr\)/s);
 });
+
+test('reading guide and body share source-ranged sentences and guide words use one isolated lookup binding', async () => {
+  const source = await readReadingView();
+  assert.match(source, /import\s+\{\s*splitSentences\s*\}/);
+  assert.match(source, /class="reading-sentence/);
+  assert.match(source, /data-sentence-start=/);
+  assert.match(source, /_renderGuideSource\(sentence\)/);
+  assert.match(source, /data-word-lookup-token=/);
+  assert.match(source, /surface:\s*['"]guide['"]/);
+  assert.match(source, /_guideWordLookupCleanup\?\.\(\)/);
+  assert.match(source, /getContextSentence:\s*\(\)\s*=>\s*current\.sentence/);
+});
+
+test('sentence colors are page-local, default off and rerender through the same paragraph pipeline as word marking', async () => {
+  const [source, css] = await Promise.all([readReadingView(), readStyles()]);
+  assert.match(source, /sentenceColorsEnabled:\s*false/);
+  assert.match(source, /id="sentenceColorBtn"[^>]*aria-pressed="\$\{this\.sentenceColorsEnabled\}"/);
+  assert.match(source, /toggleSentenceColors\(\)/);
+  assert.match(source, /_renderParagraphContent\(/);
+  assert.match(source, /this\.sentenceColorsEnabled\s*=\s*false/);
+  assert.match(css, /\.reading-sentence\s*\{[^}]*box-decoration-break:\s*clone/s);
+  for (const index of [1, 2, 3, 4]) assert.match(css, new RegExp(`\\.reading-sentence\\.sentence-color-${index}`));
+});

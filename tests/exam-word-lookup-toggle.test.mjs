@@ -11,6 +11,18 @@ test('shared reading-style lookup accepts a dynamic enabled predicate', async ()
   const source = await readFile(new URL('../src/components/reading-word-lookup.js', import.meta.url), 'utf8');
   assert.match(source, /isEnabled\s*=\s*\(\)\s*=>\s*true/);
   assert.match(source, /if \(!isEnabled\(\)\) return/);
+  assert.match(source, /surface\s*=\s*['"]reading['"]/);
+});
+
+test('shared sentence context and point fallback retain true-exam passage and question selectors', async () => {
+  const [context, point] = await Promise.all([
+    readFile(new URL('../src/components/reading-word-context.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/word-point.mjs', import.meta.url), 'utf8')
+  ]);
+  for (const source of [context, point]) {
+    assert.match(source, /\.exam-practice-paragraph/);
+    assert.match(source, /\.exam-question-stem/);
+  }
 });
 
 test('global settings and the practice shortcut share the lookup preference', async () => {

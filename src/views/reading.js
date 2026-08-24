@@ -4,7 +4,7 @@
  */
 
 import { DB } from '../db.js';
-import { DIFFICULTY_LABELS, esc, getStemForm, ReadingTimer } from '../helpers.js';
+import { DIFFICULTY_LABELS, esc, escAttr, getStemForm, ReadingTimer } from '../helpers.js';
 import { Tooltip } from '../components/tooltip.js';
 import { AIAnalysis } from '../components/ai-analysis.js';
 import { AudioCache } from '../audio-cache.js';
@@ -27,6 +27,7 @@ import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
 import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
+import { splitSentences } from '../components/sentence-selection.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -56,6 +57,9 @@ export const ReadingView = {
   guideSession: 0,
   guideAbortController: null,
   guideModeUsed: false,
+  sentenceSegmentsByParagraph: [],
+  sentenceColorsEnabled: false,
+  _guideWordLookupCleanup: null,
   _viewportResizeHandler: null,
   _viewportResizeFrame: null,
 
@@ -84,9 +88,50 @@ export const ReadingView = {
   },
 
   _splitGuideSentences(paragraph) {
-    return (String(paragraph || '').match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [])
-      .map(sentence => sentence.trim())
-      .filter(sentence => /[a-z]/i.test(sentence));
+    return splitSentences(paragraph).filter(segment => /[a-z]/i.test(segment.text));
+  },
+
+  _renderGuideSource(sentence) {
+    const source = String(sentence || '');
+    const tokenPattern = /[A-Za-z]+(?:['’\-][A-Za-z]+)*/gu;
+    let cursor = 0;
+    let html = '';
+    for (const match of source.matchAll(tokenPattern)) {
+      const token = match[0];
+      const start = match.index ?? cursor;
+      html += esc(source.slice(cursor, start));
+      html += `<span class="sentence-guide-word" data-word-lookup-token="${escAttr(token)}" role="button" tabindex="0" title="点击查词">${esc(token)}</span>`;
+      cursor = start + token.length;
+    }
+    return html + esc(source.slice(cursor));
+  },
+
+  _renderMarkedText(text) {
+    if (this.reviewMode) return this._highlightReviewWords(text);
+    if (this.wordMarkingEnabled) return this._highlightLearningWords(text);
+    return esc(text);
+  },
+
+  _renderParagraphContent(paragraphIndex) {
+    const paragraph = String(this.englishParagraphs[paragraphIndex] || '');
+    const segments = this.sentenceSegmentsByParagraph[paragraphIndex] || splitSentences(paragraph);
+    if (!segments.length) return this._renderMarkedText(paragraph);
+    let cursor = 0;
+    let html = '';
+    segments.forEach((segment, sentenceIndex) => {
+      html += esc(paragraph.slice(cursor, segment.start));
+      const colorClass = this.sentenceColorsEnabled ? ` sentence-color-${sentenceIndex % 4 + 1}` : '';
+      html += `<span class="reading-sentence${colorClass}" data-sentence-index="${sentenceIndex}" data-sentence-start="${segment.start}" data-sentence-end="${segment.end}" data-sentence-text="${escAttr(segment.text)}">${this._renderMarkedText(segment.text)}</span>`;
+      cursor = segment.end;
+    });
+    return html + esc(paragraph.slice(cursor));
+  },
+
+  _rerenderEnglishParagraphs() {
+    this.container?.querySelectorAll?.('#articleBody .paragraph-pair').forEach((pair, index) => {
+      const english = pair.querySelector?.('.en-paragraph');
+      if (english && this.englishParagraphs[index] != null) english.innerHTML = this._renderParagraphContent(index);
+    });
   },
 
   getSentenceGuideProgress() {
@@ -144,6 +189,8 @@ export const ReadingView = {
 
   cleanup() {
     this.closeSentenceGuide({ restoreReading: false });
+    this._clearSentenceColors();
+    this.sentenceColorsEnabled = false;
     this._wordLookupCleanup?.();
     this._wordLookupCleanup = null;
     if (this._reviewRatedHandler) {
@@ -196,6 +243,8 @@ export const ReadingView = {
     this.guidePayload = null;
     this.guideError = '';
     this.guideModeUsed = false;
+    this.sentenceSegmentsByParagraph = [];
+    this.sentenceColorsEnabled = false;
     const article = await DB.getArticle(articleId);
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
@@ -259,15 +308,22 @@ export const ReadingView = {
     const enParas = this._splitParas(article.content);
     this.englishParagraphs = enParas;
     this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
+    this.sentenceSegmentsByParagraph = enParas.map(paragraph => splitSentences(paragraph));
     this.guideSentences = enParas.flatMap((paragraph, paragraphIndex) => this._splitGuideSentences(paragraph)
-      .map(sentence => ({ sentence, paragraph, paragraphIndex })));
+      .map(segment => ({
+        sentence: segment.text,
+        paragraph,
+        paragraphIndex,
+        sourceStart: segment.start,
+        sourceEnd: segment.end
+      })));
     const articleTrack = resolveArticleTrack(article);
 
     let parasHTML = '';
     enParas.forEach((p, i) => {
       const zhText = this.paragraphTranslations[i] || '';
       const hasTranslation = !!zhText.trim();
-      const paraHTML = this.reviewMode ? this._highlightReviewWords(p.trim()) : this.wordMarkingEnabled ? this._highlightLearningWords(p.trim()) : esc(p.trim());
+      const paraHTML = this._renderParagraphContent(i);
       parasHTML += `
         <div class="paragraph-pair" data-paragraph-index="${i}">
           <p class="en-paragraph">${paraHTML}</p>
@@ -292,6 +348,7 @@ export const ReadingView = {
           <div class="reading-action-strip" aria-label="阅读工具">
             <button class="btn btn-outline reading-action-btn" type="button" onclick="ReadingView.toggleTranslation()" id="translateBtn" aria-pressed="false">全文翻译<span class="reading-action-state" aria-hidden="true"></span></button>
             <button class="btn btn-outline" type="button" onclick="ReadingView.openSentenceGuide()">逐句导读</button>
+            <button class="btn btn-outline" type="button" id="sentenceColorBtn" onclick="ReadingView.toggleSentenceColors()" aria-pressed="${this.sentenceColorsEnabled}" aria-label="句子配色：${this.sentenceColorsEnabled ? '开' : '关'}">句子配色</button>
             <button class="btn btn-outline" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">导出 PDF</button>
             <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
           </div>
@@ -328,6 +385,32 @@ export const ReadingView = {
     this.autoStartTimer();
   },
 
+  _recordReadingLookup({ word, data, reviewWord, lookupId, source = 'reading-word-lookup', collect = true }) {
+    const stem = getStemForm(word.toLowerCase());
+    void knowledgeEvidenceBridge.recordLookup({
+      word,
+      source,
+      articleId: this.articleData?.id,
+      attemptId: `${source}:${this.articleData?.id || 'article'}:${lookupId}`,
+      contextId: `tooltip:${lookupId}`
+    });
+    if (!collect || this.clickedWords.some(item => item.stem === stem)) return;
+    this.clickedWords.push({
+      word: word.toLowerCase(),
+      stem,
+      translation: getSavableTranslation(data),
+      phonetic: data.phonetic || '',
+      pos: data.pos || '',
+      definitionSenses: getDefinitionSenses(data),
+      definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
+      definitionLexiconVersion: data.lexiconVersion || '',
+      freqLevel: data.freqLevel || 'unknown',
+      isReviewWord: reviewWord,
+      quality: reviewWord ? 3 : null,
+      explicitRating: false
+    });
+  },
+
   initInteractions() {
     const articleBody = document.getElementById('articleBody');
     const titleLookupHost = document.getElementById('readingTitleLookup');
@@ -347,29 +430,12 @@ export const ReadingView = {
       },
       onHide: () => AIAnalysis.hideButton(),
       onShown: ({ event, word, data, reviewWord, lookupId }) => {
-        const stem = getStemForm(word.toLowerCase());
-        void knowledgeEvidenceBridge.recordLookup({
+        this._recordReadingLookup({
           word,
-          source: 'reading-word-lookup',
-          articleId: this.articleData?.id,
-          attemptId: `reading-lookup:${this.articleData?.id || 'article'}:${lookupId}`,
-          contextId: `tooltip:${lookupId}`
-        });
-
-        if (!event?.target?.closest?.('#articleBody') || this.clickedWords.some(item => item.stem === stem)) return;
-        this.clickedWords.push({
-          word: word.toLowerCase(),
-          stem,
-          translation: getSavableTranslation(data),
-          phonetic: data.phonetic || '',
-          pos: data.pos || '',
-          definitionSenses: getDefinitionSenses(data),
-          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-          definitionLexiconVersion: data.lexiconVersion || '',
-          freqLevel: data.freqLevel || 'unknown',
-          isReviewWord: reviewWord,
-          quality: reviewWord ? 3 : null,
-          explicitRating: false
+          data,
+          reviewWord,
+          lookupId,
+          collect: Boolean(event?.target?.closest?.('#articleBody'))
         });
       }
     });
@@ -405,6 +471,8 @@ export const ReadingView = {
   },
 
   closeSentenceGuide({ restoreReading = true } = {}) {
+    this._guideWordLookupCleanup?.();
+    this._guideWordLookupCleanup = null;
     if (this.guideAbortController) {
       this.guideAbortController.abort();
       this.guideAbortController = null;
@@ -439,6 +507,8 @@ export const ReadingView = {
     const overlay = document.getElementById('sentenceGuideModal');
     const current = this.guideSentences[this.guideIndex];
     if (!overlay || !current) return;
+    this._guideWordLookupCleanup?.();
+    this._guideWordLookupCleanup = null;
     const guide = this.guidePayload;
     const loading = !!this.guideAbortController && !guide && !this.guideError;
     const chunks = guide?.chunks?.length
@@ -463,7 +533,7 @@ export const ReadingView = {
           <button class="modal-close" type="button" onclick="ReadingView.closeSentenceGuide()" aria-label="关闭逐句导读">×</button>
         </header>
         <div class="sentence-guide-body">
-          <p class="sentence-guide-source">${esc(current.sentence)}</p>
+          <p class="sentence-guide-source">${this._renderGuideSource(current.sentence)}</p>
           ${status}
         </div>
         <footer class="sentence-guide-actions">
@@ -472,6 +542,26 @@ export const ReadingView = {
           <button class="btn btn-primary" type="button" onclick="ReadingView.nextSentenceGuide()" ${this.guideIndex >= this.guideSentences.length - 1 ? 'disabled' : ''}>下一句</button>
         </footer>
       </section>`;
+
+    const source = overlay.querySelector?.('.sentence-guide-source');
+    if (source) {
+      this._guideWordLookupCleanup = bindReadingStyleWordLookup({
+        root: source,
+        surface: 'guide',
+        getContextSentence: () => current.sentence,
+        getTargetTrack: () => resolveArticleTrack(this.articleData || {}).targetTrack,
+        isReviewWord: word => this.reviewMode && this.reviewWordsMap.has(getStemForm(word.toLowerCase())),
+        onHide: () => AIAnalysis.hideButton(),
+        onShown: ({ word, data, reviewWord, lookupId }) => this._recordReadingLookup({
+          word,
+          data,
+          reviewWord,
+          lookupId,
+          source: 'reading-guide-word-lookup',
+          collect: true
+        })
+      });
+    }
   },
 
   async loadSentenceGuide() {
@@ -522,19 +612,38 @@ export const ReadingView = {
       });
       if (session !== this.wordMarkingSession || !this.wordMarkingEnabled) return;
     }
-    document.querySelectorAll('#articleBody .paragraph-pair').forEach((pair, index) => {
-      const paragraph = this.englishParagraphs[index];
-      const english = pair.querySelector('.en-paragraph');
-      if (english && paragraph != null) {
-        english.innerHTML = this.wordMarkingEnabled ? this._highlightLearningWords(paragraph) : esc(paragraph);
-      }
-    });
+    this._rerenderEnglishParagraphs();
     if (button) {
       button.removeAttribute('aria-busy');
       button.classList.toggle('is-active', this.wordMarkingEnabled);
       button.setAttribute('aria-checked', String(this.wordMarkingEnabled));
       button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
     }
+  },
+
+  _clearSentenceColors() {
+    this.container?.querySelectorAll?.('#articleBody .reading-sentence').forEach(node => {
+      node.classList?.remove?.('sentence-color-1', 'sentence-color-2', 'sentence-color-3', 'sentence-color-4');
+    });
+    const button = this.container?.querySelector?.('#sentenceColorBtn') || document.getElementById?.('sentenceColorBtn');
+    if (button) {
+      button.classList.remove('is-active');
+      button.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-label', '句子配色：关');
+    }
+  },
+
+  toggleSentenceColors() {
+    if (!this.sentenceSegmentsByParagraph.some(segments => segments.length)) return false;
+    this.sentenceColorsEnabled = !this.sentenceColorsEnabled;
+    this._rerenderEnglishParagraphs();
+    const button = this.container?.querySelector?.('#sentenceColorBtn') || document.getElementById?.('sentenceColorBtn');
+    if (button) {
+      button.classList.toggle('is-active', this.sentenceColorsEnabled);
+      button.setAttribute('aria-pressed', String(this.sentenceColorsEnabled));
+      button.setAttribute('aria-label', `句子配色：${this.sentenceColorsEnabled ? '开' : '关'}`);
+    }
+    return this.sentenceColorsEnabled;
   },
 
   _highlightLearningWords(text) {

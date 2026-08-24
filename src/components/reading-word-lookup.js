@@ -2,55 +2,26 @@ import { Tooltip } from './tooltip.js';
 import { ContextualSense } from './contextual-sense.js';
 import { getDefinitionSenses } from './definition-trust.mjs';
 import { Dictionary } from '../dictionary.js';
-import { getRangeAtPoint } from './word-point.js';
+import { getContextSentenceAtPoint } from './reading-word-context.mjs';
+
+export { getContextSentenceAtPoint } from './reading-word-context.mjs';
 
 const LOOKUP_CONTROL_SELECTOR = 'button, a, input, textarea, select, [role="button"]';
 const LOOKUP_DISABLED_SELECTOR = '[data-word-lookup="disabled"], [data-selection-source="option_translations"], [data-selection-source="option_analysis"]';
 
-function pointForEvent(event) {
+function pointForEvent(event, target) {
+  const rect = target?.getBoundingClientRect?.();
+  const hasPointerCoordinates = event?.type !== 'keydown'
+    && Number.isFinite(event?.clientX)
+    && Number.isFinite(event?.clientY);
   return {
-    x: Number.isFinite(event?.clientX) ? event.clientX : 12,
-    y: Number.isFinite(event?.clientY) ? event.clientY : 12
+    x: hasPointerCoordinates ? event.clientX : Number.isFinite(rect?.left) ? rect.left + Math.min(rect.width || 0, 18) : 12,
+    y: hasPointerCoordinates ? event.clientY : Number.isFinite(rect?.bottom) ? rect.bottom + 4 : 12
   };
-}
-
-function rangeAtPoint(event) {
-  return getRangeAtPoint(event);
 }
 
 function normalizeSentence(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Find the sentence under a click using the same caret-based context model as
- * the reading page. The block selectors also cover exam passages and result
- * evidence without changing their rendered markup.
- */
-export function getContextSentenceAtPoint(event, root = document) {
-  const range = rangeAtPoint(event);
-  const pointNode = range?.startContainer;
-  const textNodeType = globalThis.Node?.TEXT_NODE || 3;
-  const element = pointNode?.nodeType === textNodeType ? pointNode.parentElement : pointNode;
-  const block = element?.closest?.('.en-paragraph, .exam-practice-paragraph, .exam-question-stem, p, [data-selection-source]');
-  if (!block || !pointNode || pointNode.nodeType !== textNodeType || !root?.contains?.(block)) return '';
-
-  const walker = document.createTreeWalker(block, globalThis.NodeFilter?.SHOW_TEXT || 4);
-  const nodes = [];
-  let node;
-  while ((node = walker.nextNode())) nodes.push(node);
-  const pointIndex = nodes.indexOf(pointNode);
-  if (pointIndex < 0) return normalizeSentence(block.textContent);
-  const offset = nodes.slice(0, pointIndex).reduce((total, item) => total + item.textContent.length, 0) + range.startOffset;
-  const text = block.textContent || '';
-  if (offset < 0 || offset > text.length) return '';
-
-  const before = text.slice(0, offset);
-  const sentenceStart = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?')) + 1;
-  const after = text.slice(offset);
-  const boundary = after.search(/[.!?](?=\s|$)/);
-  const sentenceEnd = boundary === -1 ? text.length : offset + boundary + 1;
-  return normalizeSentence(text.slice(sentenceStart, sentenceEnd));
 }
 
 /**
@@ -60,6 +31,7 @@ export function getContextSentenceAtPoint(event, root = document) {
  */
 export function bindReadingStyleWordLookup({
   root,
+  surface = 'reading',
   getContextSentence = event => getContextSentenceAtPoint(event, root),
   getTargetTrack = () => '',
   isReviewWord = () => false,
@@ -72,6 +44,7 @@ export function bindReadingStyleWordLookup({
   if (!root || !tooltip) return () => {};
 
   let disposed = false;
+  const isolatedSurface = surface === 'guide' || surface === 'isolated';
 
   const hide = () => {
     Tooltip.hide();
@@ -87,31 +60,33 @@ export function bindReadingStyleWordLookup({
     if (disposed) return;
     if (!isEnabled()) return hide();
     if (shouldIgnoreClick(event)) {
-      event.stopPropagation();
+      event.stopPropagation?.();
       return;
     }
     if (tooltip.contains(event.target)) return;
 
     const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
     if (!target || !root.contains(target)) return;
-    if (target.closest?.(LOOKUP_CONTROL_SELECTOR) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
+    const tokenTarget = target.dataset?.wordLookupToken ? target : target.closest?.('[data-word-lookup-token]');
+    if (isolatedSurface && !tokenTarget) return;
+    if ((!tokenTarget && target.closest?.(LOOKUP_CONTROL_SELECTOR)) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
 
     const selection = window.getSelection?.();
-    if (selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
+    if (event.type !== 'keydown' && selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
 
     // Match reading behavior: the first body click closes the current card.
     if (Tooltip.isVisible()) {
-      event.stopPropagation();
+      event.stopPropagation?.();
       hide();
       return;
     }
 
-    const word = Tooltip.getWordAtPoint(event);
+    const word = String(tokenTarget?.dataset?.wordLookupToken || Tooltip.getWordAtPoint(event) || '').trim();
     if (!word || word.length < 2) return;
-    event.stopPropagation();
+    event.stopPropagation?.();
 
     onHide();
-    const { x, y } = pointForEvent(event);
+    const { x, y } = pointForEvent(event, tokenTarget || target);
     const lookupId = Tooltip.beginLookup(x, y);
 
     try {
@@ -152,7 +127,8 @@ export function bindReadingStyleWordLookup({
         reviewWord,
         contextSentence,
         targetTrack,
-        lookupId
+        lookupId,
+        surface
       })).catch(() => {});
     } catch {
       if (!disposed && Tooltip.isCurrent(lookupId)) {
@@ -161,13 +137,23 @@ export function bindReadingStyleWordLookup({
     }
   };
 
+  const keydownHandler = event => {
+    if (!['Enter', ' '].includes(event.key)) return;
+    const target = event.target?.closest?.('[data-word-lookup-token]');
+    if (!target || !root.contains(target)) return;
+    event.preventDefault?.();
+    void lookupWord(event);
+  };
+
   root.addEventListener('click', lookupWord);
+  root.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', globalClickHandler);
   const autoDismissCleanup = Tooltip.attachAutoDismiss();
 
   return () => {
     disposed = true;
     root.removeEventListener('click', lookupWord);
+    root.removeEventListener('keydown', keydownHandler);
     document.removeEventListener('click', globalClickHandler);
     autoDismissCleanup?.();
     Tooltip.hide();
