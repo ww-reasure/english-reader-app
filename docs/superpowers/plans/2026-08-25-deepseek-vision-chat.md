@@ -1,8 +1,8 @@
-# DeepSeek Vision Chat Implementation Plan
+# DeepSeek Vision Chat Implementation Plan — Unified Vocabulary Baseline
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the homepage generation-settings “+” menu with a durable camera/gallery attachment flow, make `deepseek-v4-flash-vision-exp` the safe default, and preserve image-aware follow-up without repeatedly sending irrelevant images.
+**Goal:** Starting from the latest unified vocabulary library, replace the homepage generation-settings “+” menu with a durable camera/gallery attachment flow, make `deepseek-v4-flash-vision-exp` the safe default, and preserve image-aware follow-up without repeatedly sending irrelevant images.
 
 **Architecture:** Keep the existing `ChatService`, `ContextBuilder`, Agent tools, and `ConversationStore` as the single conversation system. Store optimized image blobs in a new IndexedDB v19 store, keep only lightweight attachment references in localStorage, upload images to DeepSeek Files API with 30-day expiry, and assemble multimodal content only for the current or explicitly referenced image group. Ordinary follow-ups use a deterministic visual summary; exact image follow-ups reattach file IDs or re-upload the local blob when the remote file expires.
 
@@ -12,10 +12,13 @@
 
 ## Execution guardrails
 
-- Read `docs/superpowers/specs/2026-08-25-deepseek-vision-chat-design.md` completely before editing.
-- Create an isolated worktree from the source commit containing this plan. Recommended branch: `feat/deepseek-vision-chat`.
-- Do not implement in the active `feat/english-practice-machine` checkout.
+- Read `E:\play\claude\english-reader\mobile\docs\superpowers\specs\2026-08-25-deepseek-vision-chat-design.md` completely before editing. The plan and spec are external planning inputs because the unified vocabulary branch predates their planning commit.
+- Create an isolated worktree from the exact unified vocabulary source commit `193d87e4e46a41f8160c8fe8fa609b2d114a9163` on branch `feat/unified-vocabulary-library`. Recommended implementation branch: `feat/deepseek-vision-chat`.
+- Do not implement in `feat/english-practice-machine` or in the existing `unified-vocabulary-library` checkout.
 - Do not merge, push, tag, edit `main`, rewrite private exam packs, change SRS, or change daily-report facts.
+- Treat the unified vocabulary library as an existing product boundary: preserve its UI, source filters, import/saved-word semantics, default recent-added ordering, management/selection interactions, and tablet layout. Do not add image behavior to vocabulary or alter vocabulary data contracts for this feature.
+- `src/db.js` changes must be additive to the database schema present at `193d87e4`; inspect the actual v18 stores/migrations in that baseline before adding `chatImageAttachments` as v19. Never replace or reorder existing vocabulary/import/archive stores.
+- Scope new CSS to `.chat-*`, `.image-*` within the chat view, or an equally explicit chat root. Do not use broad selectors that can change the unified vocabulary page.
 - Preserve the existing home Agent tool loop, native web search, article-generation authorization, report cards, copy, selected-reply quoting, cancellation, and usage telemetry.
 - Use TDD: run every stated RED test before production edits, then the stated GREEN tests.
 - Use `apply_patch` for source/test/document edits. Formatting or generated build outputs may use their normal commands.
@@ -71,42 +74,51 @@
 - `tests/deepseek-responses.test.mjs`
 - `tests/api-model-compat.test.mjs`
 - `tests/app-shell.test.mjs`
+- `tests/unified-vocabulary-view.test.mjs`
+- `tests/vocab-tablet-layout-contract.test.mjs`
 - all `tests/*.test.mjs`
 
 ---
 
-### Task 0: Create the isolated worktree and establish a clean baseline
+### Task 0: Pin the unified vocabulary baseline and establish a clean baseline
 
 **Files:**
 - No tracked source changes.
 
-- [ ] **Step 1: Confirm the source checkout and plan commit**
+- [ ] **Step 1: Confirm the exact unified vocabulary source and external plan files**
 
 ```powershell
-$source = 'E:\play\claude\english-reader\mobile'
-git -C $source rev-parse --show-toplevel
-git -C $source status --short --branch
-git -C $source log -1 --oneline
-git -C $source ls-tree -r --name-only HEAD -- docs/superpowers/specs/2026-08-25-deepseek-vision-chat-design.md docs/superpowers/plans/2026-08-25-deepseek-vision-chat.md
+$source = 'E:\play\claude\english-reader\mobile\.worktrees\unified-vocabulary-library'
+$planRoot = 'E:\play\claude\english-reader\mobile'
+$expectedBase = '193d87e4e46a41f8160c8fe8fa609b2d114a9163'
+if ((git -C $source rev-parse --show-toplevel).Trim() -ne $source) { throw 'Unexpected unified vocabulary worktree' }
+if ((git -C $source rev-parse --abbrev-ref HEAD).Trim() -ne 'feat/unified-vocabulary-library') { throw 'Unexpected source branch' }
+if ((git -C $source rev-parse HEAD).Trim() -ne $expectedBase) { throw 'Unified vocabulary baseline is not 193d87e' }
+if ((git -C $source status --porcelain)) { throw 'Unified vocabulary source worktree must be clean' }
+if (-not (Test-Path -LiteralPath (Join-Path $planRoot 'docs/superpowers/specs/2026-08-25-deepseek-vision-chat-design.md'))) { throw 'Design spec not found' }
+if (-not (Test-Path -LiteralPath (Join-Path $planRoot 'docs/superpowers/plans/2026-08-25-deepseek-vision-chat.md'))) { throw 'Implementation plan not found' }
+git -C $source show -s --format='%H%n%D%n%s' $expectedBase
+git -C $source show --stat --oneline $expectedBase
 ```
 
-Expected: source branch is `feat/english-practice-machine`, status is clean, and both design/plan paths are present in `HEAD`.
+Expected: the source is clean, its branch is `feat/unified-vocabulary-library`, its exact HEAD is `193d87e4e46a41f8160c8fe8fa609b2d114a9163`, and both external plan files exist under `$planRoot`. Do not require the plan files to be present in the unified vocabulary commit because that branch predates the planning commit.
 
 - [ ] **Step 2: Create the feature worktree**
 
 ```powershell
-$source = 'E:\play\claude\english-reader\mobile'
+$source = 'E:\play\claude\english-reader\mobile\.worktrees\unified-vocabulary-library'
 $target = 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat'
-git -C $source worktree add $target -b feat/deepseek-vision-chat HEAD
+if (Test-Path -LiteralPath $target) { throw 'Target worktree already exists; inspect it instead of overwriting it' }
+git -C $source worktree add $target -b feat/deepseek-vision-chat 193d87e4e46a41f8160c8fe8fa609b2d114a9163
 git -C $target status --short --branch
 ```
 
-Expected: clean `feat/deepseek-vision-chat` worktree.
+Expected: a clean `feat/deepseek-vision-chat` worktree whose HEAD is exactly `193d87e4e46a41f8160c8fe8fa609b2d114a9163`. Do not cherry-pick `f2f0e88` or any commit from `feat/english-practice-machine` as a code baseline.
 
 - [ ] **Step 3: Copy ignored private QA packs without tracking them**
 
 ```powershell
-$sourcePacks = 'E:\play\claude\english-reader\mobile\public\exam-packs\private'
+$sourcePacks = 'E:\play\claude\english-reader\mobile\.worktrees\unified-vocabulary-library\public\exam-packs\private'
 $targetPacks = 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\public\exam-packs\private'
 if (Test-Path -LiteralPath $sourcePacks) {
   New-Item -ItemType Directory -Force -Path $targetPacks | Out-Null
@@ -118,16 +130,37 @@ if (Test-Path -LiteralPath $sourcePacks) {
 git -C $target status --short
 ```
 
-Expected: copied resources remain ignored and status stays empty.
+Expected: copied resources remain ignored and status stays empty. If the source worktree does not contain private packs, locate the configured private-pack source without modifying tracked files; do not manufacture or alter exam data.
 
-- [ ] **Step 4: Run the complete baseline suite**
+- [ ] **Step 4: Read the external spec and plan before editing**
+
+```powershell
+$planRoot = 'E:\play\claude\english-reader\mobile'
+Get-Content -Raw -LiteralPath (Join-Path $planRoot 'docs/superpowers/specs/2026-08-25-deepseek-vision-chat-design.md')
+Get-Content -Raw -LiteralPath (Join-Path $planRoot 'docs/superpowers/plans/2026-08-25-deepseek-vision-chat.md')
+```
+
+Expected: both documents are read completely. Because the target branch predates them, do not copy old source-branch code merely to make the documents appear in the target tree.
+
+- [ ] **Step 5: Run the complete baseline suite and unified vocabulary regression contracts**
 
 ```powershell
 Set-Location 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat'
+node --test tests/unified-vocabulary-view.test.mjs tests/vocab-tablet-layout-contract.test.mjs
 node --test tests/*.test.mjs
 ```
 
-Expected: 0 failures. Record actual totals. If an unrelated baseline failure occurs, compare the same test in the source checkout and report evidence before continuing; missing ignored private resources may be copied, but production behavior must not be weakened to mask a failure.
+Expected: both vocabulary contract tests and the complete baseline suite have 0 failures. Record actual totals. If an unrelated baseline failure occurs, compare the same test in the source checkout and report evidence before continuing; missing ignored private resources may be copied, but production behavior must not be weakened to mask a failure.
+
+- [ ] **Step 6: Record the integration surfaces before writing production code**
+
+```powershell
+git -C 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat' show --stat --oneline 193d87e4e46a41f8160c8fe8fa609b2d114a9163
+rg -n "unified|import|收藏|导入|recent|source|vocabulary" 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\src\views\vocabulary.js' 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\src\components\app-shell.js' 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\tests\unified-vocabulary-view.test.mjs' 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\tests\vocab-tablet-layout-contract.test.mjs'
+rg -n "DB_VERSION|version|createObjectStore|learnWords|vocabulary|imports|archives" 'E:\play\claude\english-reader\mobile\.worktrees\deepseek-vision-chat\src\db.js'
+```
+
+Expected: the executor records the actual unified vocabulary selectors/data contracts and the actual database version/store definitions at this baseline. All later changes must be additive and must keep those selectors, stores, and tests passing.
 
 ---
 
@@ -409,6 +442,9 @@ test('v19 creates chatImageAttachments without rewriting learning stores', async
   const db = await DB.open();
   assert.equal(db.version, 19);
   assert.equal(db.objectStoreNames.contains('chatImageAttachments'), true);
+  for (const existing of ['vocabulary', 'learnWords', 'reviewEvents', 'knowledgeWords', 'articleCatalog']) {
+    assert.equal(db.objectStoreNames.contains(existing), true, `existing store missing: ${existing}`);
+  }
   const tx = db.transaction('chatImageAttachments', 'readonly');
   const store = tx.objectStore('chatImageAttachments');
   for (const index of ['groupId', 'conversationKey', 'status', 'createdAt', 'lastAccessedAt']) {
@@ -448,9 +484,9 @@ node --test tests/db-chat-images.test.mjs tests/exam-db-migration.test.mjs tests
 
 Expected: FAIL because DB v19 and attachment methods do not exist.
 
-- [ ] **Step 3: Add the v19 store**
+- [ ] **Step 3: Add the v19 store without touching unified vocabulary data**
 
-Set `DB_VERSION: 19` and add only this store during upgrade:
+At the `193d87e` baseline, `src/db.js` is v18 and already contains the unified vocabulary/import/archive stores. Set `DB_VERSION: 19` and add only this store during upgrade:
 
 ```js
 if (!db.objectStoreNames.contains('chatImageAttachments')) {
@@ -464,6 +500,7 @@ if (!db.objectStoreNames.contains('chatImageAttachments')) {
 ```
 
 Do not scan or rewrite existing records during upgrade.
+Do not rename, reorder, migrate, normalize, or delete `vocabulary`, `learnWords`, `reviewEvents`, `knowledgeWords`, `articleCatalog`, or any other existing store. Do not change the unified vocabulary record shape while adding image attachments.
 
 - [ ] **Step 4: Add exact DB methods**
 
@@ -483,7 +520,7 @@ getChatImageStorageBytes()
 
 `releaseChatImageAttachment` sets `blob:null`, `sizeBytes:0`, `status:'released'` unless a remote deletion is pending, preserves the thumbnail until service policy removes it, and never touches conversation localStorage. `getChatImageGroup` sorts by numeric `order`, then ID.
 
-- [ ] **Step 5: Run DB tests and verify GREEN**
+- [ ] **Step 5: Run DB tests and verify GREEN, including unified vocabulary stores**
 
 ```powershell
 node --test tests/db-chat-images.test.mjs tests/exam-db-migration.test.mjs tests/knowledge-profile-db.test.mjs tests/article-catalog-db.test.mjs
@@ -1343,12 +1380,12 @@ Requirements:
 .chat-image-thumb img { width: 100%; height: 100%; object-fit: cover; }
 ```
 
-At 840px and above, keep the existing tablet shell and cap thumbnail sizes; do not turn the homepage into a separate two-column product. The viewer may use the full content area. Every interactive control has `:focus-visible` and a minimum 44px touch target where it is not a compact thumbnail affordance.
+Add these rules under a chat-specific root or with `.chat-*` selectors only. Do not edit or generalize the unified vocabulary selectors added by `193d87e` (including source/filter/tablet layout rules), and do not use selectors such as bare `button`, `input`, `.page-content`, or broad `.modal` rules for this feature. At 840px and above, keep the existing tablet shell and cap thumbnail sizes; do not turn the homepage into a separate two-column product. The viewer may use the full content area. Every interactive control has `:focus-visible` and a minimum 44px touch target where it is not a compact thumbnail affordance.
 
-- [ ] **Step 12: Run view/style tests and verify GREEN**
+- [ ] **Step 12: Run view/style tests and unified vocabulary contracts to verify GREEN**
 
 ```powershell
-node --test tests/chat-vision-view.test.mjs tests/chat-vision-style-contract.test.mjs tests/app-shell.test.mjs tests/conversation-store-images.test.mjs tests/chat-service-multimodal.test.mjs
+node --test tests/chat-vision-view.test.mjs tests/chat-vision-style-contract.test.mjs tests/app-shell.test.mjs tests/unified-vocabulary-view.test.mjs tests/vocab-tablet-layout-contract.test.mjs tests/conversation-store-images.test.mjs tests/chat-service-multimodal.test.mjs
 ```
 
 Expected: all selected tests pass, 0 fail.
@@ -1371,7 +1408,7 @@ git commit -m "feat(chat): add camera and gallery conversations"
 - [ ] **Step 1: Run all focused visual-chat tests together**
 
 ```powershell
-node --test tests/deepseek-model-catalog.test.mjs tests/chat-image-policy.test.mjs tests/db-chat-images.test.mjs tests/chat-image-processor.test.mjs tests/deepseek-files-api.test.mjs tests/chat-image-service.test.mjs tests/conversation-store-images.test.mjs tests/multimodal-context.test.mjs tests/chat-service-multimodal.test.mjs tests/chat-vision-view.test.mjs tests/chat-vision-style-contract.test.mjs tests/conversation-store.test.mjs tests/context-builder.test.mjs tests/chat-service.test.mjs tests/chat-service-agent-tool.test.mjs tests/deepseek-responses.test.mjs tests/api-model-compat.test.mjs tests/app-shell.test.mjs
+node --test tests/deepseek-model-catalog.test.mjs tests/chat-image-policy.test.mjs tests/db-chat-images.test.mjs tests/chat-image-processor.test.mjs tests/deepseek-files-api.test.mjs tests/chat-image-service.test.mjs tests/conversation-store-images.test.mjs tests/multimodal-context.test.mjs tests/chat-service-multimodal.test.mjs tests/chat-vision-view.test.mjs tests/chat-vision-style-contract.test.mjs tests/conversation-store.test.mjs tests/context-builder.test.mjs tests/chat-service.test.mjs tests/chat-service-agent-tool.test.mjs tests/deepseek-responses.test.mjs tests/api-model-compat.test.mjs tests/app-shell.test.mjs tests/unified-vocabulary-view.test.mjs tests/vocab-tablet-layout-contract.test.mjs
 ```
 
 Expected: 0 failures.
@@ -1420,7 +1457,8 @@ Use the local Vite app and verify at approximately 390×844 and tablet rail widt
 9. Closing the active-image chip preserves history.
 10. Clearing context removes messages and local images while saved articles/learning records remain.
 11. Long filenames, Chinese/English text, 12 thumbnails, and errors cause no page-level horizontal scroll.
-12. Daily report, native web search, article generation, copy, quote, and cancellation still work.
+12. The unified vocabulary page still shows saved/imported sources, recent-added ordering, management/selection controls, and tablet layout exactly as its baseline contracts require.
+13. Daily report, native web search, article generation, copy, quote, and cancellation still work.
 
 - [ ] **Step 6: Increment Android versionCode once and build the private QA APK**
 
@@ -1469,6 +1507,7 @@ Verify:
 6. Image text remains readable enough for article/question analysis.
 7. Clearing context removes local image history after returning to the page.
 8. Existing true-exam, vocabulary, review, report, and reading routes still open.
+9. The unified vocabulary page still opens with its saved/imported source filters and does not inherit chat attachment state or CSS overflow.
 
 - [ ] **Step 9: Audit the approved design line by line**
 
@@ -1486,6 +1525,7 @@ Confirm explicitly:
 - custom endpoints never leak images to official DeepSeek.
 - Agent tools and article authorization remain intact.
 - no automatic vocabulary/report writes were added.
+- unified vocabulary UI, source semantics, import data, and tablet layout remain unchanged from `193d87e`.
 - no `main`, private-pack content, SRS, or exam data changes occurred.
 
 - [ ] **Step 10: Commit verification/version changes**

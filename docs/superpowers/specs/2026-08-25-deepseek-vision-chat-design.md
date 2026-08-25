@@ -2,8 +2,8 @@
 
 - 日期：2026-08-25
 - 状态：已与用户逐节确认
-- 目标基线：`feat/english-practice-machine`
-- 推荐实现分支：`feat/deepseek-vision-chat`
+- 目标基线：`feat/unified-vocabulary-library@193d87e4e46a41f8160c8fe8fa609b2d114a9163`
+- 推荐实现分支：`feat/deepseek-vision-chat`（从上述统一词汇库基线创建）
 - 作用范围：首页对话框 `#/chat`
 
 ## 1. 背景
@@ -21,6 +21,18 @@
 - IndexedDB 当前版本为 18，尚无聊天附件存储；
 - `API.fetch` 当前默认固定读取 `Config.model`，没有请求级模型覆盖；
 - 对话内容当前按字符串构建，不能直接承载图片块。
+
+本次执行必须以统一词汇库最新提交为代码基线，而不是以本计划产生时的旧开发分支为基线。该基线已经包含统一的收藏/导入词库页面、来源筛选、导入数据兼容和移动端/平板布局；视觉对话功能只扩展首页聊天链路，不能回退或重写这些成果。
+
+统一词汇库基线的回归保护点：
+
+- `src/views/vocabulary.js` 的统一词库 UI、收藏/导入来源显示、默认最近加入排序和管理/选词交互保持不变；
+- `src/components/app-shell.js` 的页面挂载与导航行为保持不变；
+- `css/style.css` 的词库样式只能继续共存，视觉聊天样式必须使用 `.chat-*` 等明确作用域，不能用宽泛选择器覆盖词库布局；
+- `tests/unified-vocabulary-view.test.mjs` 与 `tests/vocab-tablet-layout-contract.test.mjs` 在功能实现前后都必须通过；
+- `src/db.js` 的现有词库、导入、学习档案和迁移数据必须保留，图片附件只能以新增 IndexedDB v19 store 的方式增量加入。
+
+计划文件本身位于源工作树 `E:\play\claude\english-reader\mobile\docs\superpowers\`。由于统一词汇库分支从视觉计划提交之前的历史分叉，执行 worktree 可能不包含这两个计划文件；执行者应从该绝对路径读取它们，不得为了读取计划把旧分支代码合并进统一词汇库基线。
 
 因此本功能必须扩展现有聊天系统，而不是复制一套“看图聊天”。
 
@@ -499,4 +511,4 @@ Responses API 转换为 `input_text` 与 `input_image/file_id` 对应结构。�
 
 ## 18. 交付边界
 
-实现必须从 `feat/english-practice-machine` 的设计文档提交创建独立 worktree 和功能分支。采用测试先行和小提交；保留现有私有题包但不得改写。完成后运行聚焦测试、全量测试、私有 QA 构建、Android APK 构建和手机冒烟。最终只交付功能分支、提交序列、测试证据、APK 与 SHA-256；不自动合并或推送。
+实现必须从 `feat/unified-vocabulary-library` 的精确提交 `193d87e4e46a41f8160c8fe8fa609b2d114a9163` 创建独立 worktree 和功能分支。计划文件从源工作树绝对路径读取，不得把旧 `feat/english-practice-machine` 代码合并作为基线。采用测试先行和小提交；保留现有私有题包但不得改写。完成后运行聚焦测试、统一词汇库回归、全量测试、私有 QA 构建、Android APK 构建和手机冒烟。最终只交付功能分支、提交序列、测试证据、APK 与 SHA-256；不自动合并或推送。
