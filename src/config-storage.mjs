@@ -5,6 +5,8 @@ export const CONFIG_STORAGE_KEYS = [
   'api_onboarding_seen',
   'base_url',
   'model',
+  'model_selection_explicit',
+  'vision_default_migration',
   'theme',
   'exam_level',
   'level',

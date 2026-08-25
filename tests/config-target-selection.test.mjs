@@ -20,18 +20,21 @@ function createWebStorage(values = {}) {
 }
 
 async function loadConfig(values = {}) {
-  const [configSource, storageSource, trackSource] = await Promise.all([
+  const [configSource, storageSource, trackSource, catalogSource] = await Promise.all([
     readFile(CONFIG_URL, 'utf8'),
     readFile(STORAGE_URL, 'utf8'),
-    readFile(TRACK_URL, 'utf8')
+    readFile(TRACK_URL, 'utf8'),
+    readFile(new URL('../src/components/deepseek-model-catalog.mjs', import.meta.url), 'utf8')
   ]);
   const storageModule = dataModule(storageSource);
   const trackModule = dataModule(trackSource);
+  const catalogModule = dataModule(catalogSource);
   const source = configSource
     .replace("import { Capacitor } from '@capacitor/core';", 'const Capacitor = { isNativePlatform: () => false };')
     .replace("import { SecureStorage } from '@aparajita/capacitor-secure-storage';", 'const SecureStorage = null;')
     .replace("from './config-storage.mjs'", `from '${storageModule}'`)
-    .replace("from './learning-track.mjs'", `from '${trackModule}'`);
+    .replace("from './learning-track.mjs'", `from '${trackModule}'`)
+    .replace("from './components/deepseek-model-catalog.mjs'", `from '${catalogModule}'`);
   const previousStorage = globalThis.localStorage;
   globalThis.localStorage = createWebStorage(values);
   try {

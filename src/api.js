@@ -6,6 +6,7 @@
 import { Config } from './config.js';
 import { formatProfileConstraints, getDifficultyProfile } from './difficulty-profile.mjs';
 import { createArticleStreamParser, parseSseChunk } from './article-stream.mjs';
+import { DEEPSEEK_MODEL_IDS } from './components/deepseek-model-catalog.mjs';
 
 const VOCABULARY_GUIDANCE = {
   cet4: {
@@ -44,7 +45,10 @@ const REVIEW_ARTICLE_MAX_TOKENS = 3072;
 const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
 const CHINESE_TEXT = /[\u3400-\u9fff]/u;
 
-const isDeepSeekV4Model = model => /^deepseek-v4-(?:flash|pro)(?:$|[-:])/i.test(String(model || '').trim());
+const isDeepSeekV4Model = model => {
+  const value = String(model || '').trim();
+  return DEEPSEEK_MODEL_IDS.includes(value) || /^deepseek-v4-(?:flash|pro)(?:$|[-:])/i.test(value);
+};
 
 /**
  * V4 enables thinking by default. Structured article/material requests do not

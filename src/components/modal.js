@@ -5,6 +5,7 @@
 
 import { Config } from '../config.js';
 import { DB } from '../db.js';
+import { DEEPSEEK_MODEL_IDS, listDeepSeekModelPresets } from './deepseek-model-catalog.mjs';
 import {
   contentFingerprint,
   normalizeImportedContent,
@@ -19,6 +20,14 @@ export const Modal = {
   _importFilePromise: null,
   _importRequestId: 0,
   _importSaving: false,
+
+  _renderModelPresets(select) {
+    if (!select) return;
+    const options = listDeepSeekModelPresets()
+      .map(preset => `<option value="${preset.id}">${preset.label}</option>`)
+      .join('');
+    select.innerHTML = `${options}<option value="custom">自定义模型</option>`;
+  },
 
   // Show API settings modal
   showApiSettings({ onboarding = false } = {}) {
@@ -36,10 +45,12 @@ export const Modal = {
     const savedModel = Config.get('model');
     const preset = document.getElementById('modelPreset');
     const customInput = document.getElementById('modelInput');
+    this._renderModelPresets(preset);
 
-    if (['deepseek-v4-flash', 'deepseek-v4-pro'].includes(savedModel)) {
+    if (DEEPSEEK_MODEL_IDS.includes(savedModel)) {
       preset.value = savedModel;
       customInput.style.display = 'none';
+      customInput.value = '';
     } else {
       preset.value = 'custom';
       customInput.style.display = 'block';
@@ -65,6 +76,7 @@ export const Modal = {
   onModelPresetChange() {
     const preset = document.getElementById('modelPreset').value;
     document.getElementById('modelInput').style.display = preset === 'custom' ? 'block' : 'none';
+    Config.markModelSelectionExplicit();
   },
 
   // Show import article modal

@@ -11,6 +11,11 @@ import { listSelectableTracks, normalizeSelectableTrack } from '../learning-trac
 import { CHALLENGE_DETAILS, normalizeCoveragePreference } from '../difficulty-profile.mjs';
 import { createWebResearch } from '../components/web-research.mjs';
 import { createDeepSeekResponsesClient, isDeepSeekNativeSearchSupported } from '../components/deepseek-responses.mjs';
+import {
+  DEFAULT_DEEPSEEK_MODEL,
+  DEEPSEEK_MODEL_IDS,
+  listDeepSeekModelPresets
+} from '../components/deepseek-model-catalog.mjs';
 
 export const SettingsView = {
   // Render settings page
@@ -71,6 +76,11 @@ export const SettingsView = {
           <p class="settings-desc">24 道分层自适应词义题加一篇短阅读理解，用于推荐材料压力；不会给出不可靠的“词汇量”数字。也可以跳过，先以保守材料目标阅读。</p>
           <button class="btn btn-primary" onclick="location.hash='#/assessment'">开始初测</button>
         </div>`;
+    const currentModel = Config.get('model');
+    const customModelSelected = !DEEPSEEK_MODEL_IDS.includes(currentModel);
+    const modelOptions = listDeepSeekModelPresets()
+      .map(preset => `<option value="${preset.id}" ${currentModel === preset.id ? 'selected' : ''}>${preset.label}</option>`)
+      .join('');
 
     container.innerHTML = `
       <section class="app-standard-page settings-container" aria-labelledby="settingsContentTitle">
@@ -192,11 +202,10 @@ export const SettingsView = {
             <label>模型</label>
             <div class="model-select">
               <select id="settingsModelPreset" onchange="SettingsView.onModelChange()">
-                <option value="deepseek-v4-flash" ${Config.get('model') === 'deepseek-v4-flash' ? 'selected' : ''}>DeepSeek V4 Flash（快速）</option>
-                <option value="deepseek-v4-pro" ${Config.get('model') === 'deepseek-v4-pro' ? 'selected' : ''}>DeepSeek V4 Pro（高质量）</option>
-                <option value="custom" ${!['deepseek-v4-flash', 'deepseek-v4-pro'].includes(Config.get('model')) ? 'selected' : ''}>自定义模型</option>
+                ${modelOptions}
+                <option value="custom" ${customModelSelected ? 'selected' : ''}>自定义模型</option>
               </select>
-              <input type="text" id="settingsModelInput" value="${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? esc(Config.get('model')) : ''}" placeholder="输入模型名称" style="display:${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? 'block' : 'none'}">
+              <input type="text" id="settingsModelInput" value="${customModelSelected ? esc(currentModel) : ''}" placeholder="输入模型名称" style="display:${customModelSelected ? 'block' : 'none'}">
             </div>
           </div>
           <div class="api-tutorial">
@@ -339,8 +348,10 @@ export const SettingsView = {
 
   // Handle model preset change
   onModelChange() {
-    const preset = document.getElementById('settingsModelPreset').value;
-    document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
+    const preset = document.getElementById('settingsModelPreset')?.value;
+    const input = document.getElementById('settingsModelInput');
+    if (input) input.style.display = preset === 'custom' ? 'block' : 'none';
+    Config.markModelSelectionExplicit();
   },
 
   // Update the web research mode hint and toggle the Tavily-only fields.
@@ -471,7 +482,7 @@ export const SettingsView = {
 
     Config.set('api_key', apiKey);
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
-    Config.set('model', model || 'deepseek-v4-flash');
+    Config.set('model', model || DEFAULT_DEEPSEEK_MODEL);
     Config.set('tavily_api_key', document.getElementById('settingsTavilyKey').value.trim());
     Config.set('web_research_mode', document.getElementById('settingsWebResearchMode')?.value || 'deepseek_native');
 
