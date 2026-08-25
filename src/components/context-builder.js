@@ -2,6 +2,33 @@ const clip = (value, limit) => String(value || '').slice(0, limit);
 const normalizeExcerpt = value => String(value || '').replace(/\s+/g, ' ').trim();
 const compactNumber = value => Number.isFinite(Number(value)) ? String(Number(value)) : '未知';
 
+const safeImageGroup = group => {
+  if (!group || typeof group !== 'object') return null;
+  const groupId = String(group.groupId || '').trim().slice(0, 160);
+  if (!groupId) return null;
+  const count = Math.min(12, Array.isArray(group.attachmentIds)
+    ? group.attachmentIds.length
+    : Number(group.count) || 0);
+  return {
+    groupId,
+    count,
+    state: group.state === 'released' ? '原图已释放' : '可重新引用',
+    visualSummary: clip(normalizeExcerpt(group.visualSummary), 1600)
+  };
+};
+
+const formatTextMessage = message => {
+  const content = clip(message.content, 900);
+  const imageGroup = safeImageGroup(message.imageGroup);
+  if (!imageGroup) return content;
+  return [
+    content,
+    '[历史图片摘要｜不是新上传图片]',
+    `图片组：${imageGroup.groupId}；数量：${imageGroup.count}；状态：${imageGroup.state}`,
+    `摘要：${imageGroup.visualSummary || '未记录'}`
+  ].join('\n');
+};
+
 const formatHomeActivity = message => {
   if (message?.kind === 'article') {
     const article = message.article || {};
@@ -116,7 +143,7 @@ export class ContextBuilder {
       .slice(kind === 'reading' ? -8 : -72)
       .map(item => item.kind === 'activity'
         ? { role: 'system', content: '真实活动事件：\n' + clip(formatStructuredHomeActivity(item.activity), 1800) }
-        : { role: item.role, content: clip(item.content, 900) });
+        : { role: item.role, content: formatTextMessage(item) });
     const latestUser = [...recent].reverse().find(item => item.role === 'user');
     const userAlreadyIncluded = latestUser?.content === clip(userMessage, 900);
     const recentWithHomeQuote = homeQuoteMessage
