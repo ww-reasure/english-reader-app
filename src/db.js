@@ -110,7 +110,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 18, // v18: additive learning activity and daily report telemetry
+  DB_VERSION: 19, // v19: additive chat image attachment persistence
 
   // Open database connection with retry
   open(retries = 3) {
@@ -394,6 +394,18 @@ export const DB = {
           store.createIndex('updatedAt', 'updatedAt');
           store.createIndex('expiresAt', 'expiresAt');
         }
+
+        // v19: durable image attachment metadata and local blobs for chat.
+        // This store is additive: existing vocabulary, learning, reading and
+        // practice records are never migrated or rewritten here.
+        if (!db.objectStoreNames.contains('chatImageAttachments')) {
+          const store = db.createObjectStore('chatImageAttachments', { keyPath: 'id' });
+          store.createIndex('groupId', 'groupId');
+          store.createIndex('conversationKey', 'conversationKey');
+          store.createIndex('status', 'status');
+          store.createIndex('createdAt', 'createdAt');
+          store.createIndex('lastAccessedAt', 'lastAccessedAt');
+        }
       };
 
       req.onsuccess = () => resolve(req.result);
@@ -518,6 +530,161 @@ export const DB = {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  },
+
+  // ===== Chat image attachments =====
+
+  async putChatImageAttachment(record) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const req = tx.objectStore('chatImageAttachments').put(clonePlain(record));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async getChatImageAttachment(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const req = tx.objectStore('chatImageAttachments').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getChatImageGroup(groupId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const req = tx.objectStore('chatImageAttachments').index('groupId').getAll(groupId);
+      req.onsuccess = () => {
+        const rows = Array.isArray(req.result) ? req.result : [];
+        rows.sort((a, b) => {
+          const orderDiff = (Number(a?.order) || 0) - (Number(b?.order) || 0);
+          return orderDiff || String(a?.id || '').localeCompare(String(b?.id || ''));
+        });
+        resolve(rows);
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async listChatImageAttachments({ conversationKey, statuses } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const store = tx.objectStore('chatImageAttachments');
+      const source = conversationKey == null
+        ? store
+        : store.index('conversationKey');
+      const req = conversationKey == null
+        ? source.getAll()
+        : source.getAll(conversationKey);
+      req.onsuccess = () => {
+        const statusSet = statuses == null
+          ? null
+          : new Set(Array.isArray(statuses) ? statuses : [...statuses]);
+        const rows = (Array.isArray(req.result) ? req.result : [])
+          .filter(row => !statusSet || statusSet.size === 0 || statusSet.has(row?.status))
+          .sort((a, b) => {
+            const createdDiff = (Number(a?.createdAt) || 0) - (Number(b?.createdAt) || 0);
+            return createdDiff || String(a?.id || '').localeCompare(String(b?.id || ''));
+          });
+        resolve(rows);
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async updateChatImageAttachment(id, fields = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const current = getReq.result;
+        if (!current) {
+          resolve(null);
+          return;
+        }
+        const updated = { ...current, ...clonePlain(fields) };
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async deleteChatImageAttachment(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      tx.objectStore('chatImageAttachments').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async releaseChatImageAttachment(id, { remoteDeletePending = false } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const current = getReq.result;
+        if (!current) {
+          resolve(null);
+          return;
+        }
+        const updated = {
+          ...current,
+          blob: null,
+          sizeBytes: 0,
+          status: remoteDeletePending ? 'delete_pending' : 'released',
+          updatedAt: Date.now()
+        };
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async deleteChatImageGroup(groupId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const req = store.index('groupId').getAll(groupId);
+      req.onsuccess = () => {
+        for (const row of req.result || []) store.delete(row.id);
+      };
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image group transaction aborted'));
+    });
+  },
+
+  async getChatImageStorageBytes() {
+    const rows = await this.listChatImageAttachments();
+    return rows.reduce((total, row) => total + Math.max(0, Number(row?.sizeBytes) || 0), 0);
   },
 
   // Update article fields (e.g., favorite)

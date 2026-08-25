@@ -189,7 +189,7 @@ test('v7 migration adds knowledge stores without converting or deleting legacy s
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 18);
+  assert.equal(upgraded.version, 19);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeWords'), true);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeEvidence'), true);
   upgraded.close();
@@ -218,7 +218,7 @@ test('v11 migration resets only reading history and reading-calibration progress
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 18);
+  assert.equal(upgraded.version, 19);
   upgraded.close();
 
   assert.deepEqual(await module.DB.getAllReadingStats(), []);
@@ -239,7 +239,7 @@ test('v8 knowledge evidence gains the calibration index during the v10 additive 
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 18);
+  assert.equal(upgraded.version, 19);
   assert.equal(upgraded.transaction('knowledgeEvidence').objectStore('knowledgeEvidence').indexNames.contains('calibrationKey'), true);
   upgraded.close();
 
