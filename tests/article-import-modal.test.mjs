@@ -28,9 +28,11 @@ globalThis.__articleImportTestDB = {
 
 const modalSource = await readFile(new URL('../src/components/modal.js', import.meta.url), 'utf8');
 const articleImportUrl = new URL('../src/components/article-import.mjs', import.meta.url).href;
+const modelCatalogUrl = new URL('../src/components/deepseek-model-catalog.mjs', import.meta.url).href;
 const adaptedModalSource = modalSource
   .replace("import { Config } from '../config.js';", 'const Config = {};')
   .replace("import { DB } from '../db.js';", 'const DB = globalThis.__articleImportTestDB;')
+  .replace("from './deepseek-model-catalog.mjs'", `from '${modelCatalogUrl}'`)
   .replace("from './article-import.mjs'", `from '${articleImportUrl}'`);
 const { Modal } = await import(`data:text/javascript;base64,${Buffer.from(adaptedModalSource).toString('base64')}`);
 const DB = globalThis.__articleImportTestDB;
