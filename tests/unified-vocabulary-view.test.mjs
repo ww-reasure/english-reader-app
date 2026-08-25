@@ -8,6 +8,7 @@ const source = await read('../src/views/vocabulary.js');
 test('unified page reads canonical rows and exposes the selected hierarchy', () => {
   assert.match(source, /DB\.getUnifiedVocabulary\(\)/);
   assert.match(source, /我的词汇/);
+  assert.match(source, /全部单词/);
   assert.match(source, /导入单词/);
   assert.match(source, /搜索单词或释义/);
   assert.match(source, /全部/);
@@ -16,6 +17,16 @@ test('unified page reads canonical rows and exposes the selected hierarchy', () 
   assert.match(source, /今日新增/);
   assert.match(source, /待复习/);
   assert.match(source, /最近加入/);
+});
+
+test('reference vocabulary screen keeps its editorial mobile affordances', () => {
+  assert.match(source, /vocab-unified-header-copy/);
+  assert.match(source, /fa-arrow-up-from-bracket/);
+  assert.match(source, /fa-magnifying-glass/);
+  assert.match(source, /fa-sliders/);
+  assert.match(source, /fa-volume-high/);
+  assert.match(source, /fa-chevron-right/);
+  assert.match(source, /管理单词/);
 });
 
 test('manual selection uses learnWord ids without saved-word remapping', () => {

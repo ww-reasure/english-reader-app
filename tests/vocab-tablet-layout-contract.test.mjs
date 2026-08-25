@@ -24,3 +24,12 @@ test('unified vocabulary rows expose compact metadata without forcing letter-lev
   assert.match(source, /vocab-unified-definition/);
   assert.match(css, /\.vocab-unified-row\s*\{[^}]*overflow-wrap:anywhere/s);
 });
+
+test('reference vocabulary styling has a route-specific editorial shell', async () => {
+  const css = await read('../css/style.css');
+
+  assert.match(css, /\.app-shell--vocab \.app-header/);
+  assert.match(css, /\.vocab-unified-search-icon/);
+  assert.match(css, /\.vocab-unified-upload-icon/);
+  assert.match(css, /\.vocab-unified-management-trigger/);
+});

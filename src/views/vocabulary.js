@@ -99,20 +99,24 @@ export const VocabularyView = {
     this.container.innerHTML = `
       <section class="app-standard-page vocab-container vocab-unified-page" aria-labelledby="vocabularyContentTitle">
         <header class="vocab-unified-header">
-          <div>
-            <p class="page-eyebrow">03 / WORD LIBRARY</p>
-            <h1 id="vocabularyContentTitle" class="page-title">我的词汇 <span class="vocab-unified-total">+ ${totalCount}</span></h1>
-            <p class="page-desc">收藏与导入的单词都在这里，学习进度与来源清晰可见。</p>
+          <div class="vocab-unified-header-copy">
+            <h1 id="vocabularyContentTitle" class="vocab-unified-heading">全部单词</h1>
+            <p class="vocab-unified-count">共 ${totalCount} 个单词</p>
           </div>
-          <button type="button" class="btn btn-primary vocab-unified-import" onclick="WordImport.showModal()">导入单词</button>
+          <button type="button" class="btn vocab-unified-import" aria-label="导入单词" onclick="WordImport.showModal()">
+            <i class="fa-solid fa-arrow-up-from-bracket vocab-unified-upload-icon" aria-hidden="true"></i><span>导入</span>
+          </button>
         </header>
 
         <div class="vocab-unified-toolbar" role="search">
           <label class="vocab-unified-search">
+            <i class="fa-solid fa-magnifying-glass vocab-unified-search-icon" aria-hidden="true"></i>
             <span class="sr-only">搜索单词或释义</span>
             <input type="search" value="${escAttr(this.searchQuery)}" placeholder="搜索单词或释义" aria-label="搜索单词或释义" oninput="VocabularyView.setSearchQuery(this.value)">
           </label>
-          <button type="button" class="btn btn-outline vocab-unified-filter-toggle" aria-expanded="${hasFilters}" onclick="VocabularyView.toggleFilter()">筛选</button>
+          <button type="button" class="btn vocab-unified-filter-toggle" aria-label="筛选" aria-expanded="${hasFilters}" onclick="VocabularyView.toggleFilter()">
+            <i class="fa-solid fa-sliders" aria-hidden="true"></i><span>筛选</span>
+          </button>
         </div>
 
         <nav class="vocab-unified-source-tabs" aria-label="词汇来源">
@@ -144,26 +148,24 @@ export const VocabularyView = {
         </details>
 
         <section class="vocab-unified-study-strip" aria-label="专项复习">
-          <div class="vocab-unified-study-copy">
-            <strong>专项复习</strong>
-            <span>只练指定词，不改变正式复习计划。</span>
-          </div>
-          <div class="vocab-unified-study-counts">
-            <span>今日新增 ${todayScope.words.length}</span>
-            <span>待复习 ${dueCount}</span>
-            <span>最近加入 ${recentScope.words.length}</span>
+          <div class="vocab-unified-study-metrics">
+            ${this.renderPracticeEntry({ scope: 'today_added', name: '今日新增', status: todayStatus, skipped: todayScope.skipped })}
+            <span class="vocab-unified-study-divider" aria-hidden="true"></span>
+            <div class="vocab-unified-study-metric">
+              <span>待复习</span><strong>${dueCount}</strong>
+            </div>
           </div>
           <div class="vocab-unified-study-actions">
-            ${this.renderPracticeEntry({ scope: 'today_added', name: '今日新增', status: todayStatus, skipped: todayScope.skipped })}
             ${this.renderPracticeEntry({ scope: 'recent_added', name: '最近加入', status: recentStatus, skipped: recentScope.skipped })}
-            <a class="btn btn-primary" href="#/flashcard">开始复习</a>
+            <a class="btn btn-primary vocab-unified-start-practice" href="#/flashcard">开始复习</a>
           </div>
+          <span class="sr-only">最近加入 ${recentScope.words.length} 个单词</span>
         </section>
 
-        ${this.renderManagementBar()}
         <div class="vocab-unified-list vocab-list" data-vocab-grid="vocab">
           ${rows.length ? rows.map(row => this.renderRow(row)).join('') : '<div class="empty-state vocab-unified-empty">没有符合条件的词汇。</div>'}
         </div>
+        ${this.renderManagementBar()}
       </section>`;
   },
 
@@ -189,8 +191,12 @@ export const VocabularyView = {
     }
     return `<div class="vocab-unified-management vocab-unified-management--idle">
       <span>共 ${this.rows.length} 个单词</span>
-      <div><button type="button" class="btn btn-outline btn-sm" onclick="VocabularyView.toggleSelection()">选词复习</button>
-      <button type="button" class="btn btn-outline btn-sm" onclick="VocabularyView.toggleManage()">管理</button></div>
+      <div class="vocab-unified-management-actions">
+        <button type="button" class="vocab-unified-selection-trigger" onclick="VocabularyView.toggleSelection()">选词复习</button>
+        <button type="button" class="vocab-unified-management-trigger" aria-label="管理单词" onclick="VocabularyView.toggleManage()">
+          <i class="fa-solid fa-sliders" aria-hidden="true"></i><span>管理单词</span><i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>
     </div>`;
   },
 
@@ -216,17 +222,24 @@ export const VocabularyView = {
       <div class="vocab-unified-row-main">
         <div class="vocab-unified-word-line">
           <strong class="vocab-unified-word">${esc(row.word)}</strong>
+        </div>
+        <div class="vocab-unified-phonetic-line">
           ${formatPhonetic(row.phonetic) ? `<span class="vocab-unified-phonetic">${esc(formatPhonetic(row.phonetic))}</span>` : ''}
+          <button type="button" class="vocab-unified-audio" data-word="${escAttr(row.word)}" aria-label="播放 ${escAttr(row.word)} 发音" onclick="event.stopPropagation(); VocabularyView.speakWord(this.dataset.word)">
+            <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+          </button>
         </div>
         <div class="vocab-unified-definition vocab-translation">${esc(renderDefinitionPreview(row))}</div>
-        <div class="vocab-unified-meta">
-          <span class="vocab-unified-source vocab-unified-source--${sourceKeys.join('-') || 'none'}">${esc(sourceLabelOf(row))}</span>
-          <span class="vocab-unified-status">${esc(status)}</span>
-        </div>
+        <span class="vocab-unified-status sr-only">学习状态：${esc(status)}</span>
       </div>
       <div class="vocab-unified-row-tail">
-        ${management}
-        <button type="button" class="vocab-unified-detail" aria-label="查看 ${escAttr(row.word)} 学习详情" onclick="VocabularyView.showWordDetail(${id})">详情</button>
+        <span class="vocab-unified-source vocab-unified-source--${sourceKeys.join('-') || 'none'}">${esc(sourceLabelOf(row))}</span>
+        <div class="vocab-unified-row-tail-actions">
+          ${management}
+          <button type="button" class="vocab-unified-detail" aria-label="查看 ${escAttr(row.word)} 学习详情" onclick="VocabularyView.showWordDetail(${id})">
+            <i class="fa-solid fa-chevron-right" aria-hidden="true"></i><span class="sr-only">详情</span>
+          </button>
+        </div>
       </div>
     </article>`;
   },
@@ -288,6 +301,11 @@ export const VocabularyView = {
   async setSearchQuery(value) {
     this.searchQuery = String(value || '');
     await this.renderPage();
+  },
+
+  speakWord(word) {
+    const audio = globalThis.window?.AudioCache;
+    if (audio?.getAudio && word) void audio.getAudio(word).catch(() => {});
   },
 
   toggleFilter() {

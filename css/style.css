@@ -3285,3 +3285,402 @@ body.exam-answer-card-open { overflow:hidden; }
   .vocab-unified-page { max-width:980px; }
   .vocab-unified-study-strip { grid-template-columns:minmax(0,1fr) auto; }
 }
+
+/* Reference-led vocabulary home: quiet paper, bookish type, and moss actions. */
+.app-shell--vocab {
+  --vocab-paper: #fbfaf6;
+  --vocab-ink: #131a18;
+  --vocab-muted: #777873;
+  --vocab-line: #e5dfd3;
+  --vocab-green: #0f5d40;
+  --vocab-orange: #f05236;
+  background: var(--vocab-paper);
+}
+.app-shell--vocab .app-header {
+  min-height: 112px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+  column-gap: 10px;
+  row-gap: 0;
+  padding: calc(14px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 14px 0;
+  border-bottom: 0;
+  background: var(--vocab-paper);
+  backdrop-filter: none;
+}
+.app-shell--vocab .app-menu-button {
+  width: 56px;
+  height: 56px;
+  border: 3px solid var(--vocab-orange);
+  color: var(--vocab-ink);
+  font-size: 25px;
+}
+.app-shell--vocab .app-menu-button:hover,
+.app-shell--vocab .app-menu-button:focus-visible { background: color-mix(in srgb, var(--vocab-orange) 6%, transparent); }
+.app-shell--vocab .app-header-copy { padding-top: 1px; }
+.app-shell--vocab .app-header-kicker {
+  margin: 0 0 3px;
+  color: var(--vocab-green);
+  font-size: 11px;
+  letter-spacing: .15em;
+}
+.app-shell--vocab .app-header-title {
+  color: var(--vocab-ink);
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -.06em;
+}
+.app-shell--vocab .app-header-description {
+  grid-column: 1 / -1;
+  margin: 14px 9px 0 7px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--vocab-line);
+  color: var(--vocab-muted);
+  font-size: 16px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.app-shell--vocab .app-page-outlet { background: var(--vocab-paper); }
+.app-shell--vocab .vocab-unified-page {
+  max-width: none;
+  margin: 0;
+  padding: 34px 21px calc(10px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  background: var(--vocab-paper);
+}
+.app-shell--vocab .vocab-unified-header {
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.vocab-unified-header-copy { min-width: 0; }
+.vocab-unified-heading {
+  margin: 0;
+  color: var(--vocab-ink);
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: clamp(34px, 8vw, 42px);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -.065em;
+  white-space: nowrap;
+}
+.vocab-unified-count {
+  margin: 9px 0 0;
+  color: var(--vocab-muted);
+  font-size: 18px;
+  line-height: 1.1;
+}
+.app-shell--vocab .vocab-unified-import {
+  min-width: 94px;
+  min-height: 38px;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 2px solid var(--vocab-green);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--vocab-green);
+  font-size: 17px;
+  font-weight: 700;
+}
+.app-shell--vocab .vocab-unified-import:hover,
+.app-shell--vocab .vocab-unified-import:focus-visible { border-color: var(--vocab-green); background: color-mix(in srgb, var(--vocab-green) 7%, transparent); }
+.vocab-unified-upload-icon { font-size: 17px; }
+.app-shell--vocab .vocab-unified-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0;
+  margin-bottom: 22px;
+  overflow: hidden;
+  border: 1px solid var(--vocab-line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--vocab-paper) 82%, white);
+}
+.app-shell--vocab .vocab-unified-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 14px;
+}
+.vocab-unified-search-icon { flex: 0 0 auto; color: #8a8982; font-size: 21px; }
+.app-shell--vocab .vocab-unified-search input {
+  min-height: 45px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--vocab-ink);
+  font-size: 18px;
+}
+.app-shell--vocab .vocab-unified-search input:focus-visible { outline: 0; }
+.app-shell--vocab .vocab-unified-filter-toggle {
+  min-height: 45px;
+  gap: 10px;
+  padding: 0 17px;
+  border: 0;
+  border-left: 1px solid var(--vocab-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--vocab-muted);
+  font-size: 17px;
+  font-weight: 500;
+}
+.app-shell--vocab .vocab-unified-filter-toggle:hover,
+.app-shell--vocab .vocab-unified-filter-toggle:focus-visible { background: color-mix(in srgb, var(--vocab-green) 5%, transparent); }
+.app-shell--vocab .vocab-unified-source-tabs {
+  position: relative;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin-bottom: 15px;
+  border: 1px solid var(--vocab-line);
+  border-radius: 11px;
+  overflow: hidden;
+}
+.app-shell--vocab .vocab-unified-source-tab {
+  position: relative;
+  min-height: 45px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--vocab-ink);
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: 20px;
+  font-weight: 500;
+}
+.app-shell--vocab .vocab-unified-source-tab + .vocab-unified-source-tab::before {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 0;
+  width: 1px;
+  background: var(--vocab-line);
+  content: "";
+}
+.app-shell--vocab .vocab-unified-source-tab.is-active { color: var(--vocab-green); background: transparent; }
+.app-shell--vocab .vocab-unified-source-tab.is-active::after {
+  position: absolute;
+  right: 22%;
+  bottom: -1px;
+  left: 22%;
+  height: 5px;
+  border-radius: 5px 5px 0 0;
+  background: var(--vocab-green);
+  content: "";
+}
+.app-shell--vocab .vocab-unified-filter { display: none; }
+.app-shell--vocab .vocab-unified-filter[open] {
+  display: block;
+  margin: -5px 0 22px;
+  border-color: var(--vocab-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vocab-paper) 84%, white);
+}
+.app-shell--vocab .vocab-unified-study-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 9.5px 18px;
+  border: 0;
+  border-radius: 12px;
+  background: #f3eee5;
+}
+.vocab-unified-study-metrics { display: flex; align-items: center; min-width: 0; gap: 17px; }
+.vocab-unified-study-metric,
+.app-shell--vocab .vocab-unified-study-metrics .vocab-practice-entry {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--vocab-muted);
+  font-size: 16px;
+  white-space: nowrap;
+}
+.app-shell--vocab .vocab-unified-study-metrics .vocab-practice-entry:hover,
+.app-shell--vocab .vocab-unified-study-metrics .vocab-practice-entry:focus-visible { background: transparent; color: var(--vocab-green); }
+.vocab-unified-study-metric strong,
+.app-shell--vocab .vocab-unified-study-metrics .vocab-practice-entry-count { color: var(--vocab-ink); font-size: 22px; font-weight: 700; }
+.app-shell--vocab .vocab-unified-study-metrics .vocab-practice-entry-name { color: var(--vocab-muted); font-size: 16px; font-weight: 500; }
+.vocab-unified-study-divider { width: 1px; height: 29px; background: #ddd5c7; }
+.app-shell--vocab .vocab-unified-study-actions {
+  grid-column: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.app-shell--vocab .vocab-unified-study-actions .vocab-practice-entry {
+  min-height: 36px;
+  padding: 5px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--vocab-green);
+  font-size: 12px;
+}
+.app-shell--vocab .vocab-unified-study-actions .vocab-practice-entry-count { color: inherit; font-size: 12px; }
+.app-shell--vocab .vocab-unified-start-practice {
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--vocab-green);
+  color: #fffdf7;
+  font-size: 16px;
+  font-weight: 600;
+}
+.app-shell--vocab .vocab-unified-start-practice:hover,
+.app-shell--vocab .vocab-unified-start-practice:focus-visible { background: #0a4d35; }
+.app-shell--vocab .vocab-unified-list {
+  border: 1px solid var(--vocab-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vocab-paper) 83%, white);
+  overflow: hidden;
+}
+.app-shell--vocab .vocab-unified-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  min-height: 112px;
+  padding: 13px 12px 10px;
+  border-bottom: 1px solid var(--vocab-line);
+  background: transparent;
+}
+.app-shell--vocab .vocab-unified-row:last-child { border-bottom: 0; }
+.app-shell--vocab .vocab-unified-row-main { min-width: 0; }
+.app-shell--vocab .vocab-unified-word-line { display: block; }
+.app-shell--vocab .vocab-unified-word {
+  color: var(--vocab-ink);
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: -.045em;
+}
+.vocab-unified-phonetic-line { display: flex; align-items: center; gap: 11px; min-height: 22px; margin-top: 4px; }
+.app-shell--vocab .vocab-unified-phonetic { color: #99968f; font-size: 16px; line-height: 1.2; }
+.vocab-unified-audio {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a19d92;
+  font-size: 17px;
+}
+.vocab-unified-audio:hover,
+.vocab-unified-audio:focus-visible { color: var(--vocab-green); }
+.app-shell--vocab .vocab-unified-definition {
+  margin-top: 5px;
+  color: #3e4642;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.app-shell--vocab .vocab-unified-row-tail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 73px;
+  min-height: 74px;
+}
+.app-shell--vocab .vocab-unified-source {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--vocab-green);
+  font-size: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.vocab-unified-row-tail-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.app-shell--vocab .vocab-unified-detail {
+  min-height: 32px;
+  padding: 4px 0 0 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #7d7d77;
+  font-size: 22px;
+}
+.app-shell--vocab .vocab-unified-detail:hover,
+.app-shell--vocab .vocab-unified-detail:focus-visible { color: var(--vocab-green); }
+.app-shell--vocab .vocab-unified-management {
+  min-height: 40px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--vocab-line);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: color-mix(in srgb, var(--vocab-paper) 83%, white);
+  color: var(--vocab-muted);
+  font-size: 17px;
+}
+.app-shell--vocab .vocab-unified-management--idle > span { display: none; }
+.vocab-unified-management-actions { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; }
+.vocab-unified-selection-trigger,
+.vocab-unified-management-trigger {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--vocab-muted);
+  font-size: 16px;
+}
+.vocab-unified-selection-trigger { order: 2; margin-left: auto; font-size: 13px; }
+.vocab-unified-management-trigger { order: 1; color: var(--vocab-muted); }
+.vocab-unified-management-trigger i:first-child { color: #7f827d; }
+.vocab-unified-selection-trigger:hover,
+.vocab-unified-selection-trigger:focus-visible,
+.vocab-unified-management-trigger:hover,
+.vocab-unified-management-trigger:focus-visible { color: var(--vocab-green); }
+.app-shell--vocab .vocab-unified-row-actions { align-items: center; justify-content: flex-end; }
+.app-shell--vocab .vocab-unified-row-actions .btn { min-height: 32px; padding: 5px 8px; font-size: 11px; }
+.app-shell--vocab .vocab-unified-empty { padding: 42px 22px; border: 0; color: var(--vocab-muted); }
+
+[data-theme="dark"] .app-shell--vocab {
+  --vocab-paper: #18211f;
+  --vocab-ink: #f5f0e6;
+  --vocab-muted: #b5c0b9;
+  --vocab-line: #3d4b45;
+  --vocab-green: #77d1af;
+  --vocab-orange: #ff8067;
+}
+[data-theme="dark"] .app-shell--vocab .vocab-unified-study-strip { background: #202b28; }
+[data-theme="dark"] .app-shell--vocab .vocab-unified-list,
+[data-theme="dark"] .app-shell--vocab .vocab-unified-management { background: #1d2825; }
+[data-theme="dark"] .app-shell--vocab .vocab-unified-definition { color: #d4ddd7; }
+
+@media (max-width: 599px) {
+  .app-shell--vocab .vocab-unified-header { flex-direction: row; }
+  .app-shell--vocab .vocab-unified-import { width: auto; }
+  .app-shell--vocab .vocab-unified-study-strip { grid-template-columns: minmax(0, 1fr) auto; }
+  .app-shell--vocab .vocab-unified-study-actions { grid-column: auto; justify-content: flex-end; }
+  .app-shell--vocab .vocab-unified-study-actions .vocab-practice-entry { display: none; }
+  .app-shell--vocab .vocab-unified-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .app-shell--vocab .vocab-unified-row-tail { grid-column: auto; align-items: flex-end; }
+  .app-shell--vocab .vocab-unified-row-actions { position: absolute; right: 12px; bottom: 21px; }
+  .app-shell--vocab .vocab-unified-row.is-managing .vocab-unified-row-tail { min-height: 105px; }
+}
+
+@media (min-width: 600px) {
+  .app-shell--vocab .app-header {
+    min-height: 128px;
+    padding: calc(22px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 38px 18px;
+  }
+  .app-shell--vocab .app-header-description { font-size: 17px; }
+  .app-shell--vocab .vocab-unified-page { padding-inline: clamp(28px, 4vw, 52px); }
+  .app-shell--vocab .vocab-unified-row { min-height: 145px; padding-inline: 29px; }
+}

@@ -111,3 +111,39 @@ final result: passed
 - Browser console was checked; the discovered runtime error was fixed before the final capture.
 
 final result: passed
+
+---
+
+# Unified Vocabulary Library — Design QA
+
+## Evidence
+
+- Source visual truth: `C:\Users\a3284\AppData\Local\Temp\codex-clipboard-442a7c8a-33aa-4135-b112-c0eff804c2dd.png` (853 × 1844 px; approximately 2× density, normalized to 427 × 922 CSS px).
+- Implementation screenshot: `E:\play\claude\qa-artifacts\unified-vocabulary-library\implementation-final-viewport.png` (427 × 922 px, DPR 1).
+- Side-by-side comparison: `E:\play\claude\qa-artifacts\unified-vocabulary-library\comparison-final.jpg`.
+- Preview URL: `http://127.0.0.1:4174/#/vocab`.
+- Compared state: vocabulary home, `全部` source filter, empty search, closed filter panel, no modal/drawer, four locally imported sample rows.
+
+## Full comparison
+
+- Header: warm paper background, orange circular menu action, green monospace kicker, serif Chinese title, tagline, and rule are aligned to the reference structure. The menu/text horizontal rhythm follows the reference while retaining the existing app drawer behavior.
+- Content hierarchy: `全部单词`, count, outlined import action, search/filter control, three source tabs, and the green active underline are present and aligned at the reference viewport.
+- Review strip: the two metrics and compact green `开始复习` action use the reference spacing and proportions.
+- Word list: four bordered rows use the reference hierarchy—serif word, phonetic/audio line, definition, green source label, and right chevron. Rows are 112 CSS px high; the list begins at approximately y=422 CSS px, matching the reference.
+- Footer: the management bar is fully visible at y≈871–911 CSS px, leaving the same small bottom paper margin. The existing `选词复习` action remains visible as a deliberate functional addition so专项复习 is not removed from the unified library.
+
+## Focused comparison and responsive checks
+
+- Reference viewport 427 × 922: no horizontal or vertical document overflow (`scrollWidth = clientWidth = 427`, `scrollHeight = 922`).
+- Narrow mobile 390 × 844: no horizontal overflow; all four rows remain renderable.
+- Tablet 1024 × 768: no horizontal overflow; the standard app shell and vocabulary page remain in the responsive layout.
+- Interaction smoke: search narrows the list and clears, filter panel opens/closes, source tabs switch and return to `全部`, and no browser warning/error logs were emitted.
+- Existing Font Awesome icons are reused for upload, search, filter, audio, sliders, and chevron affordances; no new image or hand-drawn SVG asset was introduced.
+
+## Findings and history
+
+- P0/P1/P2 findings: none.
+- P3 intentional difference: the reference sample shows 326 mixed-source words, while this local QA state contains four imported words; source labels therefore differ by data state. The `选词复习` affordance is retained for existing专项复习 behavior even though it is not shown in the reference image.
+- Earlier visual pass had oversized controls, loose 157 px rows, and a visible scrollbar. The final pass tightened the control stack, set rows to 112 px, brought the management bar into the first viewport, and reduced route padding so the page fits without overflow.
+
+final result: passed

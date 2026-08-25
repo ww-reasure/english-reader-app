@@ -59,12 +59,14 @@ export const AppShell = {
     const headerActions = this.getHeaderActions(meta.navKey);
     const headerMode = meta.headerMode || 'drawer';
     const hasDrawer = meta.tabletLayout === 'rail';
+    const isVocabularyHome = meta.navKey === 'vocab' && hash === '#/vocab';
     const examShellVariant = hash === '#/exam' ? ' app-shell--exam-home' : hash.startsWith('#/exam/catalog/') ? ' app-shell--exam-catalog' : '';
     container.innerHTML = `
-      <div class="app-shell app-shell--${pageMode} app-shell--${meta.tabletLayout || 'rail'}${meta.navKey === 'exam' ? ' app-shell--exam' : ''}${examShellVariant}">
+      <div class="app-shell app-shell--${pageMode} app-shell--${meta.tabletLayout || 'rail'}${isVocabularyHome ? ' app-shell--vocab' : ''}${meta.navKey === 'exam' ? ' app-shell--exam' : ''}${examShellVariant}">
         <header class="app-header">
           ${headerMode === 'back' ? `<button id="appMenuBtn" class="app-icon-button" type="button" aria-label="返回${meta.navKey === 'reading-list' ? '书架' : meta.navKey === 'vocab' ? '词汇学习' : '真题训练'}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>` : '<button id="appMenuBtn" class="app-icon-button app-menu-button" type="button" aria-label="打开导航" aria-controls="appDrawer" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>'}
           <div class="app-header-copy"><p class="app-header-kicker">${kicker}</p><h1 class="app-header-title">${meta.title}</h1></div>
+          ${isVocabularyHome ? '<p class="app-header-description">导入单词与阅读收藏单词一并呈现，统一学习与复习。</p>' : ''}
           ${headerActions}
         </header>
         ${hasDrawer ? '<button id="appDrawerBackdrop" class="app-drawer-backdrop" type="button" aria-label="关闭导航"></button>' : ''}
