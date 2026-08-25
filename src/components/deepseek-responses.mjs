@@ -355,7 +355,14 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
   const baseUrl = () => String(config?.get?.('base_url') || '').trim();
 
   return {
-    async completion(items, { tools = [], signal = null, temperature = 0.45, maxOutputTokens = null, toolChoice = 'auto' } = {}) {
+    async completion(items, {
+      tools = [],
+      signal = null,
+      temperature = 0.45,
+      maxOutputTokens = null,
+      toolChoice = 'auto',
+      modelOverride = null
+    } = {}) {
       const controller = new AbortController();
       const abortRequest = () => controller.abort();
       if (signal) {
@@ -363,7 +370,7 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
         else signal.addEventListener('abort', abortRequest, { once: true });
       }
       const body = {
-        model: model(),
+        model: modelOverride || model(),
         input: Array.isArray(items) ? items : [],
         ...(Array.isArray(tools) && tools.length ? { tools: normalizeResponsesTools(tools), tool_choice: toolChoice } : {}),
         ...(Number.isFinite(Number(temperature)) ? { temperature: Number(temperature) } : {}),
