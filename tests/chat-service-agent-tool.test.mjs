@@ -3,8 +3,14 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 async function loadChatService() {
-  const source = await readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8');
-  return import('data:text/javascript;base64,' + Buffer.from(source.replace("import { LEARNING_TOOLS } from './learning-agent.js';", 'const LEARNING_TOOLS = [];')).toString('base64'));
+  const [source, multimodal] = await Promise.all([
+    readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/multimodal-context.mjs', import.meta.url), 'utf8')
+  ]);
+  const adapted = source
+    .replace("import { LEARNING_TOOLS } from './learning-agent.js';", 'const LEARNING_TOOLS = [];')
+    .replace("from './multimodal-context.mjs'", `from 'data:text/javascript;base64,${Buffer.from(multimodal).toString('base64')}'`);
+  return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
 
 test('returns article artifacts immediately after a generation tool call', async () => {

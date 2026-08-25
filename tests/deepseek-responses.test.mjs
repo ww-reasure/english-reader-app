@@ -182,6 +182,23 @@ test('completion sends the requested tool_choice in the body', async () => {
   assert.equal(sentBody.tool_choice, 'auto');
 });
 
+test('messages convert multimodal chat content into Responses input images', () => {
+  const items = messagesToResponsesItems([{
+    role: 'user',
+    content: [
+      { type: 'text', text: '讲解这张图' },
+      { type: 'file', file_id: 'file-api-1' }
+    ]
+  }]);
+  assert.deepEqual(items, [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: '讲解这张图' },
+      { type: 'input_image', file_id: 'file-api-1', detail: 'original' }
+    ]
+  }]);
+});
+
 test('completion accepts a request-level model override without changing configured model', async () => {
   let sentBody = null;
   const config = {

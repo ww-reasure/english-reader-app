@@ -1,4 +1,5 @@
 import { LEARNING_TOOLS } from './learning-agent.js';
+import { assembleChatMessages } from './multimodal-context.mjs';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
 const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
@@ -48,7 +49,19 @@ export class ChatService {
     this.controllers.delete(key);
   }
 
-  async ask({ sessionKey, session, userMessage, kind, pageContext = null, tools = LEARNING_TOOLS, executeTool = null, responseFormat = null, temperature = null }) {
+  async ask({
+    sessionKey,
+    session,
+    userMessage,
+    kind,
+    pageContext = null,
+    tools = LEARNING_TOOLS,
+    executeTool = null,
+    responseFormat = null,
+    temperature = null,
+    attachmentGroup = null,
+    modelOverride = null
+  }) {
     this.cancel(sessionKey);
     const controller = new AbortController();
     this.controllers.set(sessionKey, controller);
@@ -81,12 +94,17 @@ export class ChatService {
       pageContext,
       toolResults: toolResults || []
     });
-    const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto') => {
+    const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto', requestModelOverride = modelOverride) => {
       if (plan.native) {
         if (typeof toItems !== 'function') throw new Error('当前联网配置缺少 Responses 消息转换器');
         const completion = await this.api.responsesCompletion(
           toItems(messages),
-          { tools: requestToolsForRound || [], signal: controller.signal, toolChoice }
+          {
+            tools: requestToolsForRound || [],
+            signal: controller.signal,
+            toolChoice,
+            ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
+          }
         );
         if (kind === 'home' && completion?.usage) {
           this.telemetry?.record({ requestId, phase, usage: completion.usage });
@@ -98,7 +116,8 @@ export class ChatService {
         tools: chatTools,
         signal: controller.signal,
         ...(responseFormat ? { responseFormat } : {}),
-        ...(Number.isFinite(temperature) ? { temperature } : {})
+        ...(Number.isFinite(temperature) ? { temperature } : {}),
+        ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
       };
       const completion = typeof this.api.chatCompletion === 'function'
         ? await this.api.chatCompletion(messages, options)
@@ -112,14 +131,25 @@ export class ChatService {
     try {
       let reply;
       let toolSupport = null;
-      let transcript = buildMessages();
+      let transcript = assembleChatMessages({ messages: buildMessages(), attachmentGroup });
       try {
         reply = await call(transcript, requestTools, 'initial', forceFirstSearch ? { type: 'web_search' } : 'auto');
       } catch (error) {
-        if (!toolsUnsupported(error)) throw error;
-        toolSupport = 'unsupported';
-        transcript = buildMessages([await this.agent.getLearningOverview()]);
-        reply = await call(transcript, [], 'fallback');
+        const canUsePureTextVisionFallback = !attachmentGroup
+          && modelOverride === 'deepseek-v4-flash-vision-exp'
+          && typeof this.api.isVisionModelUnavailable === 'function'
+          && this.api.isVisionModelUnavailable(error);
+        if (canUsePureTextVisionFallback) {
+          reply = await call(transcript, requestTools, 'vision_text_fallback', 'auto', 'deepseek-v4-flash');
+        } else {
+          if (!toolsUnsupported(error)) throw error;
+          toolSupport = 'unsupported';
+          transcript = assembleChatMessages({
+            messages: buildMessages([await this.agent.getLearningOverview()]),
+            attachmentGroup
+          });
+          reply = await call(transcript, [], 'fallback');
+        }
       }
 
       const artifacts = [];

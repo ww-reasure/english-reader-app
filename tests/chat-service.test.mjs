@@ -3,11 +3,14 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 async function loadService() {
-  const source = await readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8');
+  const [source, multimodal] = await Promise.all([
+    readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/multimodal-context.mjs', import.meta.url), 'utf8')
+  ]);
   const testSource = source.replace(
     "import { LEARNING_TOOLS } from './learning-agent.js';",
     "const LEARNING_TOOLS = [{ type: 'function', function: { name: 'get_learning_overview' } }];"
-  );
+  ).replace("from './multimodal-context.mjs'", `from 'data:text/javascript;base64,${Buffer.from(multimodal).toString('base64')}'`);
   return import('data:text/javascript;base64,' + Buffer.from(testSource).toString('base64'));
 }
 
