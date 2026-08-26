@@ -550,7 +550,7 @@ export const ContextReviewView = {
             <div><strong>${this.counts.uncertain}</strong><span>模糊</span></div>
             <div><strong>${this.counts.unknown}</strong><span>不认识</span></div>
           </div>
-          <div class="context-review-result-actions"><a class="btn btn-primary" href="#/flashcard">选择其他方式</a><a class="btn btn-outline" href="#/learn-words">查看学习词库</a></div>
+          <div class="context-review-result-actions"><a class="btn btn-primary" href="#/flashcard">选择其他方式</a><a class="btn btn-outline" href="#/vocab">查看我的词汇</a></div>
         </section>
       </main>`;
   },

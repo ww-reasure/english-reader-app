@@ -11,6 +11,7 @@ async function loadDatabaseModule() {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
@@ -19,7 +20,8 @@ async function loadDatabaseModule() {
     .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
-    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`);
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -38,7 +40,7 @@ function openVersion13(name) {
   });
 }
 
-test('v18 migration preserves v13 data and creates exam and telemetry stores', async () => {
+test('v19 migration preserves v13 data and creates exam, telemetry, and chat image stores', async () => {
   globalThis.indexedDB = indexedDB;
   const name = `EnglishReaderExamV14-${process.pid}-${sequence++}`;
   const legacy = await openVersion13(name);
@@ -56,8 +58,8 @@ test('v18 migration preserves v13 data and creates exam and telemetry stores', a
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
 
-  assert.equal(upgraded.version, 18);
-  for (const storeName of ['examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions', 'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks', 'examTranslationReviews', 'learningActivityEvents', 'dailyLearningReports']) {
+  assert.equal(upgraded.version, 19);
+  for (const storeName of ['examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions', 'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks', 'examTranslationReviews', 'learningActivityEvents', 'dailyLearningReports', 'chatImageAttachments']) {
     assert.equal(upgraded.objectStoreNames.contains(storeName), true);
   }
   upgraded.close();
@@ -106,7 +108,7 @@ test('v18 migrates legacy active wrong states into today due states and adds due
   const module = await loadDatabaseModule();
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 18);
+  assert.equal(upgraded.version, 19);
   assert.equal(upgraded.transaction('examWrongStates').objectStore('examWrongStates').indexNames.contains('examIdStatusNextDueAt'), true);
   assert.equal(upgraded.transaction('examTranslationReviews').objectStore('examTranslationReviews').indexNames.contains('examIdStatusNextDueAt'), true);
   const migrated = await new Promise((resolve, reject) => {

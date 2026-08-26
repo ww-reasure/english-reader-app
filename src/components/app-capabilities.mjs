@@ -8,7 +8,7 @@ const entries = Object.freeze([
   { id: 'reading_library', name: '我的书架', category: '阅读', route: '#/reading-list', summary: '按难度和题材浏览本地及云端文章。', keywords: ['书架', '文章', '筛选'], prerequisites: [], limitations: [] },
   { id: 'sentence_guide', name: '逐句导读', category: '阅读', route: '#/reading-list', summary: '在文章中逐句查看断句、意译、语法和重点词。', keywords: ['逐句', '导读', '语法'], prerequisites: ['先打开一篇文章'], limitations: ['只分析当前句'] },
   { id: 'word_lookup', name: '点词学习', category: '词汇', route: '#/reading-list', summary: '阅读时点词查看本句义、常用释义、发音并收藏。', keywords: ['点词', '翻译', '本句义'], prerequisites: ['先打开一篇文章'], limitations: [] },
-  { id: 'vocabulary', name: '词汇学习', category: '词汇', route: '#/vocab', summary: '管理收藏词和学习词库，查看完整学习详情。', keywords: ['词汇', '生词', '收藏'], prerequisites: [], limitations: [] },
+  { id: 'vocabulary', name: '词汇学习', category: '词汇', route: '#/vocab', summary: '管理收藏与导入的词汇，查看完整学习详情。', keywords: ['词汇', '生词', '收藏'], prerequisites: [], limitations: [] },
   { id: 'word_review', name: '单词回忆', category: '复习', route: '#/flashcard/recall', summary: '脱离语境看词回忆释义，按认识、模糊、忘了评分。', keywords: ['复习', '单词', '回忆'], prerequisites: ['存在到期学习词'], limitations: ['直接回忆证据强于语境识词'] },
   { id: 'context_review', name: '语境识词', category: '复习', route: '#/flashcard/context', summary: '在英文句子中判断到期单词，先作答再显示本句义。', keywords: ['复习', '语境', '例句', '识词'], prerequisites: ['存在到期学习词'], limitations: ['语境认识只形成较弱的正向证据'] },
   { id: 'calibration', name: '3 分钟阅读校准', category: '档案', route: '#/assessment', summary: '用 24 道分层词义题和短阅读推荐材料压力。', keywords: ['校准', '测评', '难度'], prerequisites: ['选择目标考试'], limitations: ['不估算虚假词汇量'] },

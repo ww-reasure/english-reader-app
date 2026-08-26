@@ -27,9 +27,10 @@ test('chat only uses the legacy local generation classifier after tool support i
 
   assert.ok(submitStart >= 0 && submitEnd > submitStart, 'submitComposer must remain a distinct agent entry point');
   assert.match(submit, /reply\.toolSupport === 'unsupported'/);
-  assert.match(submit, /classifyComposerIntent\(value\) === 'generate'/);
+  assert.match(submit, /!attachmentGroup && reply\.toolSupport === 'unsupported'/);
+  assert.match(submit, /classifyComposerIntent\(requestText\) === 'generate'/);
   assert.ok(
-    submit.indexOf("reply.toolSupport === 'unsupported'") < submit.indexOf("classifyComposerIntent(value) === 'generate'"),
+    submit.indexOf("reply.toolSupport === 'unsupported'") < submit.indexOf("classifyComposerIntent(requestText) === 'generate'"),
     'the compatibility classifier must be gated behind a tool-support result'
   );
 });
@@ -99,7 +100,8 @@ test('persists only a direct user target change and does not let an agent tool s
   assert.match(source, /targetSelectionRequested/);
   assert.match(source, /Config\.set\('exam_level', target\)/);
   assert.match(source, /Config\.set\('target_track_selection_required', 'false'\)/);
-  assert.match(source, /difficultySelect\.addEventListener\('change'/);
+  assert.doesNotMatch(source, /difficultySelect\.addEventListener\('change'/);
+  assert.match(source, /Config\.get\('exam_level'\)/);
 });
 
 test('an unselected target stays visibly unselected while direct user exam text is resolved before the generation gate', async () => {
@@ -111,7 +113,7 @@ test('an unselected target stays visibly unselected while direct user exam text 
   const toolEntry = source.slice(toolStart, toolEnd);
   const directEntry = source.slice(directStart, directEnd);
 
-  assert.match(source, /<option value=""[^>]*>选择目标考试<\/option>/);
+  assert.doesNotMatch(source, /<option value=""[^>]*>选择目标考试<\/option>/);
   assert.ok(toolStart >= 0 && toolEnd > toolStart, 'agent generation should keep its own entry point');
   assert.ok(directStart >= 0 && directEnd > directStart, 'direct generation should keep its own entry point');
   assert.match(toolEntry, /const directUserRequest = String\(userRequest \|\| ''\)\.trim\(\);/);
@@ -137,7 +139,7 @@ test('chat generation entries preserve an unselected target instead of silently 
     const start = source.indexOf(startMarker);
     const end = source.indexOf(endMarker, start);
     const entry = source.slice(start, end);
-    assert.match(entry, /const selectedDifficulty = document\.getElementById\('difficultySelect'\)\?\.value \|\| Config\.get\('exam_level'\);/);
+    assert.match(entry, /const selectedDifficulty = Config\.get\('exam_level'\);/);
     assert.doesNotMatch(entry, /selectedDifficulty[^\n]*\|\| 'cet4'/);
   }
 });

@@ -23,12 +23,10 @@
         <input type="url" id="baseUrlInput" name="baseUrl" placeholder="https://api.deepseek.com/v1" autocomplete="off">
       </div>
       <div class="form-group">
-        <label>模型</label>
-        <div class="model-select">
-          <select id="modelPreset">
-            <option value="deepseek-v4-flash">DeepSeek V4 Flash（快速）</option>
-            <option value="deepseek-v4-pro">DeepSeek V4 Pro（高质量）</option>
-            <option value="custom">自定义模型</option>
+          <label>模型</label>
+          <div class="model-select">
+          <select id="modelPreset" aria-label="选择模型">
+            <option value="">加载模型列表…</option>
           </select>
           <input type="text" id="modelInput" name="customModel" placeholder="输入模型名称…" autocomplete="off" style="display:none">
         </div>

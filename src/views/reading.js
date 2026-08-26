@@ -1097,27 +1097,23 @@ export const ReadingView = {
     let skipped = 0;
     for (const w of this.clickedWords) {
       try {
-        const existing = await DB.findLearnWord(w.word);
-        if (existing) {
-          skipped++;
-          continue;
-        }
-        await DB.saveLearnWord({
+        const saved = await DB.saveVocabularyWord({
+          articleId: this.articleData?.id ?? null,
           word: w.word,
           translation: w.translation || '',
           phonetic: w.phonetic || '',
           pos: w.pos || '',
           definitionSenses: w.definitionSenses || [],
           definitionSchemaVersion: w.definitionSchemaVersion || 0,
-          definitionLexiconVersion: w.definitionLexiconVersion || '',
-          createdAt: Date.now()
+          definitionLexiconVersion: w.definitionLexiconVersion || ''
         });
-        added++;
+        if (saved.createdVocabulary || saved.createdLearnWord || saved.restored) added++;
+        else skipped++;
       } catch {}
     }
     const msg = added > 0
-      ? `已将 ${added} 个单词加入学习词库${skipped > 0 ? `（${skipped} 个已存在，已跳过）` : ''}`
-      : `所有 ${skipped} 个单词已在学习词库中`;
+      ? `已将 ${added} 个单词加入我的词汇${skipped > 0 ? `（${skipped} 个已存在，已跳过）` : ''}`
+      : `所有 ${skipped} 个单词已在我的词汇中`;
     alert(msg);
   },
 

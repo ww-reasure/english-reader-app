@@ -274,7 +274,7 @@ export const FlashcardView = {
     this.practiceMissingCount = 0;
     const session = requestedScope ? readPracticeSession() : null;
     if (requestedScope && (!session || session.scope !== requestedScope)) {
-      this.renderInvalidPracticeSession(container, '这次专项练习已失效或与当前入口不一致，请从生词本重新开始。');
+      this.renderInvalidPracticeSession(container, '这次专项练习已失效或与当前入口不一致，请从我的词汇重新开始。');
       return;
     }
 
@@ -290,7 +290,7 @@ export const FlashcardView = {
       this.practiceWordIds = practiceWords.map(word => Number(word.id));
       if (!practiceWords.length) {
         clearPracticeSession();
-        this.renderInvalidPracticeSession(container, '这组单词已不在学习词库，未产生完成记录。请返回生词本重新选择。');
+        this.renderInvalidPracticeSession(container, '这组单词已不在我的词汇中，未产生完成记录。请返回我的词汇重新选择。');
         return;
       }
       this.practiceScope = requestedScope;
@@ -314,10 +314,10 @@ export const FlashcardView = {
           <div class="empty-state flashcard-empty-sheet">
             <p>🎉 暂时没有需要复习的单词</p>
             ${totalWords > 0 ? `<p>共 ${totalWords} 个单词，${masteredCount} 个进入长期巩固</p>` : ''}
-            <p>去阅读页面收藏新单词，或导入单词到学习词库。</p>
+            <p>去阅读页面收藏新单词，或导入单词到我的词汇。</p>
             <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
               <a href="#/chat" class="btn btn-primary">去阅读</a>
-              <a href="#/learn-words" class="btn btn-outline">学习词库</a>
+              <a href="#/vocab" class="btn btn-outline">我的词汇</a>
             </div>
           </div>
           </div>
@@ -355,8 +355,8 @@ export const FlashcardView = {
             <p>${esc(message)}</p>
             <p>没有任何单词被计为完成，正式复习计划也没有改变。</p>
             <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
-              <a href="#/vocab" class="btn btn-primary">返回生词本</a>
-              <a href="#/learn-words" class="btn btn-outline">学习词库</a>
+              <a href="#/vocab" class="btn btn-primary">返回我的词汇</a>
+              <a href="#/vocab" class="btn btn-outline">我的词汇</a>
             </div>
           </div>
         </div>
@@ -1166,7 +1166,7 @@ export const FlashcardView = {
           ${isPractice
             ? `<p class="flashcard-result-hint">${practiceCompleted
               ? '本轮全部单词已评分并记录完成。'
-              : `还有 ${practiceRemaining} 个词未评分，本轮未标记完成。`}专项练习不影响正式复习计划。${this.practiceMissingCount > 0 ? ` ${this.practiceMissingCount} 个已从学习词库移除的词已跳过。` : ''}</p>`
+              : `还有 ${practiceRemaining} 个词未评分，本轮未标记完成。`}专项练习不影响正式复习计划。${this.practiceMissingCount > 0 ? ` ${this.practiceMissingCount} 个已从我的词汇移出的词已跳过。` : ''}</p>`
             : ''}
           <div class="flashcard-result-stats">
             <div class="flashcard-result-stat">
@@ -1214,8 +1214,8 @@ export const FlashcardView = {
           </div>` : ''}
 
           <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
-            <a href="${isPractice ? '#/vocab' : '#/chat'}" class="btn btn-outline">${isPractice ? '返回生词本' : '返回阅读'}</a>
-            <a href="#/learn-words" class="btn btn-outline">词库管理</a>
+            <a href="${isPractice ? '#/vocab' : '#/chat'}" class="btn btn-outline">${isPractice ? '返回我的词汇' : '返回阅读'}</a>
+            <a href="#/vocab" class="btn btn-outline">词汇管理</a>
             ${isPractice ? '' : '<button class="btn btn-outline" onclick="FlashcardView.restart()">再来一轮</button>'}
           </div>
         </section>

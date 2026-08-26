@@ -10,7 +10,7 @@ export class ReviewQueueCoordinator {
   }
 
   async getDueWords({ limit = 20, targetTrack = '' } = {}) {
-    const words = await this.db.getAllLearnWords();
+    const words = (await this.db.getAllLearnWords()).filter(word => word?.archivedAt == null);
     const scored = await Promise.all(words.map(async (word, index) => ({
       word,
       index,
@@ -31,15 +31,18 @@ export class ReviewQueueCoordinator {
       ? right.score - left.score || left.index - right.index
       : left.index - right.index;
     });
-    return this.srs.getDueWords(scored.map(item => item.word), limit, { recoveryFirst: true }).map(word => ({
-      ...word,
-      expectedRevision: revisionOf(word)
-    }));
+    return this.srs.getDueWords(scored.map(item => item.word), limit, { recoveryFirst: true })
+      .filter(word => word?.archivedAt == null)
+      .map(word => ({
+        ...word,
+        expectedRevision: revisionOf(word)
+      }));
   }
 
   async revalidate(candidate) {
     const currentWord = await this.db.findLearnWordById(candidate?.id);
     if (!currentWord) return { current: false, reason: 'missing-word', word: null };
+    if (currentWord.archivedAt != null) return { current: false, reason: 'archived-word', word: null };
     if (revisionOf(currentWord) !== revisionOf({ reviewRevision: candidate?.expectedRevision })) {
       return { current: false, reason: 'reviewed-elsewhere', word: null };
     }

@@ -28,10 +28,10 @@ export const StatsView = {
   async render(container) {
     this.cleanup();
     this.container = container;
-    const [articles, learnWords, vocabWords, readingStats] = await Promise.all([
-      DB.getAllArticles(), DB.getAllLearnWords(), DB.getAllWords(), DB.getAllReadingStats()
+    const [articles, learnWords, readingStats] = await Promise.all([
+      DB.getAllArticles(), DB.getAllLearnWords(), DB.getAllReadingStats()
     ]);
-    this.readingModel = this.buildReadingModel({ articles, learnWords, vocabWords, readingStats });
+    this.readingModel = this.buildReadingModel({ articles, learnWords, readingStats });
     this.examProvider = createExamLearningOverviewProvider({ services: createExamServices() });
     try {
       this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear, bankId: this.selectedExamBank || null });
@@ -62,7 +62,7 @@ export const StatsView = {
     this.bindEvents();
   },
 
-  buildReadingModel({ articles, learnWords, vocabWords, readingStats }) {
+  buildReadingModel({ articles, learnWords, readingStats }) {
     const reading = buildReadingAnalytics({ articles, readingStats });
     const learnedWords = learnWords.filter(word => word.reviewCount > 0).length;
     const masteredWords = learnWords.filter(word => word.interval >= 21).length;
@@ -74,7 +74,7 @@ export const StatsView = {
       learningWords: Math.max(0, learnedWords - masteredWords),
       newWords: learnWords.filter(word => !word.reviewCount).length,
       dueWords: SpacedRepetition.getDueCount(learnWords),
-      vocabularyCount: vocabWords.length
+      vocabularyCount: learnWords.length
     };
   },
 
@@ -102,8 +102,8 @@ export const StatsView = {
           ${this.detail('累计词数', reading.totalWords.toLocaleString())}${this.detail('查词数', reading.totalLookups)}${this.detail('资料库文章数', reading.libraryArticleCount)}${this.detail('有效阅读次数', reading.effectiveReadingCount)}${this.detail('读过文章数', reading.distinctReadArticleCount)}${this.detail('最近 30 天有效阅读', reading.recent30EffectiveReadingCount)}${this.detail('收藏文章', model.favorites)}
         </div></section>
         <section class="profile-data-card"><p class="profile-kicker">VOCABULARY</p><h2>词汇成长</h2><div class="profile-detail-list">
-          ${this.detail('学习中', model.learningWords)}${this.detail('已掌握', model.masteredWords)}${this.detail('新词', model.newWords)}${this.detail('待复习', model.dueWords)}${this.detail('生词本', model.vocabularyCount)}
-        </div><div class="profile-card-actions"><a href="#/vocab">打开生词本</a>${model.dueWords ? `<a href="#/flashcard">复习 ${model.dueWords} 个词</a>` : ''}</div></section>
+          ${this.detail('学习中', model.learningWords)}${this.detail('已掌握', model.masteredWords)}${this.detail('新词', model.newWords)}${this.detail('待复习', model.dueWords)}${this.detail('词汇总数', model.vocabularyCount)}
+        </div><div class="profile-card-actions"><a href="#/vocab">打开我的词汇</a>${model.dueWords ? `<a href="#/flashcard">复习 ${model.dueWords} 个词</a>` : ''}</div></section>
         <section class="profile-data-card"><p class="profile-kicker">DIFFICULTY</p><h2>难度分布</h2><div class="stats-diff-bars">
           ${this.renderDiffBar('四级', reading.difficultyDistribution.cet4, reading.effectiveReadingCount, 'cet4')}
           ${this.renderDiffBar('六级', reading.difficultyDistribution.cet6, reading.effectiveReadingCount, 'cet6')}

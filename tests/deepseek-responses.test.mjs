@@ -182,6 +182,57 @@ test('completion sends the requested tool_choice in the body', async () => {
   assert.equal(sentBody.tool_choice, 'auto');
 });
 
+test('messages convert multimodal chat content into Responses input images', () => {
+  const items = messagesToResponsesItems([{
+    role: 'user',
+    content: [
+      { type: 'text', text: '讲解这张图' },
+      { type: 'file', file_id: 'file-api-1' }
+    ]
+  }]);
+  assert.deepEqual(items, [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: '讲解这张图' },
+      { type: 'input_image', file_id: 'file-api-1', detail: 'original' }
+    ]
+  }]);
+});
+
+test('inline image fallback uses the Responses API string image_url shape', () => {
+  const items = messagesToResponsesItems([{
+    role: 'user',
+    content: [
+      { type: 'text', text: '讲解这张图' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AA==' } }
+    ]
+  }]);
+  assert.deepEqual(items, [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: '讲解这张图' },
+      { type: 'input_image', image_url: 'data:image/jpeg;base64,AA==', detail: 'original' }
+    ]
+  }]);
+});
+
+test('completion accepts a request-level model override without changing configured model', async () => {
+  let sentBody = null;
+  const config = {
+    get: key => ({ api_key: 'sk-test', model: 'deepseek-v4-pro', base_url: 'https://api.deepseek.com' }[key] || '')
+  };
+  const client = createDeepSeekResponsesClient({
+    config,
+    fetchImpl: async (_url, options) => {
+      sentBody = JSON.parse(options.body);
+      return { ok: true, body: responseStream([{ type: 'message', content: [{ type: 'output_text', text: '好的。' }] }]), headers: { get: () => 'text/event-stream' } };
+    }
+  });
+  await client.completion([{ role: 'user', content: '图片' }], { modelOverride: 'deepseek-v4-flash-vision-exp' });
+  assert.equal(sentBody.model, 'deepseek-v4-flash-vision-exp');
+  assert.equal(config.get('model'), 'deepseek-v4-pro');
+});
+
 test('streaming client parses Responses SSE and returns the completed result', async () => {
   const text = sseText([
     ['response.created', { type: 'response.created', response: { id: 'resp_1', status: 'in_progress' } }],

@@ -8,6 +8,23 @@ import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
 import { localDayBounds, localDayKey } from './learning-day.mjs';
 import { ActivityType, importWordDedupeKey, normalizeLearningActivity } from './learning-activity.mjs';
 import { scheduleExternalReview } from './external-review-scheduler.mjs';
+import {
+  LIBRARY_SOURCE_VERSION,
+  activateLibrarySource,
+  createLibrarySources,
+  deactivateLibrarySource,
+  planLegacyVocabularyMigration,
+  projectUnifiedVocabulary
+} from './vocabulary-library.mjs';
+
+const TRUSTED_VOCABULARY_DEFINITION_FIELDS = [
+  'translation',
+  'phonetic',
+  'pos',
+  'definitionSenses',
+  'definitionSchemaVersion',
+  'definitionLexiconVersion'
+];
 
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
@@ -93,7 +110,7 @@ function updateRecordFields(db, storeName, id, fields) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 18, // v18: additive learning activity and daily report telemetry
+  DB_VERSION: 19, // v19: additive chat image attachment persistence
 
   // Open database connection with retry
   open(retries = 3) {
@@ -377,6 +394,18 @@ export const DB = {
           store.createIndex('updatedAt', 'updatedAt');
           store.createIndex('expiresAt', 'expiresAt');
         }
+
+        // v19: durable image attachment metadata and local blobs for chat.
+        // This store is additive: existing vocabulary, learning, reading and
+        // practice records are never migrated or rewritten here.
+        if (!db.objectStoreNames.contains('chatImageAttachments')) {
+          const store = db.createObjectStore('chatImageAttachments', { keyPath: 'id' });
+          store.createIndex('groupId', 'groupId');
+          store.createIndex('conversationKey', 'conversationKey');
+          store.createIndex('status', 'status');
+          store.createIndex('createdAt', 'createdAt');
+          store.createIndex('lastAccessedAt', 'lastAccessedAt');
+        }
       };
 
       req.onsuccess = () => resolve(req.result);
@@ -503,6 +532,161 @@ export const DB = {
     });
   },
 
+  // ===== Chat image attachments =====
+
+  async putChatImageAttachment(record) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const req = tx.objectStore('chatImageAttachments').put(clonePlain(record));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async getChatImageAttachment(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const req = tx.objectStore('chatImageAttachments').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getChatImageGroup(groupId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const req = tx.objectStore('chatImageAttachments').index('groupId').getAll(groupId);
+      req.onsuccess = () => {
+        const rows = Array.isArray(req.result) ? req.result : [];
+        rows.sort((a, b) => {
+          const orderDiff = (Number(a?.order) || 0) - (Number(b?.order) || 0);
+          return orderDiff || String(a?.id || '').localeCompare(String(b?.id || ''));
+        });
+        resolve(rows);
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async listChatImageAttachments({ conversationKey, statuses } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readonly');
+      const store = tx.objectStore('chatImageAttachments');
+      const source = conversationKey == null
+        ? store
+        : store.index('conversationKey');
+      const req = conversationKey == null
+        ? source.getAll()
+        : source.getAll(conversationKey);
+      req.onsuccess = () => {
+        const statusSet = statuses == null
+          ? null
+          : new Set(Array.isArray(statuses) ? statuses : [...statuses]);
+        const rows = (Array.isArray(req.result) ? req.result : [])
+          .filter(row => !statusSet || statusSet.size === 0 || statusSet.has(row?.status))
+          .sort((a, b) => {
+            const createdDiff = (Number(a?.createdAt) || 0) - (Number(b?.createdAt) || 0);
+            return createdDiff || String(a?.id || '').localeCompare(String(b?.id || ''));
+          });
+        resolve(rows);
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async updateChatImageAttachment(id, fields = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const current = getReq.result;
+        if (!current) {
+          resolve(null);
+          return;
+        }
+        const updated = { ...current, ...clonePlain(fields) };
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async deleteChatImageAttachment(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      tx.objectStore('chatImageAttachments').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async releaseChatImageAttachment(id, { remoteDeletePending = false } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const current = getReq.result;
+        if (!current) {
+          resolve(null);
+          return;
+        }
+        const updated = {
+          ...current,
+          blob: null,
+          sizeBytes: 0,
+          status: remoteDeletePending ? 'delete_pending' : 'released',
+          updatedAt: Date.now()
+        };
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image attachment transaction aborted'));
+    });
+  },
+
+  async deleteChatImageGroup(groupId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('chatImageAttachments', 'readwrite');
+      const store = tx.objectStore('chatImageAttachments');
+      const req = store.index('groupId').getAll(groupId);
+      req.onsuccess = () => {
+        for (const row of req.result || []) store.delete(row.id);
+      };
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Chat image group transaction aborted'));
+    });
+  },
+
+  async getChatImageStorageBytes() {
+    const rows = await this.listChatImageAttachments();
+    return rows.reduce((total, row) => total + Math.max(0, Number(row?.sizeBytes) || 0), 0);
+  },
+
   // Update article fields (e.g., favorite)
   async updateArticle(id, fields) {
     const db = await this.open();
@@ -623,6 +807,117 @@ export const DB = {
     });
   },
 
+  async saveVocabularyWord(wordData = {}, { occurredAt = Date.now() } = {}) {
+    const lemma = getStemForm(wordData.word);
+    if (!lemma) throw new TypeError('收藏需要有效的单词');
+    const savedAt = numericValue(occurredAt, Date.now());
+    const createdAt = numericValue(wordData.createdAt, savedAt);
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const savedRequest = savedStore.getAll();
+      const wordRequest = wordStore.index('word').get(lemma);
+      let savedRows = null;
+      let previous;
+      let result = null;
+      let applied = false;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('收藏单词失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (applied || savedRows === null || previous === undefined) return;
+        applied = true;
+        try {
+          const activeSaved = savedRows.find(row =>
+            row && row.archivedAt == null && getStemForm(row.word) === lemma
+          );
+          let vocabularyId = activeSaved?.id ?? null;
+          let learnWordId = previous?.id ?? null;
+          const createdVocabulary = !activeSaved;
+          const createdLearnWord = !previous;
+
+          if (createdVocabulary) {
+            const savedRow = {
+              ...wordData,
+              word: String(wordData.word || lemma).trim(),
+              createdAt
+            };
+            const addVocabularyRequest = savedStore.add(savedRow);
+            addVocabularyRequest.onsuccess = () => {
+              vocabularyId = addVocabularyRequest.result;
+              maybeFinish();
+            };
+            addVocabularyRequest.onerror = () => fail(addVocabularyRequest.error);
+          }
+
+          if (createdLearnWord) {
+            const canonical = {
+              word: lemma,
+              createdAt,
+              libraryAddedAt: createdAt,
+              librarySourceVersion: LIBRARY_SOURCE_VERSION,
+              librarySources: createLibrarySources({ readingAt: savedAt }),
+              archivedAt: null
+            };
+            for (const field of TRUSTED_VOCABULARY_DEFINITION_FIELDS) {
+              if (wordData[field] !== undefined) canonical[field] = clonePlain(wordData[field]);
+            }
+            const addWordRequest = wordStore.add(canonical);
+            addWordRequest.onsuccess = () => {
+              learnWordId = addWordRequest.result;
+              maybeFinish();
+            };
+            addWordRequest.onerror = () => fail(addWordRequest.error);
+          } else {
+            const updated = activateLibrarySource(previous, 'reading', savedAt);
+            const updateWordRequest = wordStore.put(updated);
+            updateWordRequest.onsuccess = () => maybeFinish();
+            updateWordRequest.onerror = () => fail(updateWordRequest.error);
+          }
+
+          function maybeFinish() {
+            if (result || vocabularyId == null || learnWordId == null) return;
+            result = {
+              vocabularyId,
+              learnWordId,
+              createdVocabulary,
+              createdLearnWord,
+              restored: Boolean(previous?.archivedAt != null)
+            };
+          }
+        } catch (error) {
+          fail(error);
+        }
+      };
+
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      wordRequest.onsuccess = () => {
+        previous = wordRequest.result || null;
+        apply();
+      };
+      wordRequest.onerror = () => fail(wordRequest.error);
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else if (result) resolve(result);
+        else reject(new Error('收藏单词未完成'));
+      };
+      tx.onerror = () => reject(failure || tx.error || new Error('收藏单词失败'));
+      tx.onabort = () => reject(failure || tx.error || new Error('收藏单词失败'));
+    });
+  },
+
   async getAllWords() {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -683,13 +978,170 @@ export const DB = {
     });
   },
 
-  async getAllLearnWords() {
+  async getAllLearnWords({ includeArchived = false } = {}) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readonly');
       const req = tx.objectStore('learnWords').getAll();
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => resolve(includeArchived
+        ? req.result
+        : req.result.filter(word => word?.archivedAt == null));
       req.onerror = () => reject(req.error);
+    });
+  },
+
+  async ensureUnifiedVocabulary() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const savedRequest = savedStore.getAll();
+      const wordsRequest = wordStore.getAll();
+      let savedRows = null;
+      let learnRows = null;
+      let applied = false;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('统一词库迁移失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (applied || savedRows === null || learnRows === null) return;
+        applied = true;
+        try {
+          const plan = planLegacyVocabularyMigration({
+            learnWords: learnRows,
+            vocabulary: savedRows,
+            normalizeLemma: getStemForm
+          });
+          for (const row of plan.updates) wordStore.put(row);
+          for (const row of plan.inserts) wordStore.add(row);
+        } catch (error) {
+          fail(error);
+        }
+      };
+
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      wordsRequest.onsuccess = () => {
+        learnRows = wordsRequest.result || [];
+        apply();
+      };
+      wordsRequest.onerror = () => fail(wordsRequest.error);
+      tx.oncomplete = () => failure ? reject(failure) : resolve();
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('统一词库迁移失败'));
+    });
+  },
+
+  async getUnifiedVocabulary() {
+    await this.ensureUnifiedVocabulary();
+    const [learnWords, vocabulary] = await Promise.all([
+      this.getAllLearnWords(),
+      this.getAllWords()
+    ]);
+    return projectUnifiedVocabulary({
+      learnWords,
+      vocabulary,
+      normalizeLemma: getStemForm
+    });
+  },
+
+  async removeReadingVocabularySource(wordId, { occurredAt = Date.now() } = {}) {
+    await this.ensureUnifiedVocabulary();
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
+      const savedStore = tx.objectStore('vocabulary');
+      const wordStore = tx.objectStore('learnWords');
+      const wordRequest = wordStore.get(Number(wordId));
+      const savedRequest = savedStore.getAll();
+      let word = null;
+      let savedRows = null;
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('取消收藏失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      const apply = () => {
+        if (word === null || savedRows === null) return;
+        if (!word) return;
+        const lemma = getStemForm(word.word);
+        for (const saved of savedRows) {
+          if (getStemForm(saved?.word) === lemma) savedStore.delete(saved.id);
+        }
+        wordStore.put(deactivateLibrarySource(word, 'reading', occurredAt));
+        word = undefined;
+      };
+
+      wordRequest.onsuccess = () => {
+        word = wordRequest.result || null;
+        apply();
+      };
+      wordRequest.onerror = () => fail(wordRequest.error);
+      savedRequest.onsuccess = () => {
+        savedRows = savedRequest.result || [];
+        apply();
+      };
+      savedRequest.onerror = () => fail(savedRequest.error);
+      tx.oncomplete = () => failure ? reject(failure) : resolve();
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('取消收藏失败'));
+    });
+  },
+
+  async archiveLearnWords(wordIds, { occurredAt = Date.now() } = {}) {
+    const ids = [...new Set((Array.isArray(wordIds) ? wordIds : [wordIds])
+      .map(id => Number(id))
+      .filter(Number.isFinite))];
+    if (!ids.length) return;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readwrite');
+      const store = tx.objectStore('learnWords');
+      for (const id of ids) {
+        const request = store.get(id);
+        request.onsuccess = () => {
+          if (request.result) store.put({ ...request.result, archivedAt: occurredAt });
+        };
+        request.onerror = () => {
+          try {
+            tx.abort();
+          } catch {}
+          reject(request.error);
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('移出词库失败'));
+    });
+  },
+
+  async restoreLearnWordSource(wordId, source, { occurredAt = Date.now() } = {}) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readwrite');
+      const store = tx.objectStore('learnWords');
+      const request = store.get(Number(wordId));
+      request.onsuccess = () => {
+        if (request.result) store.put(activateLibrarySource(request.result, source, occurredAt));
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('恢复词库来源失败'));
     });
   },
 
@@ -944,27 +1396,42 @@ export const DB = {
       dedupeRequest.onerror = () => fail(dedupeRequest.error);
       dedupeRequest.onsuccess = () => {
         const existingActivity = dedupeRequest.result;
-        if (existingActivity) {
-          result = {
-            status: 'today_ignored',
-            wordId: existingActivity.payload?.wordId ?? null,
-            lemma,
-            scheduleChanged: false,
-            reason: 'today_ignored'
-          };
-          return;
-        }
-
         const wordRequest = words.index('word').get(lemma);
         wordRequest.onerror = () => fail(wordRequest.error);
         wordRequest.onsuccess = () => {
           const word = wordRequest.result;
+          const activatedWord = word ? activateLibrarySource(word, 'import', occurredAt) : null;
+          const resolveTodayIgnored = () => {
+            result = {
+              status: 'today_ignored',
+              wordId: word?.id ?? existingActivity?.payload?.wordId ?? null,
+              lemma,
+              scheduleChanged: false,
+              reason: 'today_ignored'
+            };
+          };
+
+          if (existingActivity) {
+            if (!activatedWord) {
+              resolveTodayIgnored();
+              return;
+            }
+            const reactivateRequest = words.put(activatedWord);
+            reactivateRequest.onerror = () => fail(reactivateRequest.error);
+            reactivateRequest.onsuccess = resolveTodayIgnored;
+            return;
+          }
+
           if (!word) {
             const newWord = {
               ...wordData,
               word: lemma,
               reviewRevision: Math.max(0, Number(wordData.reviewRevision) || 0),
-              createdAt: wordData.createdAt ?? occurredAt
+              createdAt: wordData.createdAt ?? occurredAt,
+              librarySourceVersion: LIBRARY_SOURCE_VERSION,
+              librarySources: createLibrarySources({ importAt: occurredAt }),
+              libraryAddedAt: occurredAt,
+              archivedAt: null
             };
             const addWordRequest = words.add(newWord);
             addWordRequest.onerror = () => fail(addWordRequest.error);
@@ -982,8 +1449,8 @@ export const DB = {
             return;
           }
 
-          const decision = scheduleExternalReview(word, occurredAt);
-          const updatedWord = { ...word, ...decision.patch };
+          const decision = scheduleExternalReview(activatedWord, occurredAt);
+          const updatedWord = { ...activatedWord, ...decision.patch };
           const updateRequest = words.put(updatedWord);
           updateRequest.onerror = () => fail(updateRequest.error);
           updateRequest.onsuccess = () => {

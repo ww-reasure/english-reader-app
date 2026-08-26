@@ -56,3 +56,39 @@ test('service resumes an in-progress batch and never reapplies successful words'
   });
   assert.deepEqual(applied, ['two']);
 });
+
+test('service dispatches one library refresh event after an import batch', async () => {
+  const events = [];
+  const originalDocument = globalThis.document;
+  const originalCustomEvent = globalThis.CustomEvent;
+  globalThis.document = { dispatchEvent: event => events.push(event) };
+  globalThis.CustomEvent = class TestCustomEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  };
+  try {
+    const service = new WordImportService({
+      db: fakeDbWithBatch(),
+      now: () => new Date(2026, 7, 24, 9).getTime()
+    });
+    service.applyWord = async word => ({ status: 'new', lemma: word });
+    await service.execute({
+      batchId: 'batch-refresh',
+      dayKey: '2026-08-24',
+      words: ['one', 'two'],
+      categories: { new: ['one', 'two'], externalReview: [], todayIgnored: [], invalid: [], failed: [] },
+      counts: { recognized: 2, new: 2, externalReview: 0, todayIgnored: 0, invalid: 0, failed: 0 },
+      completedLemmas: []
+    });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'word-library-changed');
+    assert.deepEqual(events[0].detail, { reason: 'import', batchId: 'batch-refresh' });
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+    if (originalCustomEvent === undefined) delete globalThis.CustomEvent;
+    else globalThis.CustomEvent = originalCustomEvent;
+  }
+});

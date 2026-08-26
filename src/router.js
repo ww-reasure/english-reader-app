@@ -10,7 +10,6 @@ import { VocabularyView } from './views/vocabulary.js';
 import { FlashcardView } from './views/flashcard.js';
 import { ReviewModeView } from './views/review-mode.js';
 import { ContextReviewView } from './views/context-review.js';
-import { LearnWordsView } from './views/learn-words.js';
 import { SettingsView } from './views/settings.js';
 import { StatsView } from './views/stats.js';
 import { ReportView } from './views/report.js';
@@ -31,7 +30,7 @@ import { WordStudyDetail } from './components/word-study-detail.js';
 
 const views = {
   ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView, ReviewModeView, ContextReviewView,
-  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView, ExamHomeView, ExamPracticeView, ExamResultView, ExamReviewView, ExamCatalogView, ExamHistoryView
+  SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView, ExamHomeView, ExamPracticeView, ExamResultView, ExamReviewView, ExamCatalogView, ExamHistoryView
 };
 
 export const Router = {
@@ -53,7 +52,11 @@ export const Router = {
 
   // Route to the correct view based on hash
   async navigate() {
-    const hash = location.hash || '#/chat';
+    let hash = location.hash || '#/chat';
+    if (hash === '#/learn-words') {
+      hash = '#/vocab';
+      history.replaceState(history.state, '', `${location.pathname}${location.search}${hash}`);
+    }
     const app = document.getElementById('app');
 
     // Cleanup previous view's event listeners
@@ -88,9 +91,6 @@ export const Router = {
       }
       case hash === '#/flashcard/context':
         view = ContextReviewView;
-        break;
-      case hash === '#/learn-words':
-        view = LearnWordsView;
         break;
       case hash === '#/settings':
         view = SettingsView;
@@ -168,10 +168,11 @@ export const Router = {
     this.navigate();
   },
 
-  back() {
+  back(fallbackRoute = '') {
     const previous = this.routeHistory?.previous();
-    if (!previous) return false;
-    location.hash = previous;
+    const destination = previous || fallbackRoute;
+    if (!destination) return false;
+    location.hash = destination;
     return true;
   }
 };

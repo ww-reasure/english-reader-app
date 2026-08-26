@@ -12,6 +12,7 @@ async function loadFreshDb(label) {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
@@ -20,8 +21,9 @@ async function loadFreshDb(label) {
     .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
-    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`);
-  const module = await import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
+  const module = await import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}#${label}-${databaseSequence}`);
   module.DB.DB_NAME = `ExternalImport-${label}-${process.pid}-${databaseSequence++}`;
   return module.DB;
 }
@@ -40,7 +42,10 @@ test('first old-word import updates schedule, event, and daily dedupe atomically
   assert.equal(result.scheduleChanged, true);
   assert.equal(result.wordId, wordId);
   assert.equal(result.lemma, 'constraint');
-  assert.equal((await db.findLearnWordById(wordId)).nextReview, now + 7 * 86400000);
+  const savedWord = await db.findLearnWordById(wordId);
+  assert.equal(savedWord.nextReview, now + 7 * 86400000);
+  assert.equal(savedWord.librarySources.import.active, true);
+  assert.equal(savedWord.archivedAt, null);
   assert.equal((await db.getReviewEventsForWord(wordId)).at(-1).source, 'external-import');
   assert.ok(await db.getLearningActivityByDedupeKey('import-word:2026-08-24:constraint'));
 });
@@ -69,5 +74,9 @@ test('new word is added once and cannot become an external review later that day
 
   assert.equal((await db.applyWordImportSignal({ word: 'derive' }, context)).status, 'new');
   assert.equal((await db.applyWordImportSignal({ word: 'derive' }, { ...context, batchId: 'b2' })).status, 'today_ignored');
-  assert.equal((await db.getAllLearnWords()).filter(item => item.word === 'derive').length, 1);
+  const words = await db.getAllLearnWords();
+  assert.equal(words.filter(item => item.word === 'derive').length, 1);
+  assert.equal(words[0].librarySourceVersion, 1);
+  assert.equal(words[0].librarySources.import.active, true);
+  assert.equal(words[0].archivedAt, null);
 });

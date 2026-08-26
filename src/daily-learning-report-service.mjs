@@ -207,7 +207,7 @@ export class DailyLearningReportService {
     const [articles, readingStats, learnWords, activities, recentReports, examFacts] = await Promise.all([
       callOptional(this.db, 'getAllArticles', []),
       callOptional(this.db, 'getAllReadingStats', []),
-      callOptional(this.db, 'getAllLearnWords', []),
+      callOptional(this.db, 'getAllLearnWords', [], { includeArchived: true }),
       callOptional(this.db, 'listLearningActivities', [], { from, to }),
       callOptional(this.db, 'listDailyLearningReports', [], { limit: MAX_REPORT_DAYS }),
       this.loadExamFacts({ dateKey, from, to })

@@ -47,6 +47,10 @@ import { isSyntheticExamPaper } from '../exam/home-visibility.mjs';
 import { SUPPORTED_EXAM_IDS } from '../exam/constants.mjs';
 import { buildResearchBrief, createWebResearch, normalizeResearchSources } from '../components/web-research.mjs';
 import { buildNativeResearchArtifact, messagesToResponsesItems, resolveWebResearchPlan } from '../components/deepseek-responses.mjs';
+import { ChatImageService } from '../components/chat-image-service.js';
+import { createChatImageProcessor } from '../components/chat-image-processor.js';
+import { resolveModelForRequest } from '../components/deepseek-model-catalog.mjs';
+import * as chatImagePolicy from '../components/chat-image-policy.mjs';
 
 const conversationStore = new ConversationStore();
 const examServices = createExamServices();
@@ -116,6 +120,12 @@ const homeWebResearch = {
   artifact: buildNativeResearchArtifact
 };
 const chatService = new ChatService({ api: API, agent: learningAgent, builder: contextBuilder, telemetry: HomeAgentUsageTelemetry, webResearch: homeWebResearch });
+const imageService = new ChatImageService({
+  db: DB,
+  api: API,
+  processor: createChatImageProcessor(),
+  policy: chatImagePolicy
+});
 const articleQualityService = getSharedArticleQualityService({ api: API, db: DB });
 const articleGenerationTool = new ArticleGenerationTool({
   api: API,
@@ -192,6 +202,8 @@ const generationAdjustmentMessage = adjustment => {
   return `已按当前难度档案将篇幅从 ${requested} 词调整为 ${resolved} 词（允许范围 ${range.min}-${range.max} 词）。`;
 };
 
+export const DEFAULT_IMAGE_LEARNING_PROMPT = '请识别这些图片的内容，并结合我当前的英语学习目标进行讲解。若包含文章或题目，请按图片顺序说明重点、答案依据、易错点和值得学习的词汇；看不清的地方请明确指出，不要猜测。';
+
 // Chat history persistence
 export const ChatHistory = {
   KEY: 'chatHistory',
@@ -263,6 +275,14 @@ export const ChatView = {
   _messageCopyCleanup: null,
   _chatSelectionActions: null,
   _chatFollowUpExcerpt: '',
+  imageDraftGroupId: null,
+  activeImageGroupId: null,
+  imageDraftState: 'idle',
+  imageService: null,
+  _imageDraftObjectUrls: new Map(),
+  _imageActionCleanup: null,
+  _imageViewerCleanup: null,
+  _imageRequestController: null,
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -283,17 +303,7 @@ export const ChatView = {
   async render(container) {
     this.releaseChatActions();
     conversationStore.pruneExpiredArticleSessions(7 * 86400000);
-    const topicOptions = this.topics.map(t =>
-      `<option value="${t.value}">${t.label}</option>`
-    ).join('');
-
-    // The selected target is independent from the inferred reading mode.
-    const savedExamLevel = ['cet4', 'cet6', 'kaoyan1', 'kaoyan2'].includes(Config.get('exam_level'))
-      ? Config.get('exam_level')
-      : '';
-    const targetSelectPlaceholder = savedExamLevel
-      ? ''
-      : '<option value="" selected disabled>选择目标考试</option>';
+    this.imageService = imageService;
 
     container.innerHTML = `
       <div class="chat-container">
@@ -316,29 +326,19 @@ export const ChatView = {
             <button class="quick-action" type="button" data-action="import-article"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>导入文章</button>
             <button class="quick-action" type="button" data-action="import-words"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i>导入单词</button>
             <button class="quick-action" type="button" data-action="daily-report"><i class="fa-solid fa-chart-line" aria-hidden="true"></i>今日日报</button>
-            <a class="quick-action" href="#/learn-words"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>学习词库</a>
+            <a class="quick-action" href="#/vocab"><i class="fa-solid fa-bookmark" aria-hidden="true"></i>我的词汇</a>
           </div>
-          <div id="composerOptions" class="composer-options" hidden>
-            <div class="composer-options-heading">
-              <span>生成设置</span>
-              <button id="composerOptionsClose" type="button" aria-label="关闭生成设置">×</button>
-            </div>
-            <select id="difficultySelect" name="difficulty" aria-label="文章难度">
-              ${targetSelectPlaceholder}
-              <option value="cet4" ${savedExamLevel === 'cet4' ? 'selected' : ''}>四级</option>
-              <option value="cet6" ${savedExamLevel === 'cet6' ? 'selected' : ''}>六级</option>
-              <option value="kaoyan1" ${savedExamLevel === 'kaoyan1' ? 'selected' : ''}>考研英语一</option>
-              <option value="kaoyan2" ${savedExamLevel === 'kaoyan2' ? 'selected' : ''}>考研英语二</option>
-            </select>
-            <select id="topicSelect" class="topic-select" name="topic" aria-label="文章话题">
-              <option value="">选择话题</option>
-              ${topicOptions}
-              <option value="custom">自定义...</option>
-            </select>
-            <input type="text" id="topicInput" name="customTopic" placeholder="自定义话题" class="input-small" autocomplete="off" style="display:none">
+          <div id="chatImageActionSheet" class="chat-image-action-sheet" hidden aria-label="添加图片方式">
+            <button type="button" data-image-action="camera"><i class="fa-solid fa-camera" aria-hidden="true"></i>拍照</button>
+            <button type="button" data-image-action="gallery"><i class="fa-solid fa-images" aria-hidden="true"></i>从相册选择</button>
+            <button type="button" data-image-action="cancel">取消</button>
           </div>
+          <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
+          <input id="chatGalleryInput" type="file" accept="image/*" multiple hidden>
+          <div id="chatImageDraftStrip" class="chat-image-draft-strip" aria-live="polite" hidden></div>
+          <div id="chatActiveImageChip" class="chat-active-image-chip" hidden aria-live="polite"></div>
           <div class="chat-input-row">
-            <button id="composerOptionsBtn" class="composer-icon-btn" type="button" aria-label="打开生成设置" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+            <button id="composerImageBtn" class="composer-icon-btn" type="button" aria-label="添加图片" aria-expanded="false"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
             <textarea id="promptInput" name="learningPrompt" placeholder="问问题，或说“生成一篇关于……”" aria-label="学习问题" rows="1"></textarea>
             <button id="generateBtn" class="composer-generate-btn" type="button" aria-label="发送问题"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
           </div>
@@ -349,6 +349,7 @@ export const ChatView = {
 
     // Restore chat history
     await this.restoreHistory();
+    await this.restoreImageState();
 
     // Show any pending articles from previous generation
     this.showPendingArticles();
@@ -395,7 +396,11 @@ export const ChatView = {
         } else if (message.kind === 'daily_report') {
           await this.restoreDailyReportReference(message);
         } else {
-          this.addMessageToDOM(message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role, message.content);
+          await this.addMessageToDOM(
+            message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role,
+            message.content,
+            { imageGroup: message.imageGroup, messageId: message.id || message.createdAt }
+          );
         }
       }
     }
@@ -466,14 +471,24 @@ export const ChatView = {
     this.addMessageToDOM('system', '已进入未校准的保守阅读：会优先使用高频基础词、较短句和少量目标重点词。完成 3 篇有效阅读后，我会只问一次“偏难 / 合适 / 偏易”，帮助校正推荐；随时可以在「设置」中完成 3 分钟校准。');
   },
 
-  // Clear chat history
+  // Clear chat history and the durable image context belonging to this session.
   clearHistory() {
     if (!confirm('清除本次对话的上下文和显示记录？已保存的阅读文章不受影响。')) return;
+    return this.clearHistoryConfirmed();
+  },
+
+  async clearHistoryConfirmed() {
     this.homeEpoch += 1;
     this.beginHomeRequest({ cancelGeneration: true, cancelReason: 'clear_context' });
     conversationStore.clear('home');
     ChatHistory.clear();
+    await imageService.clearConversation('home');
+    this.imageDraftGroupId = null;
+    this.activeImageGroupId = null;
+    this.imageDraftState = 'idle';
+    this.revokeImageObjectUrls();
     this.clearChatFollowUp();
+    await this.renderActiveImageChip();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
@@ -481,6 +496,8 @@ export const ChatView = {
 
   beginHomeRequest({ cancelGeneration = false, cancelReason = 'superseded' } = {}) {
     const requestVersion = homeRequestGate.begin();
+    this._imageRequestController?.abort();
+    this._imageRequestController = null;
     chatService.cancel('home');
     if (cancelGeneration) {
       homeGenerationCoordinator?.cancel(cancelReason);
@@ -558,7 +575,7 @@ export const ChatView = {
   async publishHomeGenerationArticle(job, article, keywords, runtime, batchIndex = 0) {
     if (!this.hasPublishedGenerationArticle(job.id, article.id)) {
       this.addArticleCard(article);
-      if (keywords) this.addMessage('system', `已自动融入学习词库中的单词：${keywords}`);
+      if (keywords) this.addMessage('system', `已自动融入我的词汇中的单词：${keywords}`);
       runtime.updateJob({ publishedArticleIds: [...new Set([...(job.publishedArticleIds || []), article.id])] });
     }
     runtime.clearPreview?.(batchIndex);
@@ -792,8 +809,6 @@ export const ChatView = {
     if (!target) return false;
     Config.set('exam_level', target);
     Config.set('target_track_selection_required', 'false');
-    const difficultySelect = document.getElementById('difficultySelect');
-    if (difficultySelect) difficultySelect.value = target;
     return true;
   },
 
@@ -832,13 +847,371 @@ export const ChatView = {
     </section>`;
   },
 
+  getImageService() {
+    return this.imageService || imageService;
+  },
+
+  async restoreImageState() {
+    const service = this.getImageService();
+    await service.retryRemoteDeletes().catch(() => {});
+    const draft = await service.restoreDraft('home').catch(() => null);
+    if (draft?.groupId) {
+      this.imageDraftGroupId = draft.groupId;
+      this.imageDraftState = draft.attachments.some(row => ['processing', 'uploading'].includes(row.status))
+        ? 'processing'
+        : draft.attachments.some(row => row.lastError) ? 'error' : 'ready';
+      await this.renderImageDraft(draft.groupId);
+    }
+    const referenced = conversationStore.getSession('home').messages
+      .flatMap(message => Array.isArray(message.imageGroup?.attachmentIds) ? message.imageGroup.attachmentIds : []);
+    await service.collectOrphans(referenced, {
+      protectedAttachmentIds: draft?.attachments?.map(row => row.id) || []
+    }).catch(() => {});
+    const imageMessages = conversationStore.getSession('home').messages
+      .filter(message => message.imageGroup?.groupId)
+      .reverse();
+    this.activeImageGroupId = null;
+    for (const message of imageMessages) {
+      const rows = await DB.getChatImageGroup(message.imageGroup.groupId).catch(() => []);
+      if (rows.length && rows.some(row => !row.detached)) {
+        this.activeImageGroupId = message.imageGroup.groupId;
+        await service.attachGroup(this.activeImageGroupId).catch(() => {});
+        break;
+      }
+    }
+    await this.renderActiveImageChip();
+    this.updateImageSendState();
+  },
+
+  async renderActiveImageChip() {
+    const chip = document.getElementById('chatActiveImageChip');
+    if (!chip) return;
+    if (!this.activeImageGroupId) {
+      chip.hidden = true;
+      chip.replaceChildren();
+      return;
+    }
+    const rows = await DB.getChatImageGroup(this.activeImageGroupId).catch(() => []);
+    if (!rows.length) {
+      this.activeImageGroupId = null;
+      chip.hidden = true;
+      chip.replaceChildren();
+      return;
+    }
+    chip.innerHTML = `<span><i class="fa-solid fa-images" aria-hidden="true"></i> 当前图片 · ${rows.length}张</span>
+      <button type="button" data-chat-image-detach aria-label="退出当前图片话题">×</button>`;
+    chip.hidden = false;
+  },
+
+  async activateImageGroup(groupId, { focus = true } = {}) {
+    const normalizedGroupId = String(groupId || '').trim();
+    if (!normalizedGroupId) return false;
+    const service = this.getImageService();
+    if (this.activeImageGroupId && this.activeImageGroupId !== normalizedGroupId) {
+      await service.detachGroup(this.activeImageGroupId).catch(() => {});
+    }
+    const group = await service.attachGroup(normalizedGroupId).catch(() => null);
+    if (!group?.attachments?.length) return false;
+    this.activeImageGroupId = normalizedGroupId;
+    await this.renderActiveImageChip();
+    if (focus) document.getElementById('promptInput')?.focus();
+    return true;
+  },
+
+  async detachActiveImageGroup() {
+    const groupId = this.activeImageGroupId;
+    if (groupId) await this.getImageService().detachGroup(groupId).catch(() => {});
+    this.activeImageGroupId = null;
+    await this.renderActiveImageChip();
+  },
+
+  revokeImageObjectUrls() {
+    for (const url of this._imageDraftObjectUrls.values()) {
+      try { globalThis.URL?.revokeObjectURL(url); } catch {}
+    }
+    this._imageDraftObjectUrls.clear();
+    this._imageViewerCleanup?.();
+    this._imageViewerCleanup = null;
+  },
+
+  showImageActionSheet(force) {
+    const sheet = document.getElementById('chatImageActionSheet');
+    const button = document.getElementById('composerImageBtn');
+    if (!sheet || !button) return;
+    const open = force ?? sheet.hidden;
+    sheet.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  },
+
+  async handleImageFiles(files, source = 'gallery') {
+    const selected = Array.from(files || []).filter(Boolean);
+    const maxImagesPerMessage = chatImagePolicy.CHAT_IMAGE_LIMITS.maxImagesPerMessage;
+    if (!selected.length) return;
+    const service = this.getImageService();
+    const previousGroupId = this.imageDraftGroupId;
+    this.imageDraftState = 'processing';
+    try {
+      const previousRows = previousGroupId
+        ? await DB.getChatImageGroup(previousGroupId).catch(() => [])
+        : [];
+      const reusableRows = previousRows.filter(row => row.blob).map(row => row.blob);
+      const availableSlots = Math.max(0, maxImagesPerMessage - reusableRows.length);
+      const accepted = selected.slice(0, availableSlots);
+      if (!accepted.length) throw new Error('too_many_images');
+      const omittedCount = selected.length - accepted.length;
+      const nextGroup = await service.createDraft([...reusableRows, ...accepted], {
+        conversationKey: 'home',
+        source
+      });
+      if (previousGroupId && previousGroupId !== nextGroup.groupId) {
+        await service.deleteGroup(previousGroupId).catch(() => {});
+      }
+      this.imageDraftGroupId = nextGroup.groupId;
+      this.imageDraftState = 'ready';
+      await this.renderImageDraft(nextGroup.groupId);
+      if (omittedCount > 0) {
+        this.appendConversation({
+          role: 'assistant',
+          kind: 'notice',
+          content: `一次最多添加 ${maxImagesPerMessage} 张图片，已保留前 ${accepted.length} 张，其余 ${omittedCount} 张未加入。`
+        });
+      }
+    } catch (error) {
+      this.imageDraftState = 'error';
+      const message = error?.code === 'too_many_images' || error?.message === 'too_many_images'
+        ? `一次最多添加 ${maxImagesPerMessage} 张图片。`
+        : error?.code === 'image_storage_capacity_exceeded'
+          ? '本地图片空间不足，当前草稿和正在使用的图片不会被清理，请分批发送或先清空对话图片。'
+        : '图片处理失败，请重试或换一张图片。';
+      this.appendConversation({ role: 'assistant', kind: 'error', content: message });
+      await this.renderImageDraft(this.imageDraftGroupId);
+    } finally {
+      this.updateImageSendState();
+    }
+  },
+
+  async renderImageDraft(groupId) {
+    const strip = document.getElementById('chatImageDraftStrip');
+    if (!strip) return;
+    for (const url of this._imageDraftObjectUrls.values()) {
+      try { globalThis.URL?.revokeObjectURL(url); } catch {}
+    }
+    this._imageDraftObjectUrls.clear();
+    const rows = groupId ? await DB.getChatImageGroup(groupId).catch(() => []) : [];
+    if (!rows.length) {
+      strip.hidden = true;
+      strip.replaceChildren();
+      if (groupId === this.imageDraftGroupId) {
+        this.imageDraftGroupId = null;
+        this.imageDraftState = 'idle';
+      }
+      this.updateImageSendState();
+      return;
+    }
+    strip.hidden = false;
+    strip.dataset.maxImagesPerMessage = String(chatImagePolicy.CHAT_IMAGE_LIMITS.maxImagesPerMessage);
+    strip.innerHTML = rows.map(row => {
+      const source = row.thumbnailBlob || row.blob;
+      let previewUrl = '';
+      if (source && typeof globalThis.URL?.createObjectURL === 'function') {
+        previewUrl = globalThis.URL.createObjectURL(source);
+        this._imageDraftObjectUrls.set(row.id, previewUrl);
+      }
+      const errorLabel = row.lastError ? '处理失败' : row.status === 'uploading' ? '上传中' : '';
+      return `<article class="chat-image-draft-item" draggable="true" data-chat-image-draft-id="${esc(row.id)}" data-image-order="${Number(row.order) || 0}">
+        <button class="chat-image-thumb" type="button" data-chat-image-preview="${esc(row.id)}" aria-label="预览第 ${Number(row.order) + 1} 张图片">
+          ${previewUrl ? `<img src="${esc(previewUrl)}" alt="第 ${Number(row.order) + 1} 张图片预览">` : '<span class="chat-image-placeholder" aria-hidden="true"><i class="fa-solid fa-image"></i></span>'}
+        </button>
+        <button type="button" class="chat-image-order" data-chat-image-drag-handle aria-label="拖动调整第 ${Number(row.order) + 1} 张图片顺序">${Number(row.order) + 1}</button>
+        ${errorLabel ? `<span class="chat-image-status" role="status">${errorLabel}</span>` : ''}
+        ${row.lastError ? `<button type="button" class="chat-image-retry" data-chat-image-retry="${esc(row.id)}">重试</button>` : ''}
+        <button type="button" class="chat-image-remove" data-chat-image-remove="${esc(row.id)}" aria-label="移除第 ${Number(row.order) + 1} 张图片">×</button>
+        <button type="button" class="chat-image-move" data-chat-image-move="up" data-chat-image-id="${esc(row.id)}" aria-label="上移">↑</button>
+        <button type="button" class="chat-image-move" data-chat-image-move="down" data-chat-image-id="${esc(row.id)}" aria-label="下移">↓</button>
+      </article>`;
+    }).join('');
+    this.updateImageSendState(rows);
+  },
+
+  async retryImageDraft(id) {
+    const row = await DB.getChatImageAttachment(id).catch(() => null);
+    if (!row) return;
+    await DB.updateChatImageAttachment(id, { status: 'draft', lastError: null, updatedAt: Date.now() });
+    this.imageDraftState = 'ready';
+    await this.renderImageDraft(row.groupId);
+  },
+
+  async moveImageDraft(id, direction) {
+    const groupId = this.imageDraftGroupId;
+    if (!groupId) return;
+    const rows = (await DB.getChatImageGroup(groupId).catch(() => [])).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const index = rows.findIndex(row => row.id === id);
+    const target = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || target < 0 || target >= rows.length) return;
+    [rows[index], rows[target]] = [rows[target], rows[index]];
+    await this.getImageService().reorderDraft(groupId, rows.map(row => row.id));
+    await this.renderImageDraft(groupId);
+  },
+
+  async reorderImageDraft(sourceId, targetId) {
+    const groupId = this.imageDraftGroupId;
+    if (!groupId || !sourceId || !targetId || sourceId === targetId) return;
+    const rows = (await DB.getChatImageGroup(groupId).catch(() => []))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const sourceIndex = rows.findIndex(row => row.id === sourceId);
+    const targetIndex = rows.findIndex(row => row.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = rows.splice(sourceIndex, 1);
+    rows.splice(targetIndex, 0, moved);
+    await this.getImageService().reorderDraft(groupId, rows.map(row => row.id));
+    await this.renderImageDraft(groupId);
+  },
+
+  async openImageViewer(id, { groupId = this.imageDraftGroupId } = {}) {
+    const rows = groupId
+      ? await DB.getChatImageGroup(groupId).catch(() => [])
+      : [await DB.getChatImageAttachment(id).catch(() => null)].filter(Boolean);
+    if (!rows.length) return;
+    let index = Math.max(0, rows.findIndex(row => row.id === id));
+    let url = '';
+    let scale = 1;
+    this._imageViewerCleanup?.();
+    const viewer = document.createElement('div');
+    viewer.className = 'chat-image-viewer';
+    viewer.setAttribute('role', 'dialog');
+    viewer.setAttribute('aria-modal', 'true');
+    viewer.setAttribute('aria-label', '图片查看器');
+    viewer.innerHTML = `<button type="button" class="chat-image-viewer-close" data-chat-image-viewer="close" aria-label="关闭图片预览">×</button>
+      <div class="chat-image-viewer-stage"><img alt="图片预览"></div>
+      <div class="chat-image-viewer-toolbar" aria-label="图片查看控制">
+        <button type="button" data-chat-image-viewer="previous" aria-label="上一张">‹</button>
+        <button type="button" data-chat-image-viewer="zoom-out" aria-label="缩小">−</button>
+        <span data-chat-image-viewer-counter></span>
+        <button type="button" data-chat-image-viewer="zoom-in" aria-label="放大">＋</button>
+        <button type="button" data-chat-image-viewer="next" aria-label="下一张">›</button>
+        ${groupId && groupId !== this.imageDraftGroupId ? '<button type="button" class="chat-image-viewer-continue" data-chat-image-viewer="continue">继续询问这组图片</button>' : ''}
+      </div>`;
+    const image = viewer.querySelector('img');
+    const show = nextIndex => {
+      index = Math.max(0, Math.min(rows.length - 1, nextIndex));
+      if (url) {
+        try { globalThis.URL?.revokeObjectURL(url); } catch {}
+        url = '';
+      }
+      const row = rows[index];
+      const source = row?.blob || row?.thumbnailBlob;
+      if (source && typeof globalThis.URL?.createObjectURL === 'function') {
+        url = globalThis.URL.createObjectURL(source);
+        image.src = url;
+        image.alt = `第 ${index + 1} 张图片预览`;
+      } else {
+        image.removeAttribute('src');
+        image.alt = '原图已释放';
+      }
+      scale = 1;
+      image.style.transform = 'scale(1)';
+      viewer.querySelector('[data-chat-image-viewer-counter]').textContent = `${index + 1} / ${rows.length}`;
+      viewer.querySelector('[data-chat-image-viewer="previous"]').disabled = index === 0;
+      viewer.querySelector('[data-chat-image-viewer="next"]').disabled = index === rows.length - 1;
+    };
+    const zoom = delta => {
+      scale = Math.max(0.75, Math.min(3, scale + delta));
+      image.style.transform = `scale(${scale})`;
+    };
+    const close = () => {
+      viewer.remove();
+      if (url) {
+        try { globalThis.URL?.revokeObjectURL(url); } catch {}
+      }
+      document.removeEventListener('keydown', onKey);
+      this._imageViewerCleanup = null;
+    };
+    const onKey = event => {
+      if (event.key === 'Escape') close();
+      if (event.key === 'ArrowLeft') show(index - 1);
+      if (event.key === 'ArrowRight') show(index + 1);
+      if (event.key === '+' || event.key === '=') zoom(0.25);
+      if (event.key === '-') zoom(-0.25);
+    };
+    viewer.addEventListener('click', event => {
+      if (event.target === viewer) return close();
+      const action = event.target.closest('[data-chat-image-viewer]')?.dataset.chatImageViewer;
+      if (action === 'close') close();
+      if (action === 'previous') show(index - 1);
+      if (action === 'next') show(index + 1);
+      if (action === 'zoom-in') zoom(0.25);
+      if (action === 'zoom-out') zoom(-0.25);
+      if (action === 'continue' && groupId) {
+        void this.activateImageGroup(groupId).then(close);
+      }
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(viewer);
+    show(index);
+    this._imageViewerCleanup = close;
+  },
+
+  updateImageSendState(rows = null) {
+    const button = document.getElementById('generateBtn');
+    if (!button) return;
+    const currentRows = rows || (this.imageDraftGroupId ? [] : []);
+    const processing = this.imageDraftState === 'processing'
+      || currentRows.some(row => ['processing', 'uploading'].includes(row.status));
+    if (processing) {
+      button.disabled = true;
+      button.setAttribute('aria-label', '图片处理中');
+    } else if (!this.imageDraftGroupId) {
+      button.disabled = false;
+      button.setAttribute('aria-label', '发送问题');
+    } else {
+      button.disabled = false;
+      button.setAttribute('aria-label', '发送图片问题');
+    }
+  },
+
+  async renderImageGallery(node, imageGroup) {
+    if (!node || !imageGroup?.groupId) return;
+    const rows = await DB.getChatImageGroup(imageGroup.groupId).catch(() => []);
+    if (!rows.length) return;
+    const gallery = document.createElement('div');
+    gallery.className = 'chat-image-message-grid';
+    gallery.setAttribute('aria-label', `图片 ${Math.min(rows.length, 12)} 张`);
+    rows.slice(0, 4).forEach((row, index) => {
+      const source = row.thumbnailBlob || row.blob;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-image-thumb chat-image-message-thumb';
+      button.dataset.chatImagePreview = row.id;
+      button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
+      if (source && typeof globalThis.URL?.createObjectURL === 'function') {
+        const url = globalThis.URL.createObjectURL(source);
+        this._imageDraftObjectUrls.set(`history:${row.id}`, url);
+        button.innerHTML = `<img src="${esc(url)}" alt="第 ${index + 1} 张图片">`;
+      } else {
+        button.innerHTML = '<span class="chat-image-placeholder"><i class="fa-solid fa-image" aria-hidden="true"></i><small>原图已释放</small></span>';
+      }
+      button.addEventListener('click', () => {
+        void this.activateImageGroup(imageGroup.groupId, { focus: false })
+          .then(() => this.openImageViewer(row.id, { groupId: imageGroup.groupId }));
+      });
+      gallery.appendChild(button);
+    });
+    if (rows.length > 4) {
+      const more = document.createElement('span');
+      more.className = 'chat-image-more-count';
+      more.textContent = `+${rows.length - 4}`;
+      gallery.appendChild(more);
+    }
+    node.appendChild(gallery);
+  },
+
   // Show pending articles that were generated while user was away
   showPendingArticles() {
     const pending = PendingArticles.getAll();
     pending.forEach(({ article, reviewKeywords }) => {
       this.addArticleCard(article);
       if (reviewKeywords) {
-        this.addMessage('system', `已自动融入学习词库中的单词：${reviewKeywords}`);
+        this.addMessage('system', `已自动融入我的词汇中的单词：${reviewKeywords}`);
       }
     });
   },
@@ -868,17 +1241,151 @@ export const ChatView = {
     });
     this._chatSelectionActions.bind();
 
-    document.getElementById('composerOptionsBtn').addEventListener('click', () => this.toggleComposerOptions());
-    document.getElementById('composerOptionsClose').addEventListener('click', () => this.toggleComposerOptions(false));
-    const difficultySelect = document.getElementById('difficultySelect');
-    difficultySelect.addEventListener('change', () => {
-      this.commitGenerationTargetSelection({
-        targetSelectionRequested: difficultySelect.value
+    const imageButton = document.getElementById('composerImageBtn');
+    const imageSheet = document.getElementById('chatImageActionSheet');
+    const cameraInput = document.getElementById('chatCameraInput');
+    const galleryInput = document.getElementById('chatGalleryInput');
+    const activeImageChip = document.getElementById('chatActiveImageChip');
+    const onImageButtonClick = () => this.showImageActionSheet();
+    const onImageSheetClick = event => {
+      const action = event.target.closest('[data-image-action]')?.dataset.imageAction;
+      if (!action) return;
+      this.showImageActionSheet(false);
+      if (action === 'cancel') return;
+      const input = action === 'camera' ? cameraInput : galleryInput;
+      if (input) input.click();
+    };
+    const onFiles = (event, source) => {
+      const files = Array.from(event.target.files || []);
+      event.target.value = '';
+      void this.handleImageFiles(files, source);
+    };
+    const onCameraFiles = event => onFiles(event, 'camera');
+    const onGalleryFiles = event => onFiles(event, 'gallery');
+    const onActiveImageClick = event => {
+      if (event.target.closest('[data-chat-image-detach]')) void this.detachActiveImageGroup();
+    };
+    const draftStrip = document.getElementById('chatImageDraftStrip');
+    let draggedImageId = null;
+    let pointerDrag = null;
+    const clearDraftDragState = () => {
+      draftStrip?.querySelectorAll('.is-dragging, .is-drag-target').forEach(node => {
+        node.classList.remove('is-dragging', 'is-drag-target');
       });
-    });
+      draggedImageId = null;
+      pointerDrag = null;
+    };
+    const onDraftClick = event => {
+      const removeId = event.target.closest('[data-chat-image-remove]')?.dataset.chatImageRemove;
+      if (removeId) {
+        void this.getImageService().removeDraftImage(removeId).then(() => this.renderImageDraft(this.imageDraftGroupId));
+        return;
+      }
+      const retryId = event.target.closest('[data-chat-image-retry]')?.dataset.chatImageRetry;
+      if (retryId) {
+        void this.retryImageDraft(retryId);
+        return;
+      }
+      const previewId = event.target.closest('[data-chat-image-preview]')?.dataset.chatImagePreview;
+      if (previewId) {
+        void this.openImageViewer(previewId);
+        return;
+      }
+      const move = event.target.closest('[data-chat-image-move]');
+      if (move) void this.moveImageDraft(move.dataset.chatImageId, move.dataset.chatImageMove);
+    };
+    const onDraftDragStart = event => {
+      const item = event.target.closest('[data-chat-image-draft-id]');
+      if (!item || (event.target.closest('button') && !event.target.closest('[data-chat-image-drag-handle]'))) {
+        event.preventDefault();
+        return;
+      }
+      draggedImageId = item.dataset.chatImageDraftId;
+      item.classList.add('is-dragging');
+      event.dataTransfer?.setData('text/plain', draggedImageId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    };
+    const onDraftDragOver = event => {
+      if (!draggedImageId) return;
+      const item = event.target.closest('[data-chat-image-draft-id]');
+      if (!item) return;
+      event.preventDefault();
+      draftStrip?.querySelector('.is-drag-target')?.classList.remove('is-drag-target');
+      if (item.dataset.chatImageDraftId !== draggedImageId) item.classList.add('is-drag-target');
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    };
+    const onDraftDrop = event => {
+      const targetId = event.target.closest('[data-chat-image-draft-id]')?.dataset.chatImageDraftId;
+      const sourceId = draggedImageId || event.dataTransfer?.getData('text/plain');
+      event.preventDefault();
+      clearDraftDragState();
+      if (sourceId && targetId && sourceId !== targetId) void this.reorderImageDraft(sourceId, targetId);
+    };
+    const onDraftDragEnd = () => clearDraftDragState();
+    const onDraftPointerDown = event => {
+      const handle = event.target.closest('[data-chat-image-drag-handle]');
+      const item = handle?.closest('[data-chat-image-draft-id]');
+      if (!handle || !item) return;
+      event.preventDefault();
+      pointerDrag = {
+        pointerId: event.pointerId,
+        sourceId: item.dataset.chatImageDraftId,
+        targetId: item.dataset.chatImageDraftId,
+        handle
+      };
+      item.classList.add('is-dragging');
+      handle.setPointerCapture?.(event.pointerId);
+    };
+    const onDraftPointerMove = event => {
+      if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
+      event.preventDefault();
+      const item = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-chat-image-draft-id]');
+      if (!item) return;
+      draftStrip?.querySelector('.is-drag-target')?.classList.remove('is-drag-target');
+      pointerDrag.targetId = item.dataset.chatImageDraftId;
+      if (pointerDrag.targetId !== pointerDrag.sourceId) item.classList.add('is-drag-target');
+    };
+    const finishDraftPointerDrag = event => {
+      if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
+      const { sourceId, targetId, handle, pointerId } = pointerDrag;
+      handle.releasePointerCapture?.(pointerId);
+      clearDraftDragState();
+      if (sourceId !== targetId) void this.reorderImageDraft(sourceId, targetId);
+    };
+    imageButton?.addEventListener('click', onImageButtonClick);
+    imageSheet?.addEventListener('click', onImageSheetClick);
+    cameraInput?.addEventListener('change', onCameraFiles);
+    galleryInput?.addEventListener('change', onGalleryFiles);
+    activeImageChip?.addEventListener('click', onActiveImageClick);
+    draftStrip?.addEventListener('click', onDraftClick);
+    draftStrip?.addEventListener('dragstart', onDraftDragStart);
+    draftStrip?.addEventListener('dragover', onDraftDragOver);
+    draftStrip?.addEventListener('drop', onDraftDrop);
+    draftStrip?.addEventListener('dragend', onDraftDragEnd);
+    draftStrip?.addEventListener('pointerdown', onDraftPointerDown);
+    draftStrip?.addEventListener('pointermove', onDraftPointerMove);
+    draftStrip?.addEventListener('pointerup', finishDraftPointerDrag);
+    draftStrip?.addEventListener('pointercancel', finishDraftPointerDrag);
+    this._imageActionCleanup = () => {
+      imageButton?.removeEventListener('click', onImageButtonClick);
+      imageSheet?.removeEventListener('click', onImageSheetClick);
+      cameraInput?.removeEventListener('change', onCameraFiles);
+      galleryInput?.removeEventListener('change', onGalleryFiles);
+      activeImageChip?.removeEventListener('click', onActiveImageClick);
+      draftStrip?.removeEventListener('click', onDraftClick);
+      draftStrip?.removeEventListener('dragstart', onDraftDragStart);
+      draftStrip?.removeEventListener('dragover', onDraftDragOver);
+      draftStrip?.removeEventListener('drop', onDraftDrop);
+      draftStrip?.removeEventListener('dragend', onDraftDragEnd);
+      draftStrip?.removeEventListener('pointerdown', onDraftPointerDown);
+      draftStrip?.removeEventListener('pointermove', onDraftPointerMove);
+      draftStrip?.removeEventListener('pointerup', finishDraftPointerDrag);
+      draftStrip?.removeEventListener('pointercancel', finishDraftPointerDrag);
+      clearDraftDragState();
+    };
     const clearContextButton = document.getElementById('appClearContextBtn');
     if (clearContextButton) {
-      this._clearContextHandler = () => this.clearHistory();
+      this._clearContextHandler = () => { void this.clearHistory(); };
       clearContextButton.addEventListener('click', this._clearContextHandler);
     }
 
@@ -888,15 +1395,12 @@ export const ChatView = {
       const { action: name, topic } = action.dataset;
       if (name === 'random') {
         document.getElementById('promptInput').value = '';
-        document.getElementById('topicSelect').value = '';
-        document.getElementById('topicInput').style.display = 'none';
         this.handleGenerate();
       } else if (name === 'review') {
         this.handleReviewGenerate();
       } else if (name === 'topic') {
         const selectedTopic = this.topics.find(item => item.value === topic)?.label || topic;
         document.getElementById('promptInput').value = `请生成一篇关于${selectedTopic}的英语阅读文章。`;
-        document.getElementById('topicInput').style.display = 'none';
         document.getElementById('promptInput').focus();
       } else if (name === 'import-article') {
         Modal.showImport();
@@ -906,27 +1410,6 @@ export const ChatView = {
         void this.handleDailyReport();
       }
     });
-
-    // Topic select change
-    document.getElementById('topicSelect').addEventListener('change', (e) => {
-      const customInput = document.getElementById('topicInput');
-      if (e.target.value === 'custom') {
-        customInput.style.display = 'block';
-        customInput.focus();
-      } else {
-        customInput.style.display = 'none';
-        customInput.value = '';
-      }
-    });
-  },
-
-  toggleComposerOptions(force) {
-    const panel = document.getElementById('composerOptions');
-    const button = document.getElementById('composerOptionsBtn');
-    if (!panel || !button) return;
-    const open = force ?? panel.hidden;
-    panel.hidden = !open;
-    button.setAttribute('aria-expanded', String(open));
   },
 
   setChatFollowUp(excerpt) {
@@ -955,15 +1438,48 @@ export const ChatView = {
     this._messageCopyCleanup = null;
     this._chatSelectionActions?.destroy?.();
     this._chatSelectionActions = null;
+    this._imageActionCleanup?.();
+    this._imageActionCleanup = null;
+    this._imageViewerCleanup?.();
+    this._imageViewerCleanup = null;
+    this.revokeImageObjectUrls();
     this._chatFollowUpExcerpt = '';
+  },
+
+  clearDraftPreviewUrls() {
+    for (const [key, url] of this._imageDraftObjectUrls.entries()) {
+      if (String(key).startsWith('history:')) continue;
+      try { globalThis.URL?.revokeObjectURL(url); } catch {}
+      this._imageDraftObjectUrls.delete(key);
+    }
   },
 
   async submitComposer() {
     const input = document.getElementById('promptInput');
-    const value = input?.value.trim();
-    if (!value) return;
+    const value = input?.value.trim() || '';
+    const draftGroupId = this.imageDraftGroupId;
+    if (!value && !draftGroupId) return;
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
+      return;
+    }
+
+    const imageReference = this.activeImageGroupId
+      ? chatImagePolicy.inferImageReference(value)
+      : { kind: 'none' };
+    const useActiveImage = Boolean(this.activeImageGroupId && imageReference.kind === 'current');
+    const hasImages = Boolean(draftGroupId || useActiveImage);
+    const requestModel = resolveModelForRequest({
+      baseUrl: Config.get('base_url'),
+      selectedModel: Config.get('model'),
+      hasImages
+    });
+    if (requestModel.error === 'custom_model_image_capability_unknown') {
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: '当前模型或服务地址未声明图片能力。请在设置中选择官方 DeepSeek 地址与视觉模型后重试。'
+      });
       return;
     }
 
@@ -971,26 +1487,71 @@ export const ChatView = {
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
-    this.appendConversation({ role: 'user', kind: 'text', content: value });
-    input.value = '';
-    this.showThinking();
+    const imageRequestController = hasImages ? new AbortController() : null;
+    this._imageRequestController = imageRequestController;
+    let attachmentGroup = null;
+    let imageGroup = null;
+    let userMessageId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
+      if (draftGroupId) {
+        attachmentGroup = await this.getImageService().prepareForSend(draftGroupId, {
+          signal: imageRequestController.signal
+        });
+        if (!isCurrentRequest()) return;
+        if (!attachmentGroup?.attachments?.length) throw new Error('image_payload_unavailable');
+        imageGroup = {
+          groupId: attachmentGroup.groupId,
+          attachmentIds: attachmentGroup.attachments.map(row => row.id),
+          count: attachmentGroup.attachments.length,
+          state: 'ready',
+          visualSummary: ''
+        };
+      } else if (useActiveImage) {
+        attachmentGroup = await this.getImageService().resolveContext({
+          groupId: this.activeImageGroupId,
+          mode: 'image',
+          userMessage: value,
+          signal: imageRequestController.signal
+        });
+        if (!isCurrentRequest()) return;
+        if (attachmentGroup?.attachments?.length) {
+          imageGroup = {
+            groupId: attachmentGroup.groupId,
+            attachmentIds: attachmentGroup.attachments.map(row => row.id),
+            count: attachmentGroup.attachments.length,
+            state: 'ready',
+            visualSummary: attachmentGroup.visualSummary || ''
+          };
+        }
+      }
+      const requestText = value || DEFAULT_IMAGE_LEARNING_PROMPT;
+      this.appendConversation({
+        id: userMessageId,
+        role: 'user',
+        kind: 'text',
+        content: requestText,
+        ...(imageGroup ? { imageGroup } : {})
+      });
+      if (input) input.value = '';
+      this.showThinking(imageGroup ? '正在查看图片并整理学习重点…' : undefined);
       const session = conversationStore.getContextSession('home');
       const reply = await chatService.ask({
         sessionKey: 'home',
         session,
-        userMessage: value,
+        userMessage: requestText,
+        attachmentGroup,
+        modelOverride: requestModel.model,
         kind: 'home',
         pageContext: selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : null,
         tools: HOME_LEARNING_TOOLS,
-        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, value, requestVersion)
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, requestText, requestVersion)
       });
       if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
-      if (reply.toolSupport === 'unsupported' && classifyComposerIntent(value) === 'generate') {
+      if (!attachmentGroup && reply.toolSupport === 'unsupported' && classifyComposerIntent(requestText) === 'generate') {
         if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
-        return this.handleGenerate({ prompt: value, alreadyAdded: true, requestVersion });
+        return this.handleGenerate({ prompt: requestText, alreadyAdded: true, requestVersion });
       }
       if (reply.content) {
         this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
@@ -1014,6 +1575,27 @@ export const ChatView = {
         }
       }
       if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
+      if (draftGroupId) {
+        const summary = String(reply.content || '').slice(0, 1600);
+        await this.getImageService().markSent(draftGroupId, {
+          messageId: userMessageId,
+          visualSummary: summary
+        });
+        conversationStore.replaceMessage('home', message => message.id === userMessageId, message => ({
+          ...message,
+          imageGroup: { ...message.imageGroup, state: 'sent', visualSummary: summary }
+        }));
+        await this.activateImageGroup(draftGroupId, { focus: false });
+        this.imageDraftGroupId = null;
+        this.imageDraftState = 'idle';
+        this.clearDraftPreviewUrls();
+        const strip = document.getElementById('chatImageDraftStrip');
+        if (strip) {
+          strip.hidden = true;
+          strip.replaceChildren();
+        }
+        this.updateImageSendState();
+      }
 
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -1029,8 +1611,19 @@ export const ChatView = {
       this.appendConversation({
         role: 'assistant',
         kind: 'error',
-        content: reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。'
+        content: imageGroup
+          ? (reason ? `图片暂时无法分析：${reason}。图片仍保留在输入区，可重试。` : '图片暂时无法分析，图片仍保留在输入区，可重试。')
+          : (reason ? `暂时无法回答：${reason}` : '暂时无法回答，请稍后重试。')
       });
+      if (draftGroupId) {
+        await this.renderImageDraft(draftGroupId);
+        this.imageDraftState = 'error';
+        this.updateImageSendState();
+      }
+    } finally {
+      if (this._imageRequestController === imageRequestController) {
+        this._imageRequestController = null;
+      }
     }
   },
 
@@ -1162,7 +1755,7 @@ export const ChatView = {
     if (!isGenerationAuthorized(directUserRequest)) {
       return { result: { status: 'generation_not_authorized' } };
     }
-    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level');
+    const selectedDifficulty = Config.get('exam_level');
     const request = String(directUserRequest || args.request || '请根据当前学习情况生成一篇英语阅读文章。').trim();
     const generation = this.resolveDirectGenerationRequest({
       request,
@@ -1263,12 +1856,7 @@ export const ChatView = {
 
   // Get selected topic
   getTopic() {
-    const select = document.getElementById('topicSelect')?.value;
-    if (select === 'custom') {
-      return document.getElementById('topicInput').value.trim() || 'general';
-    }
-    if (!select) return 'general';
-    return this.topics.find(t => t.value === select)?.label || select;
+    return 'general';
   },
 
   // Handle article generation
@@ -1283,7 +1871,7 @@ export const ChatView = {
 
     const prompt = providedPrompt ?? providedGeneration?.request ?? document.getElementById('promptInput').value.trim();
     const directUserRequest = String(prompt || '').trim();
-    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level');
+    const selectedDifficulty = Config.get('exam_level');
     const effectivePrompt = prompt || `请随机选择一个有趣的话题，生成一篇${DIFFICULTY_LABELS[selectedDifficulty]}难度的英语阅读文章。`;
     const generation = providedGeneration || this.resolveDirectGenerationRequest({
       request: effectivePrompt,
@@ -1406,7 +1994,7 @@ export const ChatView = {
     });
     const selectedBatches = plan.batches;
     const selectedWords = plan.selectedWords;
-    const effectiveDifficulty = difficulty || document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const effectiveDifficulty = difficulty || Config.get('exam_level') || 'cet4';
     if (!selectedBatches.length) {
       this.addMessage('system', `今天的${sourceLabel}已生成巩固阅读，稍后可直接开始阅读。`);
       return;
@@ -1449,7 +2037,7 @@ export const ChatView = {
     );
     return this.generateReviewReadings({
       reviewWords,
-      difficulty: document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4',
+      difficulty: Config.get('exam_level') || 'cet4',
       topic: this.getTopic(),
       sourceLabel: '待复习词'
     });
@@ -1470,7 +2058,10 @@ export const ChatView = {
       void this.restoreDailyReportReference(message);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
-      this.addMessageToDOM(type, message.content);
+      void this.addMessageToDOM(type, message.content, {
+        imageGroup: message.imageGroup,
+        messageId: message.id || message.createdAt
+      });
     }
   },
 
@@ -1801,7 +2392,7 @@ export const ChatView = {
   },
 
   normalizeGenerationFailure(failure, userRequest) {
-    const selectedDifficulty = document.getElementById('difficultySelect')?.value || Config.get('exam_level') || 'cet4';
+    const selectedDifficulty = Config.get('exam_level') || 'cet4';
     const fallbackGeneration = resolveGenerationRequest({
       request: String(userRequest || '请根据当前学习情况生成一篇英语阅读文章。').trim(),
       selectedDifficulty,
@@ -1897,13 +2488,17 @@ export const ChatView = {
   },
 
   // Add message to DOM only (no history save)
-  addMessageToDOM(type, text) {
+  async addMessageToDOM(type, text, { imageGroup = null, messageId = '' } = {}) {
     const container = document.getElementById('chatMessages');
     if (!container) return;
     const div = document.createElement('div');
     div.className = `message ${type}-message`;
+    if (messageId) div.dataset.chatMessageId = String(messageId);
     if (type === 'user') {
-      div.textContent = text;
+      const content = document.createElement('div');
+      content.className = 'chat-user-content';
+      content.textContent = text || '';
+      div.appendChild(content);
     } else if (type === 'assistant' || type === 'ai') {
       div.setAttribute('data-copyable', 'true');
       const content = document.createElement('div');
@@ -1917,6 +2512,7 @@ export const ChatView = {
       div.innerHTML = renderLearningMarkdown(text);
     }
     container.appendChild(div);
+    if (imageGroup?.groupId) await this.renderImageGallery(div, imageGroup);
     container.scrollTop = container.scrollHeight;
   },
 
@@ -1950,6 +2546,8 @@ export const ChatView = {
   cleanup() {
     this.homeEpoch += 1;
     homeRequestGate.invalidate();
+    this._imageRequestController?.abort();
+    this._imageRequestController = null;
     chatService.cancel('home');
     this.resetGenerateButton();
     this.removeThinking();
@@ -2111,7 +2709,7 @@ export const WordImport = {
     modal.innerHTML = `
       <h2>确认导入</h2>
       <div class="word-import-preview" aria-live="polite">
-        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入学习词库。</p>
+        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入我的词汇。</p>
         <div class="word-import-preview-grid">
           <div class="word-import-preview-row"><span>识别到的有效词</span><strong>${counts.recognized || 0}</strong></div>
           <div class="word-import-preview-row"><span>新增词</span><strong>${counts.new || 0}</strong></div>

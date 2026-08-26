@@ -81,6 +81,19 @@ export function responsesEndpointFor(baseUrl = '') {
 export function messagesToResponsesItems(messages = []) {
   const items = [];
   let sequence = 0;
+  const responseContent = content => {
+    if (!Array.isArray(content)) return String(content || '');
+    return content.map(part => {
+      if (part?.type === 'text') return { type: 'input_text', text: String(part.text || '') };
+      if (part?.type === 'file' && part.file_id) {
+        return { type: 'input_image', file_id: String(part.file_id), detail: 'original' };
+      }
+      if (part?.type === 'image_url' && part.image_url?.url) {
+        return { type: 'input_image', image_url: String(part.image_url.url), detail: 'original' };
+      }
+      return null;
+    }).filter(Boolean);
+  };
   for (const message of messages) {
     if (!message || typeof message !== 'object') continue;
     if (message.type === 'web_search_call') {
@@ -89,12 +102,12 @@ export function messagesToResponsesItems(messages = []) {
     }
     const role = message.role;
     if (role === 'system' || role === 'developer') {
-      items.push({ role, content: String(message.content || '') });
+      items.push({ role, content: responseContent(message.content) });
     } else if (role === 'user') {
-      items.push({ role: 'user', content: String(message.content || '') });
+      items.push({ role: 'user', content: responseContent(message.content) });
     } else if (role === 'assistant') {
       const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-      items.push({ role: 'assistant', content: String(message.content || '') });
+      items.push({ role: 'assistant', content: responseContent(message.content) });
       for (const call of toolCalls) {
         sequence += 1;
         const id = call?.id || `fc_${Date.now().toString(36)}_${sequence}`;
@@ -355,7 +368,14 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
   const baseUrl = () => String(config?.get?.('base_url') || '').trim();
 
   return {
-    async completion(items, { tools = [], signal = null, temperature = 0.45, maxOutputTokens = null, toolChoice = 'auto' } = {}) {
+    async completion(items, {
+      tools = [],
+      signal = null,
+      temperature = 0.45,
+      maxOutputTokens = null,
+      toolChoice = 'auto',
+      modelOverride = null
+    } = {}) {
       const controller = new AbortController();
       const abortRequest = () => controller.abort();
       if (signal) {
@@ -363,7 +383,7 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
         else signal.addEventListener('abort', abortRequest, { once: true });
       }
       const body = {
-        model: model(),
+        model: modelOverride || model(),
         input: Array.isArray(items) ? items : [],
         ...(Array.isArray(tools) && tools.length ? { tools: normalizeResponsesTools(tools), tool_choice: toolChoice } : {}),
         ...(Number.isFinite(Number(temperature)) ? { temperature: Number(temperature) } : {}),

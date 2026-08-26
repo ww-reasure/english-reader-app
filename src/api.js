@@ -6,6 +6,7 @@
 import { Config } from './config.js';
 import { formatProfileConstraints, getDifficultyProfile } from './difficulty-profile.mjs';
 import { createArticleStreamParser, parseSseChunk } from './article-stream.mjs';
+import { DEEPSEEK_MODEL_IDS } from './components/deepseek-model-catalog.mjs';
 
 const VOCABULARY_GUIDANCE = {
   cet4: {
@@ -40,11 +41,16 @@ const MAX_VALIDATION_CORRECTION_LENGTH = 1800;
 const CONSERVATIVE_CORE_GUIDANCE = '- 材料构成硬性检查：至少 90% 的可词形还原词次来自可追溯核心频率层，且至少 80% 来自 NGSL 1-3 层；NGSL 4 及以上词次不超过 12%。这些是材料来源约束，不是学习者掌握率。';
 const ARTICLE_MAX_TOKENS = 4096;
 const REVIEW_ARTICLE_MAX_TOKENS = 3072;
+const VISION_FILE_TIMEOUT_MS = 10 * 60 * 1000;
+const VISION_FILE_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
 
 const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
 const CHINESE_TEXT = /[\u3400-\u9fff]/u;
 
-const isDeepSeekV4Model = model => /^deepseek-v4-(?:flash|pro)(?:$|[-:])/i.test(String(model || '').trim());
+const isDeepSeekV4Model = model => {
+  const value = String(model || '').trim();
+  return DEEPSEEK_MODEL_IDS.includes(value) || /^deepseek-v4-(?:flash|pro)(?:$|[-:])/i.test(value);
+};
 
 /**
  * V4 enables thinking by default. Structured article/material requests do not
@@ -71,6 +77,37 @@ const apiUrl = (baseUrl, endpoint) => {
   const path = String(endpoint || '').startsWith('/') ? endpoint : `/${endpoint}`;
   return `${base}${path}`;
 };
+
+const visionModelUnavailablePattern = /(?:model[\s\S]{0,80}(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)|(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)[\s\S]{0,80}model)/i;
+
+export function isVisionModelUnavailable(error) {
+  if (!error || error.name === 'AbortError') return false;
+  const message = String(error.message || error || '');
+  if (/timeout|timed out|超时|请求已取消|safety|quota|rate limit|unauthoriz|forbidden/i.test(message)) return false;
+  const status = Number(error.status || error.statusCode || message.match(/(?:API error|status)\s*:?\s*(400|404)\b/i)?.[1]);
+  return [400, 404].includes(status) && visionModelUnavailablePattern.test(message);
+}
+
+async function fetchVisionFileRequest(url, options, signal = null) {
+  const controller = new AbortController();
+  const abortRequest = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', abortRequest, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), VISION_FILE_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(signal?.aborted ? '请求已取消' : '请求超时，请检查网络连接');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', abortRequest);
+  }
+}
 
 const articleFromCompletion = (data, difficulty, topic) => {
   const rawContent = data?.choices?.[0]?.message?.content;
@@ -278,10 +315,10 @@ ${personalizationGuidance}
   },
 
   // Make API request with timeout
-  async fetch(endpoint, body, timeoutMs = 60000, signal = null) {
+  async fetch(endpoint, body, timeoutMs = 60000, signal = null, modelOverride = null) {
     const apiKey = Config.get('api_key');
     const baseUrl = Config.get('base_url');
-    const model = Config.get('model');
+    const model = modelOverride || Config.get('model');
 
     const controller = new AbortController();
     const abortRequest = () => controller.abort();
@@ -310,7 +347,10 @@ ${personalizationGuidance}
 
       if (!resp.ok) {
         const err = await resp.text();
-        throw new Error(`API error: ${resp.status} - ${err}`);
+        const error = new Error(`API error: ${resp.status} - ${err}`);
+        error.status = resp.status;
+        error.baseUrl = baseUrl;
+        throw error;
       }
 
       return resp.json();
@@ -326,14 +366,20 @@ ${personalizationGuidance}
   },
 
   // Send a general learning-chat request.
-  async chatCompletion(messages, { tools = [], signal = null, temperature = 0.45, responseFormat = null } = {}) {
+  async chatCompletion(messages, {
+    tools = [],
+    signal = null,
+    temperature = 0.45,
+    responseFormat = null,
+    modelOverride = null
+  } = {}) {
     const body = { messages, temperature };
     if (tools.length) {
       body.tools = tools;
       body.tool_choice = 'auto';
     }
     if (responseFormat) body.response_format = responseFormat;
-    const data = await this.fetch('/chat/completions', body, 60000, signal);
+    const data = await this.fetch('/chat/completions', body, 60000, signal, modelOverride);
     return {
       message: data.choices?.[0]?.message || { role: 'assistant', content: '' },
       usage: data.usage || null
@@ -342,12 +388,67 @@ ${personalizationGuidance}
 
   // DeepSeek native web search via the Responses API (deepseek-v4-flash).
   // Returns the normalized assistant result used by ChatService.
-  async responsesCompletion(items, { tools = [], signal = null, temperature = 0.45, toolChoice = 'auto' } = {}) {
+  async responsesCompletion(items, {
+    tools = [],
+    signal = null,
+    temperature = 0.45,
+    toolChoice = 'auto',
+    modelOverride = null
+  } = {}) {
     if (!deepSeekResponsesClient) {
       const { createDeepSeekResponsesClient } = await import('./components/deepseek-responses.mjs');
       deepSeekResponsesClient = createDeepSeekResponsesClient({ config: Config });
     }
-    return deepSeekResponsesClient.completion(items, { tools, signal, temperature, toolChoice });
+    return deepSeekResponsesClient.completion(items, { tools, signal, temperature, toolChoice, modelOverride });
+  },
+
+  async uploadVisionFile(blob, filename = 'image.jpg', { signal = null } = {}) {
+    if (!blob || typeof blob.arrayBuffer !== 'function') throw new Error('图片文件无效');
+    const apiKey = Config.get('api_key');
+    const baseUrl = Config.get('base_url');
+    const form = new FormData();
+    form.append('purpose', 'user_data');
+    form.append('expires_after[anchor]', 'created_at');
+    form.append('expires_after[seconds]', String(VISION_FILE_EXPIRY_SECONDS));
+    form.append('file', blob, String(filename || 'image.jpg').split(/[\\/]/).pop() || 'image.jpg');
+    const response = await fetchVisionFileRequest(apiUrl(baseUrl, '/files'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form
+    }, signal);
+    if (!response.ok) {
+      const error = new Error(`API error: ${response.status} - ${await response.text()}`);
+      error.status = response.status;
+      error.baseUrl = baseUrl;
+      throw error;
+    }
+    return response.json();
+  },
+
+  async deleteVisionFile(fileId, { signal = null } = {}) {
+    const normalizedId = String(fileId || '').trim();
+    if (!/^file-api-[A-Za-z0-9_-]+$/.test(normalizedId)) {
+      throw new Error('Invalid DeepSeek file ID');
+    }
+    const apiKey = Config.get('api_key');
+    const baseUrl = Config.get('base_url');
+    const response = await fetchVisionFileRequest(
+      apiUrl(baseUrl, `/files/${encodeURIComponent(normalizedId)}`),
+      { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+      signal
+    );
+    if (response.status === 404) return { deleted: true, alreadyMissing: true };
+    if (!response.ok) {
+      const error = new Error(`API error: ${response.status} - ${await response.text()}`);
+      error.status = response.status;
+      error.baseUrl = baseUrl;
+      throw error;
+    }
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {}
+    return { ...payload, deleted: true };
   },
 
   // Stream an OpenAI-compatible SSE response. The timeout is idle-based so

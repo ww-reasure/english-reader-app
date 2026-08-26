@@ -27,8 +27,10 @@ test('vocabulary toggles re-render into the routed outlet and refresh counts fro
 
   assert.doesNotMatch(source, /render\(document\.getElementById\('app'\)\)/);
   assert.match(source, /this\.container = container/);
-  assert.match(source, /await this\.render\(this\.container\)/);
-  assert.match(source, /const words = await DB\.getAllWords\(\)/);
+  assert.match(source, /await this\.renderPage\(\)/);
+  assert.match(source, /DB\.getUnifiedVocabulary\(\)/);
+  assert.match(source, /this\.rows = await DB\.getUnifiedVocabulary\(\)/);
+  assert.doesNotMatch(source, /DB\.getAllWords\(\)/);
   assert.match(source, /const \[todayScope, recentScope\] = await Promise\.all/);
   assert.match(source, /const todayStatus = getPracticeScopeStatus/);
   assert.match(source, /const recentStatus = getPracticeScopeStatus/);
@@ -49,6 +51,6 @@ test('flashcard practice mode records practice events and keeps scheduled review
   assert.match(source, /DB\.settleSessionReview\(word\.id/);
   assert.match(source, /if \(!this\.practiceScope\)/);
   assert.match(source, /专项练习完成/);
-  assert.match(source, /返回生词本/);
+  assert.match(source, /返回我的词汇/);
   assert.doesNotMatch(source, /isPractice \? '[^']*再来一轮/);
 });

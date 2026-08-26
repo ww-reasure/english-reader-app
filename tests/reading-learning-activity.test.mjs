@@ -11,7 +11,9 @@ test('reading activity records only successful lookups and preserves save proven
   assert.match(lookup, /(?:Tooltip|tooltipApi)\.show\(lookupId/);
   assert.match(lookup, /onLookupResolved/);
   assert.match(lookup, /if \(!shown \|\| disposed(?: \|\| !(?:Tooltip|tooltipApi)\.isCurrent\(lookupId\))?\) return/);
-  assert.match(tooltip, /DB\.findLearnWord\(/);
+  assert.match(tooltip, /DB\.saveVocabularyWord\(/);
+  assert.doesNotMatch(tooltip, /DB\.saveWord\(/);
+  assert.doesNotMatch(tooltip, /DB\.saveLearnWord\(/);
   assert.match(tooltip, /createdLearnWord/);
   assert.match(tooltip, /learnWordId/);
   assert.match(tooltip, /onWordSaved/);
