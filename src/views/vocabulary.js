@@ -58,13 +58,18 @@ export const VocabularyView = {
   searchQuery: '',
   manageMode: false,
   selectionMode: false,
+  filterOpen: false,
+  actionsMenuOpen: false,
   selectedWordIds: new Set(),
   _libraryChangedHandler: null,
+  _documentClickHandler: null,
+  _documentKeydownHandler: null,
 
   async render(container) {
     this.container = container;
     this.rows = await DB.getUnifiedVocabulary();
     this.bindLibraryEvents();
+    this.bindPageEvents();
     await this.renderPage();
   },
 
@@ -103,9 +108,20 @@ export const VocabularyView = {
             <h1 id="vocabularyContentTitle" class="vocab-unified-heading">全部单词</h1>
             <p class="vocab-unified-count">共 ${totalCount} 个单词</p>
           </div>
-          <button type="button" class="btn vocab-unified-import" aria-label="导入单词" onclick="WordImport.showModal()">
-            <i class="fa-solid fa-arrow-up-from-bracket vocab-unified-upload-icon" aria-hidden="true"></i><span>导入</span>
-          </button>
+          <div class="vocab-unified-header-actions">
+            <button type="button" class="btn vocab-unified-import" aria-label="导入单词" onclick="WordImport.showModal()">
+              <i class="fa-solid fa-arrow-up-from-bracket vocab-unified-upload-icon" aria-hidden="true"></i><span>导入</span>
+            </button>
+            <div class="vocab-unified-more">
+              <button id="vocabUnifiedMoreTrigger" type="button" class="vocab-unified-more-trigger" aria-label="更多词汇操作" aria-controls="vocabUnifiedActionsMenu" aria-expanded="${this.actionsMenuOpen}" onclick="VocabularyView.toggleActionsMenu()">
+                <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+              </button>
+              <div id="vocabUnifiedActionsMenu" class="vocab-unified-actions-menu" role="menu" ${this.actionsMenuOpen ? '' : 'hidden'}>
+                <button type="button" role="menuitem" onclick="VocabularyView.chooseAction('selection')"><i class="fa-regular fa-square-check" aria-hidden="true"></i><span>选词复习</span></button>
+                <button type="button" role="menuitem" onclick="VocabularyView.chooseAction('manage')"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span>管理单词</span></button>
+              </div>
+            </div>
+          </div>
         </header>
 
         <div class="vocab-unified-toolbar" role="search">
@@ -114,7 +130,7 @@ export const VocabularyView = {
             <span class="sr-only">搜索单词或释义</span>
             <input type="search" value="${escAttr(this.searchQuery)}" placeholder="搜索单词或释义" aria-label="搜索单词或释义" oninput="VocabularyView.setSearchQuery(this.value)">
           </label>
-          <button type="button" class="btn vocab-unified-filter-toggle" aria-label="筛选" aria-expanded="${hasFilters}" onclick="VocabularyView.toggleFilter()">
+          <button type="button" class="btn vocab-unified-filter-toggle ${hasFilters ? 'has-active-filter' : ''}" aria-label="筛选" aria-controls="vocabUnifiedFilter" aria-expanded="${this.filterOpen}" onclick="VocabularyView.toggleFilter()">
             <i class="fa-solid fa-sliders" aria-hidden="true"></i><span>筛选</span>
           </button>
         </div>
@@ -125,47 +141,33 @@ export const VocabularyView = {
           ${this.renderSourceTab('import', '导入')}
         </nav>
 
-        <details class="vocab-unified-filter" ${hasFilters ? 'open' : ''}>
-          <summary>筛选与排序</summary>
-          <div class="vocab-unified-filter-fields">
-            <label>学习状态
-              <select aria-label="学习状态" onchange="VocabularyView.setStatusFilter(this.value)">
-                <option value="all" ${this.statusFilter === 'all' ? 'selected' : ''}>全部</option>
-                <option value="new" ${this.statusFilter === 'new' ? 'selected' : ''}>新词</option>
-                <option value="learning" ${this.statusFilter === 'learning' ? 'selected' : ''}>学习中</option>
-                <option value="review" ${this.statusFilter === 'review' ? 'selected' : ''}>待复习</option>
-                <option value="stable" ${this.statusFilter === 'stable' ? 'selected' : ''}>长期巩固</option>
-              </select>
-            </label>
-            <label>排序
-              <select aria-label="排序" onchange="VocabularyView.setSortMode(this.value)">
-                <option value="recent" ${this.sortMode === 'recent' ? 'selected' : ''}>最近加入</option>
-                <option value="alpha" ${this.sortMode === 'alpha' ? 'selected' : ''}>A–Z</option>
-                <option value="due" ${this.sortMode === 'due' ? 'selected' : ''}>待复习优先</option>
-              </select>
-            </label>
+        <section id="vocabUnifiedFilter" class="vocab-unified-filter" aria-label="筛选与排序" ${this.filterOpen ? '' : 'hidden'}>
+          <div class="vocab-unified-filter-group">
+            <span class="vocab-unified-filter-label">学习状态</span>
+            <div class="vocab-unified-filter-options">${this.renderStatusFilter()}</div>
           </div>
-        </details>
-
-        <section class="vocab-unified-study-strip" aria-label="专项复习">
-          <div class="vocab-unified-study-metrics">
-            ${this.renderPracticeEntry({ scope: 'today_added', name: '今日新增', status: todayStatus, skipped: todayScope.skipped })}
-            <span class="vocab-unified-study-divider" aria-hidden="true"></span>
-            <div class="vocab-unified-study-metric">
-              <span>待复习</span><strong>${dueCount}</strong>
-            </div>
+          <div class="vocab-unified-filter-group">
+            <span class="vocab-unified-filter-label">排序方式</span>
+            <div class="vocab-unified-filter-options">${this.renderSortMode()}</div>
           </div>
-          <div class="vocab-unified-study-actions">
-            ${this.renderPracticeEntry({ scope: 'recent_added', name: '最近加入', status: recentStatus, skipped: recentScope.skipped })}
-            <a class="btn btn-primary vocab-unified-start-practice" href="#/flashcard">开始复习</a>
-          </div>
-          <span class="sr-only">最近加入 ${recentScope.words.length} 个单词</span>
         </section>
 
+        <section class="vocab-unified-today-card" aria-label="词汇复习入口">
+          ${this.renderTodayPractice(todayStatus, todayScope.skipped)}
+          <div class="vocab-unified-review-row">
+            <div><span>计划复习</span><strong>${dueCount} 词</strong></div>
+            <a class="vocab-unified-review-link" href="#/flashcard">开始计划复习<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a>
+          </div>
+          <div class="vocab-unified-review-row vocab-unified-review-row--secondary">
+            ${this.renderRecentPractice(recentStatus, recentScope.skipped)}
+            <button type="button" class="vocab-unified-review-link" onclick="VocabularyView.toggleSelection()"><i class="fa-regular fa-bookmark" aria-hidden="true"></i>自选单词<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+          </div>
+        </section>
+
+        ${this.renderManagementBar(rows)}
         <div class="vocab-unified-list vocab-list" data-vocab-grid="vocab">
           ${rows.length ? rows.map(row => this.renderRow(row)).join('') : '<div class="empty-state vocab-unified-empty">没有符合条件的词汇。</div>'}
         </div>
-        ${this.renderManagementBar()}
       </section>`;
   },
 
@@ -173,9 +175,53 @@ export const VocabularyView = {
     return `<button type="button" class="vocab-unified-source-tab ${this.sourceFilter === value ? 'is-active' : ''}" aria-pressed="${this.sourceFilter === value}" onclick="VocabularyView.setSourceFilter('${value}')">${label}</button>`;
   },
 
-  renderManagementBar() {
+  renderStatusFilter() {
+    const labels = { all: '全部', new: '新词', learning: '学习中', review: '待复习', stable: '长期巩固' };
+    return STATUS_FILTERS.map(value => `<button type="button" class="vocab-unified-filter-chip ${this.statusFilter === value ? 'is-active' : ''}" aria-pressed="${this.statusFilter === value}" onclick="VocabularyView.setStatusFilter('${value}')">${labels[value]}</button>`).join('');
+  },
+
+  renderSortMode() {
+    const labels = { recent: '最近加入', alpha: 'A–Z', due: '待复习优先' };
+    return SORT_MODES.map(value => `<button type="button" class="vocab-unified-filter-chip ${this.sortMode === value ? 'is-active' : ''}" aria-pressed="${this.sortMode === value}" onclick="VocabularyView.setSortMode('${value}')">${labels[value]}</button>`).join('');
+  },
+
+  renderTodayPractice(status, skipped = 0) {
+    const reviewedCount = status.reviewedIds.length;
+    const newCount = status.newIds.length;
+    const totalCount = reviewedCount + newCount;
+    const remainingCount = status.hasCompletion ? newCount : totalCount;
+    const count = status.done ? reviewedCount : remainingCount;
+    const buttonLabel = status.done ? '再练今日' : '只练今日';
+    const action = status.done
+      ? "VocabularyView.startPractice('today_added', { reviewAll: true })"
+      : "VocabularyView.startPractice('today_added')";
+    return `<div class="vocab-unified-today-primary">
+      <div class="vocab-unified-today-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
+      <div class="vocab-unified-today-copy">
+        <span>今日新增</span>
+        <strong>${count} 词</strong>
+        <small>${status.done ? '今天这组已经完成' : '新词优先，记得更牢'}${skipped ? ` · ${skipped} 个不可用` : ''}</small>
+      </div>
+      <button type="button" class="vocab-unified-today-button" onclick="${action}" ${totalCount ? '' : 'disabled'}>${buttonLabel}</button>
+    </div>`;
+  },
+
+  renderRecentPractice(status, skipped = 0) {
+    const reviewedCount = status.reviewedIds.length;
+    const newCount = status.newIds.length;
+    const totalCount = reviewedCount + newCount;
+    const count = status.done ? reviewedCount : (status.hasCompletion ? newCount : totalCount);
+    const action = status.done
+      ? "VocabularyView.startPractice('recent_added', { reviewAll: true })"
+      : "VocabularyView.startPractice('recent_added')";
+    return `<button type="button" class="vocab-unified-recent-link" onclick="${action}" ${totalCount ? '' : 'disabled'}>
+      <i class="fa-regular fa-calendar" aria-hidden="true"></i><span>最近 7 天</span><strong>${count} 词</strong>${skipped ? `<small>${skipped} 个不可用</small>` : ''}<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+    </button>`;
+  },
+
+  renderManagementBar(visibleRows = this.rows) {
     if (this.manageMode) {
-      const activeIds = this.rows.map(row => row.id);
+      const activeIds = visibleRows.map(row => row.id);
       return `<div class="vocab-unified-management" role="region" aria-label="词汇管理">
         <span>管理 ${activeIds.length} 个当前单词</span>
         <button type="button" class="btn btn-danger btn-sm" onclick="VocabularyView.archiveWords(${escAttr(JSON.stringify(activeIds))})">全部移出</button>
@@ -184,20 +230,12 @@ export const VocabularyView = {
     }
     if (this.selectionMode) {
       return `<div class="vocab-unified-management" role="region" aria-label="专项复习选词">
-        <span>已选择 ${this.selectedWordIds.size} 个单词</span>
+        <span class="vocab-unified-selection-count">已选择 ${this.selectedWordIds.size} 个单词</span>
         <button type="button" class="btn btn-primary btn-sm vocab-practice-start-btn" onclick="VocabularyView.startManualPractice()">开始复习（${this.selectedWordIds.size}）</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="VocabularyView.toggleSelection()">取消</button>
       </div>`;
     }
-    return `<div class="vocab-unified-management vocab-unified-management--idle">
-      <span>共 ${this.rows.length} 个单词</span>
-      <div class="vocab-unified-management-actions">
-        <button type="button" class="vocab-unified-selection-trigger" onclick="VocabularyView.toggleSelection()">选词复习</button>
-        <button type="button" class="vocab-unified-management-trigger" aria-label="管理单词" onclick="VocabularyView.toggleManage()">
-          <i class="fa-solid fa-sliders" aria-hidden="true"></i><span>管理单词</span><i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
-        </button>
-      </div>
-    </div>`;
+    return '';
   },
 
   renderRow(row) {
@@ -277,9 +315,30 @@ export const VocabularyView = {
     document.addEventListener('word-library-changed', this._libraryChangedHandler);
   },
 
+  bindPageEvents() {
+    if (this._documentClickHandler) document.removeEventListener('click', this._documentClickHandler);
+    if (this._documentKeydownHandler) document.removeEventListener('keydown', this._documentKeydownHandler);
+    this._documentClickHandler = event => {
+      if (!this.actionsMenuOpen || event.target.closest('.vocab-unified-more')) return;
+      void this.closeActionsMenu();
+    };
+    this._documentKeydownHandler = event => {
+      if (event.key !== 'Escape' || !this.actionsMenuOpen) return;
+      event.preventDefault();
+      void this.closeActionsMenu({ focusTrigger: true });
+    };
+    document.addEventListener('click', this._documentClickHandler);
+    document.addEventListener('keydown', this._documentKeydownHandler);
+  },
+
   async cleanup() {
     if (this._libraryChangedHandler) document.removeEventListener('word-library-changed', this._libraryChangedHandler);
+    if (this._documentClickHandler) document.removeEventListener('click', this._documentClickHandler);
+    if (this._documentKeydownHandler) document.removeEventListener('keydown', this._documentKeydownHandler);
     this._libraryChangedHandler = null;
+    this._documentClickHandler = null;
+    this._documentKeydownHandler = null;
+    this.actionsMenuOpen = false;
     this.container = null;
   },
 
@@ -308,12 +367,34 @@ export const VocabularyView = {
     if (audio?.getAudio && word) void audio.getAudio(word).catch(() => {});
   },
 
-  toggleFilter() {
-    const filter = document.querySelector('.vocab-unified-filter');
-    if (filter) filter.open = !filter.open;
+  async toggleFilter() {
+    this.filterOpen = !this.filterOpen;
+    await this.renderPage();
+    document.querySelector('.vocab-unified-filter-chip')?.focus();
+  },
+
+  async toggleActionsMenu() {
+    this.actionsMenuOpen = !this.actionsMenuOpen;
+    await this.renderPage();
+    if (this.actionsMenuOpen) document.querySelector('.vocab-unified-actions-menu [role="menuitem"]')?.focus();
+    else document.getElementById('vocabUnifiedMoreTrigger')?.focus();
+  },
+
+  async closeActionsMenu({ focusTrigger = false } = {}) {
+    if (!this.actionsMenuOpen) return;
+    this.actionsMenuOpen = false;
+    await this.renderPage();
+    if (focusTrigger) document.getElementById('vocabUnifiedMoreTrigger')?.focus();
+  },
+
+  async chooseAction(action) {
+    this.actionsMenuOpen = false;
+    if (action === 'selection') await this.toggleSelection();
+    else if (action === 'manage') await this.toggleManage();
   },
 
   async toggleManage() {
+    this.actionsMenuOpen = false;
     if (this.selectionMode) this.selectionMode = false;
     this.selectedWordIds.clear();
     this.manageMode = !this.manageMode;
@@ -321,6 +402,7 @@ export const VocabularyView = {
   },
 
   async toggleSelection() {
+    this.actionsMenuOpen = false;
     if (this.manageMode) this.manageMode = false;
     this.selectionMode = !this.selectionMode;
     this.selectedWordIds.clear();
@@ -330,6 +412,8 @@ export const VocabularyView = {
   toggleSelectedWord(id, checked) {
     if (checked) this.selectedWordIds.add(Number(id));
     else this.selectedWordIds.delete(Number(id));
+    const count = document.querySelector('.vocab-unified-selection-count');
+    if (count) count.textContent = `已选择 ${this.selectedWordIds.size} 个单词`;
     const button = document.querySelector('.vocab-practice-start-btn');
     if (button) button.textContent = `开始复习（${this.selectedWordIds.size}）`;
   },

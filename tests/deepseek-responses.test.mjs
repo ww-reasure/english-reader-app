@@ -199,6 +199,23 @@ test('messages convert multimodal chat content into Responses input images', () 
   }]);
 });
 
+test('inline image fallback uses the Responses API string image_url shape', () => {
+  const items = messagesToResponsesItems([{
+    role: 'user',
+    content: [
+      { type: 'text', text: '讲解这张图' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AA==' } }
+    ]
+  }]);
+  assert.deepEqual(items, [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: '讲解这张图' },
+      { type: 'input_image', image_url: 'data:image/jpeg;base64,AA==', detail: 'original' }
+    ]
+  }]);
+});
+
 test('completion accepts a request-level model override without changing configured model', async () => {
   let sentBody = null;
   const config = {

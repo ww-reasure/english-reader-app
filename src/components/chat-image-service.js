@@ -219,6 +219,16 @@ export class ChatImageService {
             lastError: null
           }) || { ...current, remoteFileId: remote.id, status: 'ready' };
         } catch (error) {
+          if (signal?.aborted || error?.name === 'AbortError' || /请求已取消/i.test(String(error?.message || ''))) {
+            await this.db.updateChatImageAttachment(current.id, {
+              status: 'draft',
+              updatedAt: this.now(),
+              lastError: null
+            });
+            const cancelled = error instanceof Error ? error : new Error('请求已取消');
+            cancelled.name = 'AbortError';
+            throw cancelled;
+          }
           if (canInline) inlineDataUrl = await blobToDataUrl(current.blob);
           const code = safeErrorCode(error);
           current = await this.db.updateChatImageAttachment(current.id, {
@@ -274,9 +284,37 @@ export class ChatImageService {
   async detachGroup(groupId) {
     const rows = await this.db.getChatImageGroup(groupId);
     for (const row of rows) {
-      await this.db.updateChatImageAttachment(row.id, { detached: true, updatedAt: this.now() });
+      await this.db.updateChatImageAttachment(row.id, {
+        detached: true,
+        protected: false,
+        updatedAt: this.now()
+      });
     }
-    return groupFor(groupId, rows[0]?.conversationKey, rows.map(row => ({ ...row, detached: true })));
+    return groupFor(groupId, rows[0]?.conversationKey, rows.map(row => ({
+      ...row,
+      detached: true,
+      protected: false
+    })));
+  }
+
+  async attachGroup(groupId) {
+    const rows = await this.db.getChatImageGroup(groupId);
+    const now = this.now();
+    for (const row of rows) {
+      await this.db.updateChatImageAttachment(row.id, {
+        detached: false,
+        protected: true,
+        lastAccessedAt: now,
+        updatedAt: now
+      });
+    }
+    return groupFor(groupId, rows[0]?.conversationKey, rows.map(row => ({
+      ...row,
+      detached: false,
+      protected: true,
+      lastAccessedAt: now,
+      updatedAt: now
+    })));
   }
 
   async enforceCapacity({ incomingBytes = 0, protectedIds = [] } = {}) {
@@ -290,10 +328,38 @@ export class ChatImageService {
       protectedIds,
       limitBytes: this.policy.CHAT_IMAGE_LIMITS?.localFullBlobBytes
     }) || [];
+    const releasedBytes = candidates.reduce((sum, row) => sum + Math.max(0, Number(row?.sizeBytes) || 0), 0);
+    const limitBytes = Number(this.policy.CHAT_IMAGE_LIMITS?.localFullBlobBytes) || 0;
+    if (limitBytes > 0 && currentBytes + Math.max(0, Number(incomingBytes) || 0) - releasedBytes > limitBytes) {
+      throw serviceError('image_storage_capacity_exceeded');
+    }
     for (const row of candidates) {
       await this.db.releaseChatImageAttachment(row.id);
     }
     return candidates.map(row => row.id);
+  }
+
+  async deleteGroup(groupId) {
+    const rows = await this.db.getChatImageGroup(groupId);
+    for (const row of rows) {
+      if (!row.remoteFileId) {
+        await this.db.deleteChatImageAttachment(row.id);
+        continue;
+      }
+      try {
+        await this.api.deleteVisionFile(row.remoteFileId);
+        await this.db.deleteChatImageAttachment(row.id);
+      } catch {
+        await this.db.releaseChatImageAttachment(row.id, { remoteDeletePending: true });
+        await this.db.updateChatImageAttachment(row.id, {
+          status: 'delete_pending',
+          retryCount: (Number(row.retryCount) || 0) + 1,
+          nextRetryAt: this.now() + RETRY_DELAYS_MS[0],
+          updatedAt: this.now(),
+          lastError: 'remote_delete_failed'
+        });
+      }
+    }
   }
 
   async clearConversation(conversationKey = 'home') {
@@ -343,8 +409,8 @@ export class ChatImageService {
     return processed;
   }
 
-  async collectOrphans(referencedAttachmentIds = []) {
-    const referenced = new Set(referencedAttachmentIds || []);
+  async collectOrphans(referencedAttachmentIds = [], { protectedAttachmentIds = [] } = {}) {
+    const referenced = new Set([...(referencedAttachmentIds || []), ...(protectedAttachmentIds || [])]);
     const rows = await this.db.listChatImageAttachments({});
     const orphans = rows.filter(row => !referenced.has(row.id) && !['draft', 'processing', 'uploading'].includes(row.status));
     for (const row of orphans) {

@@ -24,9 +24,9 @@ test('long-interval and legacy mastered words use the stable SRS status', async 
 test('unified vocabulary exposes stable and relearning filters without losing relearning words', async () => {
   const vocabularySource = await readFile(new URL('../src/views/vocabulary.js', import.meta.url), 'utf8');
 
-  assert.match(vocabularySource, /statusFilter === 'stable'/);
+  assert.match(vocabularySource, /STATUS_FILTERS = Object\.freeze\(\['all', 'new', 'learning', 'review', 'stable'\]\)/);
   assert.match(vocabularySource, /setStatusFilter/);
-  assert.match(vocabularySource, /value="stable"/);
+  assert.match(vocabularySource, /stable: '长期巩固'/);
   assert.match(vocabularySource, /长期巩固/);
   assert.match(vocabularySource, /statusDisplayOf/);
 });

@@ -31,5 +31,17 @@ test('reference vocabulary styling has a route-specific editorial shell', async 
   assert.match(css, /\.app-shell--vocab \.app-header/);
   assert.match(css, /\.vocab-unified-search-icon/);
   assert.match(css, /\.vocab-unified-upload-icon/);
-  assert.match(css, /\.vocab-unified-management-trigger/);
+  assert.match(css, /\.vocab-unified-more-trigger/);
+});
+
+test('mobile vocabulary styling keeps the selected compact density without an intro block', async () => {
+  const css = await read('../css/style.css');
+
+  assert.match(css, /\.app-shell--vocab \.app-menu-button\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*0;/s);
+  assert.match(css, /\.app-shell--vocab \.app-header-title\s*\{[^}]*font-size:\s*22px;/s);
+  assert.doesNotMatch(css, /\.app-shell--vocab \.app-header-description\s*\{/);
+  assert.match(css, /\.app-shell--vocab \.vocab-unified-heading\s*\{[^}]*font-size:\s*clamp\(27px,\s*7vw,\s*33px\);/s);
+  assert.match(css, /\.app-shell--vocab \.vocab-unified-row\s*\{[^}]*min-height:\s*96px;/s);
+  assert.match(css, /\.app-shell--vocab \.vocab-unified-word\s*\{[^}]*font-size:\s*21px;/s);
+  assert.match(css, /\.app-shell--vocab \.vocab-unified-today-card\s*\{/s);
 });

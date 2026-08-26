@@ -168,10 +168,11 @@ export const Router = {
     this.navigate();
   },
 
-  back() {
+  back(fallbackRoute = '') {
     const previous = this.routeHistory?.previous();
-    if (!previous) return false;
-    location.hash = previous;
+    const destination = previous || fallbackRoute;
+    if (!destination) return false;
+    location.hash = destination;
     return true;
   }
 };

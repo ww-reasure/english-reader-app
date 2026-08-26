@@ -66,7 +66,7 @@ function responsePart(part) {
     return { type: 'input_image', file_id: String(part.file_id), detail: 'original' };
   }
   if (part?.type === 'image_url' && part.image_url?.url) {
-    return { type: 'input_image', image_url: { url: String(part.image_url.url) }, detail: 'original' };
+    return { type: 'input_image', image_url: String(part.image_url.url), detail: 'original' };
   }
   return null;
 }

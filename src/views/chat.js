@@ -49,6 +49,7 @@ import { buildResearchBrief, createWebResearch, normalizeResearchSources } from 
 import { buildNativeResearchArtifact, messagesToResponsesItems, resolveWebResearchPlan } from '../components/deepseek-responses.mjs';
 import { ChatImageService } from '../components/chat-image-service.js';
 import { createChatImageProcessor } from '../components/chat-image-processor.js';
+import { resolveModelForRequest } from '../components/deepseek-model-catalog.mjs';
 import * as chatImagePolicy from '../components/chat-image-policy.mjs';
 
 const conversationStore = new ConversationStore();
@@ -281,6 +282,7 @@ export const ChatView = {
   _imageDraftObjectUrls: new Map(),
   _imageActionCleanup: null,
   _imageViewerCleanup: null,
+  _imageRequestController: null,
   // Preset topics
   topics: [
     { value: 'technology', label: '科技' },
@@ -329,6 +331,7 @@ export const ChatView = {
           <div id="chatImageActionSheet" class="chat-image-action-sheet" hidden aria-label="添加图片方式">
             <button type="button" data-image-action="camera"><i class="fa-solid fa-camera" aria-hidden="true"></i>拍照</button>
             <button type="button" data-image-action="gallery"><i class="fa-solid fa-images" aria-hidden="true"></i>从相册选择</button>
+            <button type="button" data-image-action="cancel">取消</button>
           </div>
           <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
           <input id="chatGalleryInput" type="file" accept="image/*" multiple hidden>
@@ -485,6 +488,7 @@ export const ChatView = {
     this.imageDraftState = 'idle';
     this.revokeImageObjectUrls();
     this.clearChatFollowUp();
+    await this.renderActiveImageChip();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
     this.addMessageToDOM('system', '对话已清空。现在可以开始新的学习问题。');
@@ -492,6 +496,8 @@ export const ChatView = {
 
   beginHomeRequest({ cancelGeneration = false, cancelReason = 'superseded' } = {}) {
     const requestVersion = homeRequestGate.begin();
+    this._imageRequestController?.abort();
+    this._imageRequestController = null;
     chatService.cancel('home');
     if (cancelGeneration) {
       homeGenerationCoordinator?.cancel(cancelReason);
@@ -858,8 +864,65 @@ export const ChatView = {
     }
     const referenced = conversationStore.getSession('home').messages
       .flatMap(message => Array.isArray(message.imageGroup?.attachmentIds) ? message.imageGroup.attachmentIds : []);
-    await service.collectOrphans(referenced).catch(() => {});
+    await service.collectOrphans(referenced, {
+      protectedAttachmentIds: draft?.attachments?.map(row => row.id) || []
+    }).catch(() => {});
+    const imageMessages = conversationStore.getSession('home').messages
+      .filter(message => message.imageGroup?.groupId)
+      .reverse();
+    this.activeImageGroupId = null;
+    for (const message of imageMessages) {
+      const rows = await DB.getChatImageGroup(message.imageGroup.groupId).catch(() => []);
+      if (rows.length && rows.some(row => !row.detached)) {
+        this.activeImageGroupId = message.imageGroup.groupId;
+        await service.attachGroup(this.activeImageGroupId).catch(() => {});
+        break;
+      }
+    }
+    await this.renderActiveImageChip();
     this.updateImageSendState();
+  },
+
+  async renderActiveImageChip() {
+    const chip = document.getElementById('chatActiveImageChip');
+    if (!chip) return;
+    if (!this.activeImageGroupId) {
+      chip.hidden = true;
+      chip.replaceChildren();
+      return;
+    }
+    const rows = await DB.getChatImageGroup(this.activeImageGroupId).catch(() => []);
+    if (!rows.length) {
+      this.activeImageGroupId = null;
+      chip.hidden = true;
+      chip.replaceChildren();
+      return;
+    }
+    chip.innerHTML = `<span><i class="fa-solid fa-images" aria-hidden="true"></i> 当前图片 · ${rows.length}张</span>
+      <button type="button" data-chat-image-detach aria-label="退出当前图片话题">×</button>`;
+    chip.hidden = false;
+  },
+
+  async activateImageGroup(groupId, { focus = true } = {}) {
+    const normalizedGroupId = String(groupId || '').trim();
+    if (!normalizedGroupId) return false;
+    const service = this.getImageService();
+    if (this.activeImageGroupId && this.activeImageGroupId !== normalizedGroupId) {
+      await service.detachGroup(this.activeImageGroupId).catch(() => {});
+    }
+    const group = await service.attachGroup(normalizedGroupId).catch(() => null);
+    if (!group?.attachments?.length) return false;
+    this.activeImageGroupId = normalizedGroupId;
+    await this.renderActiveImageChip();
+    if (focus) document.getElementById('promptInput')?.focus();
+    return true;
+  },
+
+  async detachActiveImageGroup() {
+    const groupId = this.activeImageGroupId;
+    if (groupId) await this.getImageService().detachGroup(groupId).catch(() => {});
+    this.activeImageGroupId = null;
+    await this.renderActiveImageChip();
   },
 
   revokeImageObjectUrls() {
@@ -884,11 +947,6 @@ export const ChatView = {
     const selected = Array.from(files || []).filter(Boolean);
     const maxImagesPerMessage = chatImagePolicy.CHAT_IMAGE_LIMITS.maxImagesPerMessage;
     if (!selected.length) return;
-    if (selected.length > maxImagesPerMessage) {
-      this.imageDraftState = 'error';
-      this.appendConversation({ role: 'assistant', kind: 'error', content: `一次最多添加 ${maxImagesPerMessage} 张图片。` });
-      return;
-    }
     const service = this.getImageService();
     const previousGroupId = this.imageDraftGroupId;
     this.imageDraftState = 'processing';
@@ -897,23 +955,33 @@ export const ChatView = {
         ? await DB.getChatImageGroup(previousGroupId).catch(() => [])
         : [];
       const reusableRows = previousRows.filter(row => row.blob).map(row => row.blob);
-      if (reusableRows.length + selected.length > maxImagesPerMessage) {
-        throw new Error('too_many_images');
-      }
-      const nextGroup = await service.createDraft([...reusableRows, ...selected], {
+      const availableSlots = Math.max(0, maxImagesPerMessage - reusableRows.length);
+      const accepted = selected.slice(0, availableSlots);
+      if (!accepted.length) throw new Error('too_many_images');
+      const omittedCount = selected.length - accepted.length;
+      const nextGroup = await service.createDraft([...reusableRows, ...accepted], {
         conversationKey: 'home',
         source
       });
       if (previousGroupId && previousGroupId !== nextGroup.groupId) {
-        await DB.deleteChatImageGroup(previousGroupId).catch(() => {});
+        await service.deleteGroup(previousGroupId).catch(() => {});
       }
       this.imageDraftGroupId = nextGroup.groupId;
       this.imageDraftState = 'ready';
       await this.renderImageDraft(nextGroup.groupId);
+      if (omittedCount > 0) {
+        this.appendConversation({
+          role: 'assistant',
+          kind: 'notice',
+          content: `一次最多添加 ${maxImagesPerMessage} 张图片，已保留前 ${accepted.length} 张，其余 ${omittedCount} 张未加入。`
+        });
+      }
     } catch (error) {
       this.imageDraftState = 'error';
       const message = error?.code === 'too_many_images' || error?.message === 'too_many_images'
         ? `一次最多添加 ${maxImagesPerMessage} 张图片。`
+        : error?.code === 'image_storage_capacity_exceeded'
+          ? '本地图片空间不足，当前草稿和正在使用的图片不会被清理，请分批发送或先清空对话图片。'
         : '图片处理失败，请重试或换一张图片。';
       this.appendConversation({ role: 'assistant', kind: 'error', content: message });
       await this.renderImageDraft(this.imageDraftGroupId);
@@ -950,11 +1018,11 @@ export const ChatView = {
         this._imageDraftObjectUrls.set(row.id, previewUrl);
       }
       const errorLabel = row.lastError ? '处理失败' : row.status === 'uploading' ? '上传中' : '';
-      return `<article class="chat-image-draft-item" data-chat-image-draft-id="${esc(row.id)}" data-image-order="${Number(row.order) || 0}">
+      return `<article class="chat-image-draft-item" draggable="true" data-chat-image-draft-id="${esc(row.id)}" data-image-order="${Number(row.order) || 0}">
         <button class="chat-image-thumb" type="button" data-chat-image-preview="${esc(row.id)}" aria-label="预览第 ${Number(row.order) + 1} 张图片">
           ${previewUrl ? `<img src="${esc(previewUrl)}" alt="第 ${Number(row.order) + 1} 张图片预览">` : '<span class="chat-image-placeholder" aria-hidden="true"><i class="fa-solid fa-image"></i></span>'}
         </button>
-        <span class="chat-image-order" aria-hidden="true">${Number(row.order) + 1}</span>
+        <button type="button" class="chat-image-order" data-chat-image-drag-handle aria-label="拖动调整第 ${Number(row.order) + 1} 张图片顺序">${Number(row.order) + 1}</button>
         ${errorLabel ? `<span class="chat-image-status" role="status">${errorLabel}</span>` : ''}
         ${row.lastError ? `<button type="button" class="chat-image-retry" data-chat-image-retry="${esc(row.id)}">重试</button>` : ''}
         <button type="button" class="chat-image-remove" data-chat-image-remove="${esc(row.id)}" aria-label="移除第 ${Number(row.order) + 1} 张图片">×</button>
@@ -985,29 +1053,101 @@ export const ChatView = {
     await this.renderImageDraft(groupId);
   },
 
+  async reorderImageDraft(sourceId, targetId) {
+    const groupId = this.imageDraftGroupId;
+    if (!groupId || !sourceId || !targetId || sourceId === targetId) return;
+    const rows = (await DB.getChatImageGroup(groupId).catch(() => []))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const sourceIndex = rows.findIndex(row => row.id === sourceId);
+    const targetIndex = rows.findIndex(row => row.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = rows.splice(sourceIndex, 1);
+    rows.splice(targetIndex, 0, moved);
+    await this.getImageService().reorderDraft(groupId, rows.map(row => row.id));
+    await this.renderImageDraft(groupId);
+  },
+
   async openImageViewer(id, { groupId = this.imageDraftGroupId } = {}) {
-    const row = await DB.getChatImageAttachment(id).catch(() => null);
-    const source = row?.blob || row?.thumbnailBlob;
-    if (!source) return;
-    const url = typeof globalThis.URL?.createObjectURL === 'function' ? globalThis.URL.createObjectURL(source) : '';
-    if (!url) return;
+    const rows = groupId
+      ? await DB.getChatImageGroup(groupId).catch(() => [])
+      : [await DB.getChatImageAttachment(id).catch(() => null)].filter(Boolean);
+    if (!rows.length) return;
+    let index = Math.max(0, rows.findIndex(row => row.id === id));
+    let url = '';
+    let scale = 1;
     this._imageViewerCleanup?.();
     const viewer = document.createElement('div');
     viewer.className = 'chat-image-viewer';
     viewer.setAttribute('role', 'dialog');
     viewer.setAttribute('aria-modal', 'true');
-    viewer.innerHTML = `<button type="button" class="chat-image-viewer-close" aria-label="关闭图片预览">×</button><img src="${esc(url)}" alt="图片预览"><span>${esc(groupId ? '图片预览' : '图片')}</span>`;
+    viewer.setAttribute('aria-label', '图片查看器');
+    viewer.innerHTML = `<button type="button" class="chat-image-viewer-close" data-chat-image-viewer="close" aria-label="关闭图片预览">×</button>
+      <div class="chat-image-viewer-stage"><img alt="图片预览"></div>
+      <div class="chat-image-viewer-toolbar" aria-label="图片查看控制">
+        <button type="button" data-chat-image-viewer="previous" aria-label="上一张">‹</button>
+        <button type="button" data-chat-image-viewer="zoom-out" aria-label="缩小">−</button>
+        <span data-chat-image-viewer-counter></span>
+        <button type="button" data-chat-image-viewer="zoom-in" aria-label="放大">＋</button>
+        <button type="button" data-chat-image-viewer="next" aria-label="下一张">›</button>
+        ${groupId && groupId !== this.imageDraftGroupId ? '<button type="button" class="chat-image-viewer-continue" data-chat-image-viewer="continue">继续询问这组图片</button>' : ''}
+      </div>`;
+    const image = viewer.querySelector('img');
+    const show = nextIndex => {
+      index = Math.max(0, Math.min(rows.length - 1, nextIndex));
+      if (url) {
+        try { globalThis.URL?.revokeObjectURL(url); } catch {}
+        url = '';
+      }
+      const row = rows[index];
+      const source = row?.blob || row?.thumbnailBlob;
+      if (source && typeof globalThis.URL?.createObjectURL === 'function') {
+        url = globalThis.URL.createObjectURL(source);
+        image.src = url;
+        image.alt = `第 ${index + 1} 张图片预览`;
+      } else {
+        image.removeAttribute('src');
+        image.alt = '原图已释放';
+      }
+      scale = 1;
+      image.style.transform = 'scale(1)';
+      viewer.querySelector('[data-chat-image-viewer-counter]').textContent = `${index + 1} / ${rows.length}`;
+      viewer.querySelector('[data-chat-image-viewer="previous"]').disabled = index === 0;
+      viewer.querySelector('[data-chat-image-viewer="next"]').disabled = index === rows.length - 1;
+    };
+    const zoom = delta => {
+      scale = Math.max(0.75, Math.min(3, scale + delta));
+      image.style.transform = `scale(${scale})`;
+    };
     const close = () => {
       viewer.remove();
-      try { globalThis.URL?.revokeObjectURL(url); } catch {}
+      if (url) {
+        try { globalThis.URL?.revokeObjectURL(url); } catch {}
+      }
       document.removeEventListener('keydown', onKey);
       this._imageViewerCleanup = null;
     };
-    const onKey = event => { if (event.key === 'Escape') close(); };
-    viewer.addEventListener('click', event => { if (event.target === viewer) close(); });
-    viewer.querySelector('.chat-image-viewer-close')?.addEventListener('click', close);
+    const onKey = event => {
+      if (event.key === 'Escape') close();
+      if (event.key === 'ArrowLeft') show(index - 1);
+      if (event.key === 'ArrowRight') show(index + 1);
+      if (event.key === '+' || event.key === '=') zoom(0.25);
+      if (event.key === '-') zoom(-0.25);
+    };
+    viewer.addEventListener('click', event => {
+      if (event.target === viewer) return close();
+      const action = event.target.closest('[data-chat-image-viewer]')?.dataset.chatImageViewer;
+      if (action === 'close') close();
+      if (action === 'previous') show(index - 1);
+      if (action === 'next') show(index + 1);
+      if (action === 'zoom-in') zoom(0.25);
+      if (action === 'zoom-out') zoom(-0.25);
+      if (action === 'continue' && groupId) {
+        void this.activateImageGroup(groupId).then(close);
+      }
+    });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(viewer);
+    show(index);
     this._imageViewerCleanup = close;
   },
 
@@ -1050,7 +1190,10 @@ export const ChatView = {
       } else {
         button.innerHTML = '<span class="chat-image-placeholder"><i class="fa-solid fa-image" aria-hidden="true"></i><small>原图已释放</small></span>';
       }
-      button.addEventListener('click', () => void this.openImageViewer(row.id, { groupId: imageGroup.groupId }));
+      button.addEventListener('click', () => {
+        void this.activateImageGroup(imageGroup.groupId, { focus: false })
+          .then(() => this.openImageViewer(row.id, { groupId: imageGroup.groupId }));
+      });
       gallery.appendChild(button);
     });
     if (rows.length > 4) {
@@ -1102,27 +1245,37 @@ export const ChatView = {
     const imageSheet = document.getElementById('chatImageActionSheet');
     const cameraInput = document.getElementById('chatCameraInput');
     const galleryInput = document.getElementById('chatGalleryInput');
-    imageButton?.addEventListener('click', () => this.showImageActionSheet());
-    imageSheet?.addEventListener('click', event => {
+    const activeImageChip = document.getElementById('chatActiveImageChip');
+    const onImageButtonClick = () => this.showImageActionSheet();
+    const onImageSheetClick = event => {
       const action = event.target.closest('[data-image-action]')?.dataset.imageAction;
       if (!action) return;
       this.showImageActionSheet(false);
+      if (action === 'cancel') return;
       const input = action === 'camera' ? cameraInput : galleryInput;
       if (input) input.click();
-    });
+    };
     const onFiles = (event, source) => {
       const files = Array.from(event.target.files || []);
       event.target.value = '';
       void this.handleImageFiles(files, source);
     };
-    cameraInput?.addEventListener('change', event => onFiles(event, 'camera'));
-    galleryInput?.addEventListener('change', event => onFiles(event, 'gallery'));
-    const draftStrip = document.getElementById('chatImageDraftStrip');
-    this._imageActionCleanup = () => {
-      imageButton?.removeEventListener('click', () => this.showImageActionSheet());
-      draftStrip?.replaceWith(draftStrip.cloneNode(true));
+    const onCameraFiles = event => onFiles(event, 'camera');
+    const onGalleryFiles = event => onFiles(event, 'gallery');
+    const onActiveImageClick = event => {
+      if (event.target.closest('[data-chat-image-detach]')) void this.detachActiveImageGroup();
     };
-    draftStrip?.addEventListener('click', event => {
+    const draftStrip = document.getElementById('chatImageDraftStrip');
+    let draggedImageId = null;
+    let pointerDrag = null;
+    const clearDraftDragState = () => {
+      draftStrip?.querySelectorAll('.is-dragging, .is-drag-target').forEach(node => {
+        node.classList.remove('is-dragging', 'is-drag-target');
+      });
+      draggedImageId = null;
+      pointerDrag = null;
+    };
+    const onDraftClick = event => {
       const removeId = event.target.closest('[data-chat-image-remove]')?.dataset.chatImageRemove;
       if (removeId) {
         void this.getImageService().removeDraftImage(removeId).then(() => this.renderImageDraft(this.imageDraftGroupId));
@@ -1140,7 +1293,96 @@ export const ChatView = {
       }
       const move = event.target.closest('[data-chat-image-move]');
       if (move) void this.moveImageDraft(move.dataset.chatImageId, move.dataset.chatImageMove);
-    });
+    };
+    const onDraftDragStart = event => {
+      const item = event.target.closest('[data-chat-image-draft-id]');
+      if (!item || (event.target.closest('button') && !event.target.closest('[data-chat-image-drag-handle]'))) {
+        event.preventDefault();
+        return;
+      }
+      draggedImageId = item.dataset.chatImageDraftId;
+      item.classList.add('is-dragging');
+      event.dataTransfer?.setData('text/plain', draggedImageId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    };
+    const onDraftDragOver = event => {
+      if (!draggedImageId) return;
+      const item = event.target.closest('[data-chat-image-draft-id]');
+      if (!item) return;
+      event.preventDefault();
+      draftStrip?.querySelector('.is-drag-target')?.classList.remove('is-drag-target');
+      if (item.dataset.chatImageDraftId !== draggedImageId) item.classList.add('is-drag-target');
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    };
+    const onDraftDrop = event => {
+      const targetId = event.target.closest('[data-chat-image-draft-id]')?.dataset.chatImageDraftId;
+      const sourceId = draggedImageId || event.dataTransfer?.getData('text/plain');
+      event.preventDefault();
+      clearDraftDragState();
+      if (sourceId && targetId && sourceId !== targetId) void this.reorderImageDraft(sourceId, targetId);
+    };
+    const onDraftDragEnd = () => clearDraftDragState();
+    const onDraftPointerDown = event => {
+      const handle = event.target.closest('[data-chat-image-drag-handle]');
+      const item = handle?.closest('[data-chat-image-draft-id]');
+      if (!handle || !item) return;
+      event.preventDefault();
+      pointerDrag = {
+        pointerId: event.pointerId,
+        sourceId: item.dataset.chatImageDraftId,
+        targetId: item.dataset.chatImageDraftId,
+        handle
+      };
+      item.classList.add('is-dragging');
+      handle.setPointerCapture?.(event.pointerId);
+    };
+    const onDraftPointerMove = event => {
+      if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
+      event.preventDefault();
+      const item = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-chat-image-draft-id]');
+      if (!item) return;
+      draftStrip?.querySelector('.is-drag-target')?.classList.remove('is-drag-target');
+      pointerDrag.targetId = item.dataset.chatImageDraftId;
+      if (pointerDrag.targetId !== pointerDrag.sourceId) item.classList.add('is-drag-target');
+    };
+    const finishDraftPointerDrag = event => {
+      if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
+      const { sourceId, targetId, handle, pointerId } = pointerDrag;
+      handle.releasePointerCapture?.(pointerId);
+      clearDraftDragState();
+      if (sourceId !== targetId) void this.reorderImageDraft(sourceId, targetId);
+    };
+    imageButton?.addEventListener('click', onImageButtonClick);
+    imageSheet?.addEventListener('click', onImageSheetClick);
+    cameraInput?.addEventListener('change', onCameraFiles);
+    galleryInput?.addEventListener('change', onGalleryFiles);
+    activeImageChip?.addEventListener('click', onActiveImageClick);
+    draftStrip?.addEventListener('click', onDraftClick);
+    draftStrip?.addEventListener('dragstart', onDraftDragStart);
+    draftStrip?.addEventListener('dragover', onDraftDragOver);
+    draftStrip?.addEventListener('drop', onDraftDrop);
+    draftStrip?.addEventListener('dragend', onDraftDragEnd);
+    draftStrip?.addEventListener('pointerdown', onDraftPointerDown);
+    draftStrip?.addEventListener('pointermove', onDraftPointerMove);
+    draftStrip?.addEventListener('pointerup', finishDraftPointerDrag);
+    draftStrip?.addEventListener('pointercancel', finishDraftPointerDrag);
+    this._imageActionCleanup = () => {
+      imageButton?.removeEventListener('click', onImageButtonClick);
+      imageSheet?.removeEventListener('click', onImageSheetClick);
+      cameraInput?.removeEventListener('change', onCameraFiles);
+      galleryInput?.removeEventListener('change', onGalleryFiles);
+      activeImageChip?.removeEventListener('click', onActiveImageClick);
+      draftStrip?.removeEventListener('click', onDraftClick);
+      draftStrip?.removeEventListener('dragstart', onDraftDragStart);
+      draftStrip?.removeEventListener('dragover', onDraftDragOver);
+      draftStrip?.removeEventListener('drop', onDraftDrop);
+      draftStrip?.removeEventListener('dragend', onDraftDragEnd);
+      draftStrip?.removeEventListener('pointerdown', onDraftPointerDown);
+      draftStrip?.removeEventListener('pointermove', onDraftPointerMove);
+      draftStrip?.removeEventListener('pointerup', finishDraftPointerDrag);
+      draftStrip?.removeEventListener('pointercancel', finishDraftPointerDrag);
+      clearDraftDragState();
+    };
     const clearContextButton = document.getElementById('appClearContextBtn');
     if (clearContextButton) {
       this._clearContextHandler = () => { void this.clearHistory(); };
@@ -1222,16 +1464,40 @@ export const ChatView = {
       return;
     }
 
+    const imageReference = this.activeImageGroupId
+      ? chatImagePolicy.inferImageReference(value)
+      : { kind: 'none' };
+    const useActiveImage = Boolean(this.activeImageGroupId && imageReference.kind === 'current');
+    const hasImages = Boolean(draftGroupId || useActiveImage);
+    const requestModel = resolveModelForRequest({
+      baseUrl: Config.get('base_url'),
+      selectedModel: Config.get('model'),
+      hasImages
+    });
+    if (requestModel.error === 'custom_model_image_capability_unknown') {
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: '当前模型或服务地址未声明图片能力。请在设置中选择官方 DeepSeek 地址与视觉模型后重试。'
+      });
+      return;
+    }
+
     const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
+    const imageRequestController = hasImages ? new AbortController() : null;
+    this._imageRequestController = imageRequestController;
     let attachmentGroup = null;
     let imageGroup = null;
     let userMessageId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
       if (draftGroupId) {
-        attachmentGroup = await this.getImageService().prepareForSend(draftGroupId);
+        attachmentGroup = await this.getImageService().prepareForSend(draftGroupId, {
+          signal: imageRequestController.signal
+        });
+        if (!isCurrentRequest()) return;
         if (!attachmentGroup?.attachments?.length) throw new Error('image_payload_unavailable');
         imageGroup = {
           groupId: attachmentGroup.groupId,
@@ -1240,12 +1506,14 @@ export const ChatView = {
           state: 'ready',
           visualSummary: ''
         };
-      } else if (this.activeImageGroupId && chatImagePolicy.inferImageReference(value).kind === 'current') {
+      } else if (useActiveImage) {
         attachmentGroup = await this.getImageService().resolveContext({
           groupId: this.activeImageGroupId,
           mode: 'image',
-          userMessage: value
+          userMessage: value,
+          signal: imageRequestController.signal
         });
+        if (!isCurrentRequest()) return;
         if (attachmentGroup?.attachments?.length) {
           imageGroup = {
             groupId: attachmentGroup.groupId,
@@ -1272,7 +1540,7 @@ export const ChatView = {
         session,
         userMessage: requestText,
         attachmentGroup,
-        modelOverride: Config.get('model'),
+        modelOverride: requestModel.model,
         kind: 'home',
         pageContext: selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : null,
         tools: HOME_LEARNING_TOOLS,
@@ -1317,7 +1585,7 @@ export const ChatView = {
           ...message,
           imageGroup: { ...message.imageGroup, state: 'sent', visualSummary: summary }
         }));
-        this.activeImageGroupId = draftGroupId;
+        await this.activateImageGroup(draftGroupId, { focus: false });
         this.imageDraftGroupId = null;
         this.imageDraftState = 'idle';
         this.clearDraftPreviewUrls();
@@ -1351,6 +1619,10 @@ export const ChatView = {
         await this.renderImageDraft(draftGroupId);
         this.imageDraftState = 'error';
         this.updateImageSendState();
+      }
+    } finally {
+      if (this._imageRequestController === imageRequestController) {
+        this._imageRequestController = null;
       }
     }
   },
@@ -2274,6 +2546,8 @@ export const ChatView = {
   cleanup() {
     this.homeEpoch += 1;
     homeRequestGate.invalidate();
+    this._imageRequestController?.abort();
+    this._imageRequestController = null;
     chatService.cancel('home');
     this.resetGenerateButton();
     this.removeThinking();

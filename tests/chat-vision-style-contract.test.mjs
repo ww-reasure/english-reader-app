@@ -17,3 +17,10 @@ test('chat image layout is bounded and horizontally scrollable', () => {
   assert.match(styleSource, /:focus-visible/);
   assert.match(styleSource, /@media\s*\([^)]*min-width:\s*840px/);
 });
+
+test('active image context and viewer controls have explicit accessible layout', () => {
+  assert.match(styleSource, /\.chat-active-image-chip\s*\{/);
+  assert.match(styleSource, /\.chat-image-viewer-stage\s*\{/);
+  assert.match(styleSource, /\.chat-image-viewer-toolbar\s*\{/);
+  assert.match(styleSource, /\.chat-image-viewer-continue\s*\{/);
+});

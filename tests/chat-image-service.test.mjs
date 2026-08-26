@@ -23,7 +23,7 @@ const attachment = (overrides = {}) => ({
   ...overrides
 });
 
-const createFixture = ({ now = 200, records = [], deleteFailure = false } = {}) => {
+const createFixture = ({ now = 200, records = [], deleteFailure = false, policyOverride = null, uploadImpl = null } = {}) => {
   const rows = records.map(row => ({ ...row }));
   const db = {
     records: rows,
@@ -67,8 +67,9 @@ const createFixture = ({ now = 200, records = [], deleteFailure = false } = {}) 
   const api = {
     uploadCalls: [],
     deleteCalls: [],
-    async uploadVisionFile(blob, filename) {
+    async uploadVisionFile(blob, filename, options) {
       this.uploadCalls.push({ blob, filename });
+      if (uploadImpl) return uploadImpl(blob, filename, options);
       uploadIndex += 1;
       return { id: uploadIndex === 1 && records.length ? 'file-api-new' : `file-api-${uploadIndex}` };
     },
@@ -89,7 +90,7 @@ const createFixture = ({ now = 200, records = [], deleteFailure = false } = {}) 
     }
   };
   const service = new ChatImageService({
-    db, api, processor, policy, now: () => now,
+    db, api, processor, policy: policyOverride || policy, now: () => now,
     createId: prefix => `${prefix}-${++idIndex}`
   });
   return { service, db, api };
@@ -127,4 +128,83 @@ test('clear context deletes local content immediately and queues failed remote d
   const row = db.records[0];
   assert.equal(row.blob, null);
   assert.equal(row.status, 'delete_pending');
+});
+
+test('draft creation refuses to exceed the hard local image budget when protected data cannot be evicted', async () => {
+  const limitedPolicy = {
+    ...policy,
+    CHAT_IMAGE_LIMITS: { ...policy.CHAT_IMAGE_LIMITS, localFullBlobBytes: 10 }
+  };
+  const protectedRow = attachment({
+    id: 'active',
+    groupId: 'active-group',
+    status: 'uploading',
+    sizeBytes: 9
+  });
+  const { service, db } = createFixture({ records: [protectedRow], policyOverride: limitedPolicy });
+
+  await assert.rejects(
+    () => service.createDraft([file('ab')]),
+    error => error?.code === 'image_storage_capacity_exceeded'
+  );
+  assert.deepEqual(db.records.map(row => row.id), ['active']);
+});
+
+test('orphan collection preserves a restored ready draft until the view reconciles it', async () => {
+  const ready = attachment({ status: 'ready', remoteFileId: 'file-api-ready' });
+  const { service, db, api } = createFixture({ records: [ready] });
+
+  const removed = await service.collectOrphans([], { protectedAttachmentIds: [ready.id] });
+
+  assert.deepEqual(removed, []);
+  assert.equal(db.records[0]?.id, ready.id);
+  assert.deepEqual(api.deleteCalls, []);
+});
+
+test('an archived history group can be reactivated and protected without re-uploading it', async () => {
+  const archived = attachment({ detached: true, remoteFileId: 'file-api-1', remoteExpiresAt: 10_000 });
+  const { service, db, api } = createFixture({ records: [archived] });
+
+  const group = await service.attachGroup(archived.groupId);
+
+  assert.equal(group.attachments[0].detached, false);
+  assert.equal(group.attachments[0].protected, true);
+  assert.equal(db.records[0].detached, false);
+  assert.equal(db.records[0].protected, true);
+  assert.equal(api.uploadCalls.length, 0);
+
+  await service.detachGroup(archived.groupId);
+  assert.equal(db.records[0].detached, true);
+  assert.equal(db.records[0].protected, false);
+});
+
+test('aborting an upload cancels the image request instead of falling back inline', async () => {
+  const { service } = createFixture({
+    uploadImpl: (_blob, _filename, { signal }) => new Promise((_resolve, reject) => {
+      const rejectAbort = () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) rejectAbort();
+      else signal.addEventListener('abort', rejectAbort, { once: true });
+    })
+  });
+  const draft = await service.createDraft([file('cancel-me')]);
+  const controller = new AbortController();
+  const pending = service.prepareForSend(draft.groupId, { signal: controller.signal });
+
+  controller.abort();
+
+  await assert.rejects(pending, error => error?.name === 'AbortError');
+});
+
+test('replacing a draft deletes its uploaded remote files before removing local rows', async () => {
+  const uploaded = attachment({ status: 'ready', remoteFileId: 'file-api-old' });
+  const { service, db, api } = createFixture({ records: [uploaded] });
+
+  await service.deleteGroup(uploaded.groupId);
+
+  assert.deepEqual(api.deleteCalls, ['file-api-old']);
+  assert.deepEqual(db.records, []);
 });
