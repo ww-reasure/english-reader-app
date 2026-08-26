@@ -16,6 +16,7 @@ import {
   DEEPSEEK_MODEL_IDS,
   listDeepSeekModelPresets
 } from '../components/deepseek-model-catalog.mjs';
+import { HOME_LEARNING_RESPONSE_MODES, normalizeHomeLearningResponseMode } from '../components/home-guided-learning.mjs';
 
 export const SettingsView = {
   // Render settings page
@@ -76,6 +77,12 @@ export const SettingsView = {
         <button class="settings-text-action" type="button" onclick="location.hash='#/assessment'">开始初测</button>
       </div>`;
     const currentModel = Config.get('model');
+    const homeLearningResponseMode = normalizeHomeLearningResponseMode(Config.get('home_learning_response_mode'));
+    const homeLearningResponseModeLabel = {
+      [HOME_LEARNING_RESPONSE_MODES.ASK]: '学习方式每次询问',
+      [HOME_LEARNING_RESPONSE_MODES.DETAILED]: '默认详细解析',
+      [HOME_LEARNING_RESPONSE_MODES.GUIDED]: '默认互动教学'
+    }[homeLearningResponseMode];
     const customModelSelected = !DEEPSEEK_MODEL_IDS.includes(currentModel);
     const modelOptions = listDeepSeekModelPresets()
       .map(preset => `<option value="${preset.id}" ${currentModel === preset.id ? 'selected' : ''}>${preset.label}</option>`)
@@ -209,10 +216,19 @@ export const SettingsView = {
           <details class="settings-disclosure">
             <summary class="settings-disclosure-summary">
               <span class="settings-disclosure-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
-              <span><strong>AI 与模型</strong><small>${modelOptions.includes(`value="${currentModel}" selected`) ? 'DeepSeek 预设模型' : '自定义模型'}</small></span>
+              <span><strong>AI 与模型</strong><small>${homeLearningResponseModeLabel} · ${modelOptions.includes(`value="${currentModel}" selected`) ? 'DeepSeek 预设模型' : '自定义模型'}</small></span>
               <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
             </summary>
             <div class="settings-disclosure-body settings-form-stack">
+              <fieldset class="settings-fieldset settings-home-learning-mode">
+                <legend>首页英语学习回答</legend>
+                <p>只影响首页里直接发送英文词句或“帮我看看这个”等学习请求；日报、文章生成、普通聊天和其他页面不受影响。</p>
+                <div class="settings-home-learning-grid">
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="ask" ${homeLearningResponseMode === 'ask' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">每次询问</span><span class="settings-choice-desc">先选择详细解析或互动教学</span></span></label>
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="detailed" ${homeLearningResponseMode === 'detailed' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认详细解析</span><span class="settings-choice-desc">一次展示完整解释</span></span></label>
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="guided" ${homeLearningResponseMode === 'guided' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认互动教学</span><span class="settings-choice-desc">分步理解、提示与练习</span></span></label>
+                </div>
+              </fieldset>
               <div class="form-group"><label for="settingsApiKey">API Key</label><input type="password" id="settingsApiKey" value="${esc(Config.get('api_key'))}" placeholder="sk-..."></div>
               <div class="form-group"><label for="settingsBaseUrl">Base URL</label><input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1"></div>
               <div class="form-group">
@@ -466,6 +482,9 @@ export const SettingsView = {
     Config.set('model', model || DEFAULT_DEEPSEEK_MODEL);
     Config.set('tavily_api_key', document.getElementById('settingsTavilyKey').value.trim());
     Config.set('web_research_mode', document.getElementById('settingsWebResearchMode')?.value || 'deepseek_native');
+    Config.set('home_learning_response_mode', normalizeHomeLearningResponseMode(
+      document.querySelector('input[name="homeLearningResponseMode"]:checked')?.value
+    ));
 
     const targetTrack = document.querySelector('input[name="targetTrack"]:checked')?.value;
     if (!normalizeSelectableTrack(targetTrack)) {

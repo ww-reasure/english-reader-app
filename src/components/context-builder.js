@@ -93,6 +93,28 @@ const formatStructuredHomeActivity = activity => {
   ].filter(Boolean).join('\n');
 };
 
+const formatGuidedLearningProgress = session => {
+  if (!session || typeof session !== 'object') return '';
+  const steps = Array.isArray(session.steps) ? session.steps : [];
+  const index = Math.max(0, Math.min(steps.length - 1, Number(session.currentStepIndex) || 0));
+  const current = steps[index];
+  if (!current) return '';
+  const answers = session.answers && typeof session.answers === 'object' ? session.answers : {};
+  const completed = steps.slice(0, index).map(step => {
+    const answer = answers[step.id];
+    return `${clip(step.title, 100)}${answer?.value ? `；学习者回答：${clip(normalizeExcerpt(answer.value), 240)}` : ''}${answer?.feedback ? `；反馈：${clip(normalizeExcerpt(answer.feedback), 240)}` : ''}`;
+  });
+  return [
+    '[互动教学当前进度｜未来步骤不可提前泄露]',
+    `会话：${clip(session.id, 160)}；修订：${compactNumber(session.revision)}；状态：${clip(session.status, 32) || 'active'}`,
+    `目标：${clip(session.target?.title, 160) || '互动教学'}｜${clip(normalizeExcerpt(session.target?.text), 1000)}`,
+    completed.length ? `已完成：${completed.join(' / ')}` : '',
+    `当前第 ${index + 1}/${steps.length} 步：${clip(current.title, 120)}`,
+    `当前说明：${clip(normalizeExcerpt(current.content), 1200)}`,
+    current.prompt ? `当前问题：${clip(normalizeExcerpt(current.prompt), 700)}` : ''
+  ].filter(Boolean).join('\n');
+};
+
 const systemPrompt = (kind, capabilityIndex = '') => kind === 'reading'
   ? '你是文章专属英语助教。只依据当前文章片段、当前句子详解和用户问题回答；不知道时说明。用户提及“上面的仿写句、例句、它”等指代时，必须优先引用当前句子详解中的对应内容，不得改为解释原选句。若提供“当前追问引用”，用户提及“这段、这里、它”时优先解释该引用。用中文解释，英文示例简短。'
   : `你是中文英语学习助手，也熟悉当前 App 的真实功能。可解释词汇、语法、翻译、阅读策略和复习计划。引用本地数据时说明数据类别，不得编造。
@@ -171,9 +193,19 @@ export class ContextBuilder {
         .filter(Boolean)
       .join('\n\n')
       : '';
+    const learningModeInstruction = kind === 'home' && pageContext?.homeLearningMode
+      ? pageContext.homeLearningMode === 'detailed'
+        ? '当前用户选择“详细解析”。沿用现有详细回答方式，在一个回答中完整说明必要的词义、结构、语法、语境和易错点；不要调用互动教学工具。'
+        : clip(pageContext.guidedInstruction, 2200)
+      : '';
+    const guidedProgress = kind === 'home' && pageContext?.guidedSession
+      ? formatGuidedLearningProgress(pageContext.guidedSession)
+      : '';
 
     return [
       { role: 'system', content: systemPrompt(kind, this.capabilityIndex) },
+      learningModeInstruction ? { role: 'system', content: learningModeInstruction } : null,
+      guidedProgress ? { role: 'system', content: guidedProgress } : null,
       summary ? { role: 'system', content: '会话摘要：' + clip(summary, 1800) } : null,
       article ? { role: 'system', content: article } : null,
       structuredHomeActivity ? { role: 'system', content: '近期真实活动账本（回答刚刚生成、部分成功、耗时等问题时只能以此为准；不得编造或否认）：\n' + clip(structuredHomeActivity, 6000) } : null,

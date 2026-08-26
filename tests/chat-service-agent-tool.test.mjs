@@ -57,6 +57,72 @@ test('returns a generation failure artifact without asking the model to continue
   assert.deepEqual(reply.artifacts, [{ type: 'generation_failure', failure }]);
 });
 
+test('returns a guided learning artifact without asking the model for duplicate prose', async () => {
+  const { ChatService } = await loadChatService();
+  let chatCalls = 0;
+  const service = new ChatService({
+    api: {
+      chat: async () => {
+        chatCalls += 1;
+        return { tool_calls: [{ function: { name: 'create_guided_learning', arguments: '{}' } }] };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const session = { id: 'lesson-1', sourceMessageId: 'message-1' };
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '一步一步教我这句话', kind: 'home',
+    tools: [{ function: { name: 'create_guided_learning' } }],
+    executeTool: async () => ({ result: { status: 'created' }, artifact: { type: 'guided_learning', session } })
+  });
+
+  assert.equal(chatCalls, 1);
+  assert.equal(reply.content, '');
+  assert.deepEqual(reply.artifacts, [{ type: 'guided_learning', session }]);
+});
+
+test('returns a guided learning update artifact without a second model turn', async () => {
+  const { ChatService } = await loadChatService();
+  let chatCalls = 0;
+  const service = new ChatService({
+    api: { chat: async () => {
+      chatCalls += 1;
+      return { tool_calls: [{ function: { name: 'adapt_guided_learning', arguments: '{}' } }] };
+    } },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const artifact = { type: 'guided_learning_update', sessionId: 'lesson-1', expectedRevision: 2, stepId: 'step-2' };
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '表示让步', kind: 'home',
+    tools: [{ function: { name: 'adapt_guided_learning' } }],
+    executeTool: async () => ({ result: { status: 'evaluated' }, artifact })
+  });
+  assert.equal(chatCalls, 1);
+  assert.deepEqual(reply, { content: '', artifacts: [artifact] });
+});
+
+test('turns malformed guided learning tool output into a retryable card failure', async () => {
+  const { ChatService } = await loadChatService();
+  const service = new ChatService({
+    api: { chat: async () => ({ tool_calls: [{ function: { name: 'create_guided_learning', arguments: '{}' } }] }) },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '教我', kind: 'home',
+    tools: [{ function: { name: 'create_guided_learning' } }],
+    executeTool: async () => { throw new Error('malformed hidden details'); }
+  });
+  assert.deepEqual(reply, {
+    content: '',
+    artifacts: [{ type: 'guided_learning_failure', failure: { message: '互动教学暂时无法生成，请重试或改用详细解析。', reason: 'tool_error' } }]
+  });
+  assert.doesNotMatch(JSON.stringify(reply), /hidden details/);
+});
+
 test('returns to normal conversation when the home safety gate rejects a generation tool call', async () => {
   const { ChatService } = await loadChatService();
   const requests = [];

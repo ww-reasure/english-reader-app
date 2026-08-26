@@ -176,3 +176,26 @@ test('keeps fifty visible home rounds while building a bounded batched model con
   assert.ok(context.messages.filter(item => item.role === 'user').length <= 24);
   assert.equal(context.messages.at(-1).content, '回答 51');
 });
+
+test('persists guided learning progress and compacts only its visible state', async () => {
+  const { ConversationStore } = await loadStore();
+  const store = new ConversationStore(memory(), () => 1000);
+  store.append('home', {
+    id: 'guided-message-1', role: 'assistant', kind: 'guided_learning',
+    session: {
+      id: 'lesson-1', sourceMessageId: 'message-1', status: 'active', currentStepIndex: 0, revision: 2,
+      target: { title: '理解让步', text: 'Although it was late, we stayed.' },
+      steps: [
+        { id: 'step-1', title: '先看整体关系', content: 'Although 引出让步。' },
+        { id: 'step-2', title: '未来步骤不能泄露', content: '隐藏', correctChoiceId: 'secret' }
+      ], answers: {}, hints: {}
+    }
+  });
+  assert.equal(store.getSession('home').messages[0].session.currentStepIndex, 0);
+  store.append('home', { role: 'user', kind: 'text', content: '下一条' });
+  store.append('home', { role: 'assistant', kind: 'text', content: '回答' });
+  const { summary } = store.compact('home', 1);
+  assert.match(summary, /理解让步/);
+  assert.match(summary, /先看整体关系/);
+  assert.doesNotMatch(summary, /未来步骤不能泄露|secret/);
+});

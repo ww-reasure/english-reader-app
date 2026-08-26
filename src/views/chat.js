@@ -51,6 +51,30 @@ import { ChatImageService } from '../components/chat-image-service.js';
 import { createChatImageProcessor } from '../components/chat-image-processor.js';
 import { resolveModelForRequest } from '../components/deepseek-model-catalog.mjs';
 import * as chatImagePolicy from '../components/chat-image-policy.mjs';
+import {
+  advanceGuidedLearning,
+  classifyHomeLearningRequest,
+  normalizeGuidedLearningSession,
+  normalizeHomeLearningResponseMode,
+  recordGuidedChoice,
+  recordGuidedFreeResponse,
+  setGuidedLearningStatus,
+  setGuidedLearningStep,
+  toggleGuidedLearningHint
+} from '../components/home-guided-learning.mjs';
+import {
+  ADAPT_GUIDED_LEARNING_TOOL,
+  CREATE_GUIDED_LEARNING_TOOL,
+  createGuidedLearningArtifact,
+  createGuidedLearningUpdateArtifact,
+  guidedLearningSystemInstruction,
+  parseGuidedLearningJson
+} from '../components/guided-learning-tool.mjs';
+import {
+  renderGuidedLearningCard,
+  renderGuidedLearningFailureCard,
+  renderLearningModeChoiceCard
+} from '../components/guided-learning-card.mjs';
 
 const conversationStore = new ConversationStore();
 const examServices = createExamServices();
@@ -171,6 +195,8 @@ const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_
 const homeRequestGate = new HomeRequestGate();
 let generationFailureSequence = 0;
 const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
+let guidedLearningSequence = 0;
+const nextGuidedLearningId = prefix => `${prefix}-${Date.now()}-${++guidedLearningSequence}-${Math.random().toString(36).slice(2, 7)}`;
 const redactAgentSecrets = value => String(value || '')
   .replace(/(sk-[A-Za-z0-9_\-]{8,})/g, 'sk-***')
   .replace(/(tvly-[A-Za-z0-9_\-]{8,})/g, 'tvly-***');
@@ -275,6 +301,9 @@ export const ChatView = {
   _messageCopyCleanup: null,
   _chatSelectionActions: null,
   _chatFollowUpExcerpt: '',
+  _guidedReplyTarget: null,
+  _guidedActionCleanup: null,
+  _guidedRequestController: null,
   imageDraftGroupId: null,
   activeImageGroupId: null,
   imageDraftState: 'idle',
@@ -310,6 +339,10 @@ export const ChatView = {
         <div id="chatMessages" class="chat-messages">${this.studyAnchorMarkup()}</div>
 
         <footer class="chat-composer">
+          <div id="guidedLearningReplyChip" class="guided-learning-reply-chip" hidden>
+            <div><span>正在回答当前教学</span><p id="guidedLearningReplyText"></p></div>
+            <button id="guidedLearningReplyClear" type="button" aria-label="取消回答当前教学">×</button>
+          </div>
           <div id="chatFollowUpChip" class="chat-follow-up-chip" hidden>
             <div class="chat-follow-up-copy">
               <span>引用上一条回复</span>
@@ -395,6 +428,12 @@ export const ChatView = {
           // Activity events are model context, not duplicate visible chat bubbles.
         } else if (message.kind === 'daily_report') {
           await this.restoreDailyReportReference(message);
+        } else if (message.kind === 'learning_mode_choice') {
+          this.addLearningModeChoiceToDOM(message);
+        } else if (message.kind === 'guided_learning') {
+          this.addGuidedLearningToDOM(message.session, message.id || message.createdAt);
+        } else if (message.kind === 'guided_learning_failure') {
+          this.addGuidedLearningFailureToDOM(message.failure, message);
         } else {
           await this.addMessageToDOM(
             message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role,
@@ -488,6 +527,7 @@ export const ChatView = {
     this.imageDraftState = 'idle';
     this.revokeImageObjectUrls();
     this.clearChatFollowUp();
+    this.clearGuidedLearningReply();
     await this.renderActiveImageChip();
     const container = document.getElementById('chatMessages');
     if (container) container.innerHTML = this.studyAnchorMarkup();
@@ -496,6 +536,8 @@ export const ChatView = {
 
   beginHomeRequest({ cancelGeneration = false, cancelReason = 'superseded' } = {}) {
     const requestVersion = homeRequestGate.begin();
+    this._guidedRequestController?.abort();
+    this._guidedRequestController = null;
     this._imageRequestController?.abort();
     this._imageRequestController = null;
     chatService.cancel('home');
@@ -1221,6 +1263,11 @@ export const ChatView = {
     document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
 
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this._guidedReplyTarget) {
+        e.preventDefault();
+        this.clearGuidedLearningReply();
+        return;
+      }
       if (e.key === 'Escape' && this._chatFollowUpExcerpt) {
         e.preventDefault();
         this.clearChatFollowUp();
@@ -1232,6 +1279,7 @@ export const ChatView = {
       }
     });
     document.getElementById('chatFollowUpClear')?.addEventListener('click', () => this.clearChatFollowUp());
+    document.getElementById('guidedLearningReplyClear')?.addEventListener('click', () => this.clearGuidedLearningReply());
 
     const messages = document.getElementById('chatMessages');
     this._messageCopyCleanup = bindMessageCopy(messages);
@@ -1240,6 +1288,22 @@ export const ChatView = {
       onAsk: excerpt => this.setChatFollowUp(excerpt)
     });
     this._chatSelectionActions.bind();
+    const onGuidedAction = event => {
+      const learningMode = event.target.closest('[data-learning-mode]');
+      if (learningMode) {
+        void this.handleLearningModeChoice(learningMode);
+        return;
+      }
+      const guidedAction = event.target.closest('[data-guided-action]');
+      if (guidedAction) {
+        void this.handleGuidedLearningAction(guidedAction);
+        return;
+      }
+      const failureAction = event.target.closest('[data-guided-failure-action]');
+      if (failureAction) void this.handleGuidedLearningFailureAction(failureAction);
+    };
+    messages?.addEventListener('click', onGuidedAction);
+    this._guidedActionCleanup = () => messages?.removeEventListener('click', onGuidedAction);
 
     const imageButton = document.getElementById('composerImageBtn');
     const imageSheet = document.getElementById('chatImageActionSheet');
@@ -1393,6 +1457,11 @@ export const ChatView = {
       const action = e.target.closest('[data-action]');
       if (!action) return;
       const { action: name, topic } = action.dataset;
+      if (['random', 'review', 'daily-report'].includes(name)) {
+        this.clearGuidedLearningReply();
+        this.skipPendingLearningChoices();
+        this.pauseActiveGuidedSessions();
+      }
       if (name === 'random') {
         document.getElementById('promptInput').value = '';
         this.handleGenerate();
@@ -1415,6 +1484,7 @@ export const ChatView = {
   setChatFollowUp(excerpt) {
     const selectedExcerpt = normalizeSelectedExcerpt(excerpt);
     if (!selectedExcerpt) return this.clearChatFollowUp();
+    this.clearGuidedLearningReply();
     this._chatFollowUpExcerpt = selectedExcerpt;
     const chip = document.getElementById('chatFollowUpChip');
     const text = document.getElementById('chatFollowUpText');
@@ -1442,8 +1512,641 @@ export const ChatView = {
     this._imageActionCleanup = null;
     this._imageViewerCleanup?.();
     this._imageViewerCleanup = null;
+    this._guidedActionCleanup?.();
+    this._guidedActionCleanup = null;
     this.revokeImageObjectUrls();
     this._chatFollowUpExcerpt = '';
+    this._guidedReplyTarget = null;
+  },
+
+  homeConversationMessages() {
+    return conversationStore.getSession('home').messages || [];
+  },
+
+  homeMessageIdentity(message) {
+    return String(message?.id || message?.createdAt || '');
+  },
+
+  findHomeMessage(messageId) {
+    const stableId = String(messageId || '');
+    return this.homeConversationMessages().find(message => this.homeMessageIdentity(message) === stableId) || null;
+  },
+
+  findGuidedMessageBySessionId(sessionId) {
+    const stableId = String(sessionId || '');
+    return this.homeConversationMessages().find(message => (
+      message.kind === 'guided_learning' && String(message.session?.id || '') === stableId
+    )) || null;
+  },
+
+  findHomeMessageElement(messageId) {
+    const stableId = String(messageId || '');
+    return [...document.querySelectorAll('[data-home-message-id]')]
+      .find(element => element.dataset.homeMessageId === stableId) || null;
+  },
+
+  addLearningModeChoiceToDOM(message) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const messageId = this.homeMessageIdentity(message);
+    const div = document.createElement('div');
+    div.className = 'message ai-message learning-mode-choice-message';
+    div.dataset.homeMessageId = messageId;
+    div.innerHTML = renderLearningModeChoiceCard({ ...message, id: messageId });
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  addGuidedLearningToDOM(value, messageId = '') {
+    const container = document.getElementById('chatMessages');
+    const session = normalizeGuidedLearningSession(value);
+    if (!container || !session) return;
+    const stableId = String(messageId || session.id);
+    const div = document.createElement('div');
+    div.className = 'message ai-message guided-learning-message';
+    div.dataset.homeMessageId = stableId;
+    div.dataset.guidedSessionId = session.id;
+    div.innerHTML = renderGuidedLearningCard(session);
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  addGuidedLearningFailureToDOM(failure, message = {}) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const failureId = this.homeMessageIdentity(message) || nextGuidedLearningId('guided-failure');
+    const div = document.createElement('div');
+    div.className = 'message ai-message guided-learning-failure-message';
+    div.dataset.homeMessageId = failureId;
+    div.innerHTML = renderGuidedLearningFailureCard(failure, {
+      failureId,
+      sourceMessageId: message.sourceMessageId || failure?.sourceMessageId || ''
+    });
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  rerenderHomeStructuredMessage(message) {
+    const messageId = this.homeMessageIdentity(message);
+    const element = this.findHomeMessageElement(messageId);
+    if (!element) return false;
+    if (message.kind === 'learning_mode_choice') {
+      element.innerHTML = renderLearningModeChoiceCard({ ...message, id: messageId });
+    } else if (message.kind === 'guided_learning') {
+      element.dataset.guidedSessionId = message.session?.id || '';
+      element.innerHTML = renderGuidedLearningCard(message.session);
+    } else if (message.kind === 'guided_learning_failure') {
+      element.innerHTML = renderGuidedLearningFailureCard(message.failure, {
+        failureId: messageId,
+        sourceMessageId: message.sourceMessageId || message.failure?.sourceMessageId || ''
+      });
+    }
+    return true;
+  },
+
+  replaceHomeStructuredMessage(messageId, replacement) {
+    const stableId = String(messageId || '');
+    const replaced = conversationStore.replaceMessage('home', message => (
+      this.homeMessageIdentity(message) === stableId
+    ), message => replacement(message));
+    if (!replaced) return null;
+    const nextMessage = this.findHomeMessage(stableId);
+    if (nextMessage) this.rerenderHomeStructuredMessage(nextMessage);
+    return nextMessage;
+  },
+
+  replaceGuidedSession(messageId, session) {
+    const normalized = normalizeGuidedLearningSession(session);
+    if (!normalized) return null;
+    return this.replaceHomeStructuredMessage(messageId, message => ({ ...message, session: normalized }));
+  },
+
+  addLearningModeChoice(sourceMessageId) {
+    const message = {
+      id: nextGuidedLearningId('learning-choice'),
+      role: 'assistant',
+      kind: 'learning_mode_choice',
+      sourceMessageId: String(sourceMessageId || ''),
+      status: 'pending',
+      selectedMode: ''
+    };
+    this.appendConversation(message);
+    return message;
+  },
+
+  addGuidedLearning(session) {
+    const message = {
+      id: nextGuidedLearningId('guided-card'),
+      role: 'assistant',
+      kind: 'guided_learning',
+      session: normalizeGuidedLearningSession(session)
+    };
+    if (!message.session) return null;
+    this.appendConversation(message);
+    return message;
+  },
+
+  addGuidedLearningFailure(failure = {}, metadata = {}) {
+    const message = {
+      id: nextGuidedLearningId('guided-failure'),
+      role: 'assistant',
+      kind: 'guided_learning_failure',
+      failure: {
+        message: String(failure.message || '互动教学暂时无法生成，请重试或改用详细解析。').slice(0, 500),
+        reason: String(failure.reason || 'invalid_response').slice(0, 120)
+      },
+      ...metadata
+    };
+    this.appendConversation(message);
+    return message;
+  },
+
+  removeGuidedLearningFailure(messageId) {
+    const stableId = String(messageId || '');
+    conversationStore.removeMessages('home', message => (
+      message.kind === 'guided_learning_failure' && this.homeMessageIdentity(message) === stableId
+    ));
+    this.findHomeMessageElement(stableId)?.remove();
+  },
+
+  setGuidedLearningReply(messageId, value) {
+    const session = normalizeGuidedLearningSession(value);
+    const step = session?.steps?.[session.currentStepIndex];
+    if (!session || session.status !== 'active' || step?.kind !== 'free_response') return false;
+    this.clearChatFollowUp();
+    this._guidedReplyTarget = {
+      messageId: String(messageId || ''),
+      sessionId: session.id,
+      expectedRevision: session.revision,
+      stepId: step.id
+    };
+    const chip = document.getElementById('guidedLearningReplyChip');
+    const text = document.getElementById('guidedLearningReplyText');
+    if (text) text.textContent = step.prompt || step.title;
+    if (chip) chip.hidden = false;
+    document.getElementById('promptInput')?.focus();
+    return true;
+  },
+
+  clearGuidedLearningReply() {
+    this._guidedReplyTarget = null;
+    const chip = document.getElementById('guidedLearningReplyChip');
+    const text = document.getElementById('guidedLearningReplyText');
+    if (text) text.textContent = '';
+    if (chip) chip.hidden = true;
+  },
+
+  resolveGuidedReplyTarget() {
+    const target = this._guidedReplyTarget;
+    if (!target) return null;
+    const message = this.findHomeMessage(target.messageId);
+    const session = normalizeGuidedLearningSession(message?.session);
+    const step = session?.steps?.[session.currentStepIndex];
+    if (message?.kind !== 'guided_learning' || !session || session.status !== 'active'
+      || session.id !== target.sessionId || session.revision !== target.expectedRevision
+      || step?.id !== target.stepId || step.kind !== 'free_response') {
+      this.clearGuidedLearningReply();
+      return null;
+    }
+    return { ...target, message, session, step };
+  },
+
+  skipPendingLearningChoices() {
+    const pending = this.homeConversationMessages().filter(message => (
+      message.kind === 'learning_mode_choice' && message.status === 'pending'
+    ));
+    pending.forEach(message => {
+      this.replaceHomeStructuredMessage(this.homeMessageIdentity(message), current => ({
+        ...current,
+        status: 'skipped'
+      }));
+    });
+  },
+
+  pauseActiveGuidedSessions({ exceptSessionId = '' } = {}) {
+    const active = this.homeConversationMessages().filter(message => (
+      message.kind === 'guided_learning'
+      && message.session?.status === 'active'
+      && message.session?.id !== exceptSessionId
+    ));
+    active.forEach(message => {
+      const session = setGuidedLearningStatus(message.session, 'paused');
+      this.replaceGuidedSession(this.homeMessageIdentity(message), session);
+    });
+    if (active.some(message => message.session?.id === this._guidedReplyTarget?.sessionId)) {
+      this.clearGuidedLearningReply();
+    }
+  },
+
+  sourceRequestFor(message) {
+    const source = this.findHomeMessage(message?.sourceMessageId);
+    return source?.kind === 'text' && source?.role === 'user' ? source : null;
+  },
+
+  async launchLearningRequest(mode, sourceMessage) {
+    if (!sourceMessage?.content) return;
+    if (!Config.hasApiKey()) {
+      Modal.showApiSettings();
+      return;
+    }
+    const epoch = this.homeEpoch;
+    const requestVersion = this.beginHomeRequest();
+    const requestModel = resolveModelForRequest({
+      baseUrl: Config.get('base_url'),
+      selectedModel: Config.get('model'),
+      hasImages: false
+    });
+    const request = {
+      requestText: sourceMessage.content,
+      sourceMessageId: this.homeMessageIdentity(sourceMessage),
+      epoch,
+      requestVersion,
+      modelOverride: requestModel.model,
+      selectedExcerpt: normalizeSelectedExcerpt(sourceMessage.selectedExcerpt)
+    };
+    if (mode === 'guided') return this.requestGuidedLearning(request);
+    return this.requestDetailedLearning(request);
+  },
+
+  async handleLearningModeChoice(button) {
+    const wrapper = button.closest('[data-home-message-id]');
+    const message = this.findHomeMessage(wrapper?.dataset.homeMessageId);
+    const mode = button.dataset.learningMode;
+    if (message?.kind !== 'learning_mode_choice' || message.status !== 'pending'
+      || !['detailed', 'guided'].includes(mode)) return;
+    const source = this.sourceRequestFor(message);
+    if (!source) return;
+    this.replaceHomeStructuredMessage(this.homeMessageIdentity(message), current => ({
+      ...current,
+      status: 'resolved',
+      selectedMode: mode
+    }));
+    this.pauseActiveGuidedSessions();
+    await this.launchLearningRequest(mode, source);
+  },
+
+  async handleGuidedLearningAction(button) {
+    const wrapper = button.closest('[data-home-message-id]');
+    const messageId = wrapper?.dataset.homeMessageId;
+    const message = this.findHomeMessage(messageId);
+    const session = normalizeGuidedLearningSession(message?.session);
+    const action = button.dataset.guidedAction;
+    if (message?.kind !== 'guided_learning' || !session || !action) return;
+    const step = session.steps[session.currentStepIndex];
+    let next = session;
+    if (action === 'previous') next = setGuidedLearningStep(session, session.currentStepIndex - 1);
+    else if (action === 'next') next = advanceGuidedLearning(session);
+    else if (action === 'hint') next = toggleGuidedLearningHint(session, step.id, !session.hints[step.id]);
+    else if (action === 'choose') next = recordGuidedChoice(session, { stepId: step.id, choiceId: button.dataset.guidedChoice });
+    else if (action === 'restart') {
+      next = setGuidedLearningStatus(session, 'active');
+      next = setGuidedLearningStep(next, 0);
+    } else if (action === 'resume') {
+      this.pauseActiveGuidedSessions({ exceptSessionId: session.id });
+      next = setGuidedLearningStatus(session, 'active');
+    } else if (action === 'pause') {
+      next = setGuidedLearningStatus(session, 'paused');
+      this.clearGuidedLearningReply();
+    } else if (action === 'answer') {
+      this.setGuidedLearningReply(messageId, session);
+      return;
+    } else if (action === 'detailed') {
+      next = setGuidedLearningStatus(session, 'paused');
+      this.replaceGuidedSession(messageId, next);
+      this.clearGuidedLearningReply();
+      const source = this.findHomeMessage(session.sourceMessageId);
+      if (source) await this.launchLearningRequest('detailed', source);
+      return;
+    } else return;
+    this.replaceGuidedSession(messageId, next);
+  },
+
+  async handleGuidedLearningFailureAction(button) {
+    const wrapper = button.closest('[data-home-message-id]');
+    const messageId = wrapper?.dataset.homeMessageId;
+    const message = this.findHomeMessage(messageId);
+    const action = button.dataset.guidedFailureAction;
+    if (message?.kind !== 'guided_learning_failure' || !['retry', 'detailed'].includes(action)) return;
+    const source = this.findHomeMessage(message.sourceMessageId);
+    if (!source) return;
+    if (!Config.hasApiKey()) {
+      Modal.showApiSettings();
+      return;
+    }
+    this.removeGuidedLearningFailure(messageId);
+    if (action === 'detailed') {
+      await this.launchLearningRequest('detailed', source);
+      return;
+    }
+    if (message.phase === 'adapt') {
+      const guidedMessage = this.findGuidedMessageBySessionId(message.sessionId);
+      const session = normalizeGuidedLearningSession(guidedMessage?.session);
+      if (!guidedMessage || !session || session.revision !== message.expectedRevision) return;
+      const epoch = this.homeEpoch;
+      const requestVersion = this.beginHomeRequest();
+      await this.requestGuidedAnswer({
+        requestText: message.answer,
+        target: {
+          messageId: this.homeMessageIdentity(guidedMessage),
+          sessionId: session.id,
+          expectedRevision: session.revision,
+          stepId: message.stepId
+        },
+        session,
+        epoch,
+        requestVersion,
+        modelOverride: resolveModelForRequest({ baseUrl: Config.get('base_url'), selectedModel: Config.get('model'), hasImages: false }).model
+      });
+      return;
+    }
+    await this.launchLearningRequest('guided', source);
+  },
+
+  async publishHomeAgentReply(reply, requestText = '') {
+    if (reply?.content) {
+      this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
+    }
+    for (const artifact of reply?.artifacts || []) {
+      if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
+        this.addArticleCard(artifact.article);
+      }
+      if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
+        this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, requestText));
+      }
+      if (artifact.type === 'research_sources') {
+        this.addResearchSources(artifact);
+        this.recordNativeResearchActivity(artifact);
+      }
+      if (artifact.type === 'app_actions' && artifact.actions?.length) {
+        this.addAppActions(artifact.actions);
+      }
+      if (artifact.type === 'daily_learning_report') {
+        await this.publishDailyReportArtifact(artifact);
+      }
+    }
+  },
+
+  async repairGuidedLearningJson({
+    phase,
+    requestText,
+    sourceMessageId,
+    session = null,
+    target = null,
+    modelOverride = null,
+    signal = null,
+    previousOutput = ''
+  }) {
+    const isAdapt = phase === 'adapt';
+    const system = isAdapt
+      ? [
+        '你是英语互动教学反馈器。只返回一个 JSON 对象，不要 Markdown，不要解释。',
+        '字段必须是 outcome（correct/partial/incorrect）、feedback、nextAction（advance/retry），可选 revisedContent、revisedHint。',
+        '只评价当前步骤和学习者这次回答，不得提前泄露后续步骤。'
+      ].join('\n')
+      : [
+        guidedLearningSystemInstruction({ level: Config.get('exam_level'), difficulty: Config.get('reading_mode') }),
+        '工具不可用时，只返回一个 JSON 对象，不要 Markdown，不要解释。',
+        '对象字段必须是 target、steps、closingSummary。target 含 type/title/text。steps 为 2–7 项，每项含 id/kind/title/content；choice 还需 prompt/choices/correctChoiceId，free_response 还需 prompt。'
+      ].join('\n');
+    const context = isAdapt
+      ? JSON.stringify({
+        target: session?.target,
+        currentStep: session?.steps?.[session.currentStepIndex],
+        learnerAnswer: requestText
+      })
+      : String(requestText || '');
+    let malformed = String(previousOutput || '').slice(0, 2400);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const repairNote = attempt > 0 && malformed
+        ? `\n上一次输出未通过结构校验，请修正后重新输出。上次输出：${malformed}`
+        : '';
+      const response = await API.chat([
+        { role: 'system', content: system },
+        { role: 'user', content: `${context}${repairNote}` }
+      ], {
+        signal,
+        temperature: 0.2,
+        responseFormat: { type: 'json_object' },
+        modelOverride
+      });
+      const raw = String(response?.content || '');
+      const parsed = parseGuidedLearningJson(raw);
+      if (parsed) {
+        try {
+          return isAdapt
+            ? createGuidedLearningUpdateArtifact(parsed, {
+              sessionId: target?.sessionId,
+              expectedRevision: target?.expectedRevision,
+              stepId: target?.stepId
+            })
+            : createGuidedLearningArtifact(parsed, {
+              sessionId: target?.sessionId,
+              sourceMessageId
+            });
+        } catch {
+          // A second bounded repair attempt is allowed below.
+        }
+      }
+      malformed = raw.slice(0, 2400);
+    }
+    return null;
+  },
+
+  async requestDetailedLearning({ requestText, sourceMessageId, epoch, requestVersion, modelOverride, selectedExcerpt = '' }) {
+    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
+    this.showThinking('正在整理详细解析…');
+    try {
+      const reply = await chatService.ask({
+        sessionKey: 'home',
+        session: conversationStore.getContextSession('home'),
+        userMessage: requestText,
+        modelOverride,
+        kind: 'home',
+        pageContext: {
+          homeLearningMode: 'detailed',
+          sourceMessageId,
+          ...(selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : {})
+        },
+        tools: HOME_LEARNING_TOOLS,
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, requestText, requestVersion)
+      });
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      await this.publishHomeAgentReply(reply, requestText);
+      if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      const reason = redactAgentSecrets(String(error?.message || '')).slice(0, 240);
+      this.appendConversation({
+        role: 'assistant',
+        kind: 'error',
+        content: reason ? `详细解析暂时失败：${reason}` : '详细解析暂时失败，请稍后重试。'
+      });
+    }
+  },
+
+  async requestGuidedLearning({ requestText, sourceMessageId, epoch, requestVersion, modelOverride, selectedExcerpt = '' }) {
+    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
+    const sessionId = nextGuidedLearningId('guided-session');
+    const controller = new AbortController();
+    this._guidedRequestController = controller;
+    this.showThinking('正在准备第一个学习步骤…');
+    try {
+      const instruction = guidedLearningSystemInstruction({
+        level: Config.get('exam_level'),
+        difficulty: Config.get('reading_mode')
+      });
+      const reply = await chatService.ask({
+        sessionKey: 'home',
+        session: conversationStore.getContextSession('home'),
+        userMessage: requestText,
+        modelOverride,
+        kind: 'home',
+        pageContext: {
+          homeLearningMode: 'guided',
+          guidedInstruction: instruction,
+          sourceMessageId,
+          ...(selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : {})
+        },
+        tools: [CREATE_GUIDED_LEARNING_TOOL],
+        webResearchEnabled: false,
+        executeTool: async (name, args) => {
+          if (name !== 'create_guided_learning') throw new Error('unsupported_guided_tool');
+          const artifact = createGuidedLearningArtifact(args, { sessionId, sourceMessageId });
+          return { result: { status: 'created', sessionId }, artifact };
+        }
+      });
+      if (!isCurrentRequest()) return;
+      let artifact = (reply.artifacts || []).find(item => item.type === 'guided_learning') || null;
+      if (!artifact) {
+        const parsed = parseGuidedLearningJson(reply.content);
+        if (parsed) {
+          try { artifact = createGuidedLearningArtifact(parsed, { sessionId, sourceMessageId }); } catch {}
+        }
+      }
+      if (!artifact) {
+        artifact = await this.repairGuidedLearningJson({
+          phase: 'create', requestText, sourceMessageId, modelOverride, signal: controller.signal,
+          target: { sessionId }, previousOutput: reply.content
+        });
+      }
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      if (artifact?.type === 'guided_learning') {
+        this.addGuidedLearning(artifact.session);
+      } else {
+        this.addGuidedLearningFailure(
+          { message: '互动教学没有生成有效步骤，请重试或改用详细解析。', reason: 'invalid_response' },
+          { phase: 'create', sourceMessageId }
+        );
+      }
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      if (!/AbortError|请求已取消/i.test(String(error?.message || ''))) {
+        this.addGuidedLearningFailure(
+          { message: '互动教学暂时无法生成，请重试或改用详细解析。', reason: 'request_failed' },
+          { phase: 'create', sourceMessageId }
+        );
+      }
+    } finally {
+      if (this._guidedRequestController === controller) this._guidedRequestController = null;
+    }
+  },
+
+  async requestGuidedAnswer({ requestText, target, session, epoch, requestVersion, modelOverride }) {
+    const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
+    const controller = new AbortController();
+    this._guidedRequestController = controller;
+    this.showThinking('正在根据你的回答调整下一步…');
+    try {
+      const reply = await chatService.ask({
+        sessionKey: 'home',
+        session: conversationStore.getContextSession('home'),
+        userMessage: requestText,
+        modelOverride,
+        kind: 'home',
+        pageContext: {
+          homeLearningMode: 'guided_reply',
+          guidedInstruction: '必须调用 adapt_guided_learning，只评价当前步骤与学习者这一次回答；不要提前展示后续步骤。',
+          guidedSession: session
+        },
+        tools: [ADAPT_GUIDED_LEARNING_TOOL],
+        webResearchEnabled: false,
+        executeTool: async (name, args) => {
+          if (name !== 'adapt_guided_learning') throw new Error('unsupported_guided_tool');
+          const artifact = createGuidedLearningUpdateArtifact(args, {
+            sessionId: target.sessionId,
+            expectedRevision: target.expectedRevision,
+            stepId: target.stepId
+          });
+          return { result: { status: 'evaluated', sessionId: target.sessionId }, artifact };
+        }
+      });
+      if (!isCurrentRequest()) return;
+      let update = (reply.artifacts || []).find(item => item.type === 'guided_learning_update') || null;
+      if (!update) {
+        const parsed = parseGuidedLearningJson(reply.content);
+        if (parsed) {
+          try {
+            update = createGuidedLearningUpdateArtifact(parsed, {
+              sessionId: target.sessionId,
+              expectedRevision: target.expectedRevision,
+              stepId: target.stepId
+            });
+          } catch {}
+        }
+      }
+      if (!update) {
+        update = await this.repairGuidedLearningJson({
+          phase: 'adapt', requestText, session, target, modelOverride, signal: controller.signal,
+          previousOutput: reply.content
+        });
+      }
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      const currentMessage = this.findGuidedMessageBySessionId(target.sessionId);
+      const currentSession = normalizeGuidedLearningSession(currentMessage?.session);
+      if (!currentMessage || !currentSession || currentSession.revision !== target.expectedRevision) return;
+      if (!update
+        || update.expectedRevision !== target.expectedRevision
+        || update.stepId !== target.stepId) {
+        this.addGuidedLearningFailure(
+          { message: '这次回答没有成功评估，可以重试或改用详细解析。', reason: 'stale_or_invalid_update' },
+          {
+            phase: 'adapt', sourceMessageId: session.sourceMessageId, sessionId: target.sessionId,
+            expectedRevision: target.expectedRevision, stepId: target.stepId, answer: requestText
+          }
+        );
+        return;
+      }
+      const accepted = update.nextAction === 'advance' && update.outcome !== 'incorrect';
+      let next = recordGuidedFreeResponse(currentSession, {
+        stepId: target.stepId,
+        value: requestText,
+        outcome: accepted ? 'correct' : update.outcome,
+        feedback: update.feedback,
+        revisedContent: update.revisedContent,
+        revisedHint: update.revisedHint
+      });
+      if (accepted) next = advanceGuidedLearning(next);
+      this.replaceGuidedSession(this.homeMessageIdentity(currentMessage), next);
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      this.removeThinking();
+      if (!/AbortError|请求已取消/i.test(String(error?.message || ''))) {
+        this.addGuidedLearningFailure(
+          { message: '这次回答暂时无法评估，可以重试或改用详细解析。', reason: 'request_failed' },
+          {
+            phase: 'adapt', sourceMessageId: session.sourceMessageId, sessionId: target.sessionId,
+            expectedRevision: target.expectedRevision, stepId: target.stepId, answer: requestText
+          }
+        );
+      }
+    } finally {
+      if (this._guidedRequestController === controller) this._guidedRequestController = null;
+    }
   },
 
   clearDraftPreviewUrls() {
@@ -1469,6 +2172,11 @@ export const ChatView = {
       : { kind: 'none' };
     const useActiveImage = Boolean(this.activeImageGroupId && imageReference.kind === 'current');
     const hasImages = Boolean(draftGroupId || useActiveImage);
+    const guidedReplyTarget = hasImages ? null : this.resolveGuidedReplyTarget();
+    const learningPreference = normalizeHomeLearningResponseMode(Config.get('home_learning_response_mode'));
+    const learningRequest = hasImages || guidedReplyTarget
+      ? { route: 'normal', reason: hasImages ? 'image_request' : 'guided_reply' }
+      : classifyHomeLearningRequest(value, learningPreference);
     const requestModel = resolveModelForRequest({
       baseUrl: Config.get('base_url'),
       selectedModel: Config.get('model'),
@@ -1525,14 +2233,59 @@ export const ChatView = {
         }
       }
       const requestText = value || DEFAULT_IMAGE_LEARNING_PROMPT;
+      if (!guidedReplyTarget) {
+        this.skipPendingLearningChoices();
+        this.pauseActiveGuidedSessions();
+      }
       this.appendConversation({
         id: userMessageId,
         role: 'user',
         kind: 'text',
         content: requestText,
+        ...(selectedExcerpt ? { selectedExcerpt } : {}),
         ...(imageGroup ? { imageGroup } : {})
       });
       if (input) input.value = '';
+      if (guidedReplyTarget) {
+        this.clearGuidedLearningReply();
+        await this.requestGuidedAnswer({
+          requestText,
+          target: guidedReplyTarget,
+          session: guidedReplyTarget.session,
+          epoch,
+          requestVersion,
+          modelOverride: requestModel.model
+        });
+        return;
+      }
+      if (!hasImages && learningRequest.route === 'choose') {
+        if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
+        this.addLearningModeChoice(userMessageId);
+        return;
+      }
+      if (!hasImages && learningRequest.route === 'guided') {
+        if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
+        await this.requestGuidedLearning({
+          requestText,
+          sourceMessageId: userMessageId,
+          epoch,
+          requestVersion,
+          modelOverride: requestModel.model,
+          selectedExcerpt
+        });
+        return;
+      }
+      if (!hasImages && learningRequest.route === 'detailed') {
+        await this.requestDetailedLearning({
+          requestText,
+          sourceMessageId: userMessageId,
+          epoch,
+          requestVersion,
+          modelOverride: requestModel.model,
+          selectedExcerpt
+        });
+        return;
+      }
       this.showThinking(imageGroup ? '正在查看图片并整理学习重点…' : undefined);
       const session = conversationStore.getContextSession('home');
       const reply = await chatService.ask({
@@ -1553,27 +2306,7 @@ export const ChatView = {
         if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
         return this.handleGenerate({ prompt: requestText, alreadyAdded: true, requestVersion });
       }
-      if (reply.content) {
-        this.appendConversation({ role: 'assistant', kind: 'text', content: reply.content });
-      }
-      for (const artifact of reply.artifacts) {
-        if (artifact.type === 'article' && !this.hasPublishedGenerationArticle(artifact.article?.generationJobId, artifact.article?.id)) {
-          this.addArticleCard(artifact.article);
-        }
-        if (artifact.type === 'generation_failure' && !this.hasPublishedGenerationFailure(artifact.failure?.generationJobId)) {
-          this.addGenerationFailure(this.normalizeGenerationFailure(artifact.failure, value));
-        }
-        if (artifact.type === 'research_sources') {
-          this.addResearchSources(artifact);
-          this.recordNativeResearchActivity(artifact);
-        }
-        if (artifact.type === 'app_actions' && artifact.actions?.length) {
-          this.addAppActions(artifact.actions);
-        }
-        if (artifact.type === 'daily_learning_report') {
-          await this.publishDailyReportArtifact(artifact);
-        }
-      }
+      await this.publishHomeAgentReply(reply, requestText);
       if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
       if (draftGroupId) {
         const summary = String(reply.content || '').slice(0, 1600);
@@ -2056,6 +2789,12 @@ export const ChatView = {
       this.addResearchSourcesToDOM(message.research || message);
     } else if (message.kind === 'daily_report') {
       void this.restoreDailyReportReference(message);
+    } else if (message.kind === 'learning_mode_choice') {
+      this.addLearningModeChoiceToDOM(message);
+    } else if (message.kind === 'guided_learning') {
+      this.addGuidedLearningToDOM(message.session, message.id || message.createdAt);
+    } else if (message.kind === 'guided_learning_failure') {
+      this.addGuidedLearningFailureToDOM(message.failure, message);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       void this.addMessageToDOM(type, message.content, {
@@ -2548,6 +3287,8 @@ export const ChatView = {
     homeRequestGate.invalidate();
     this._imageRequestController?.abort();
     this._imageRequestController = null;
+    this._guidedRequestController?.abort();
+    this._guidedRequestController = null;
     chatService.cancel('home');
     this.resetGenerateButton();
     this.removeThinking();

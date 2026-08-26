@@ -171,6 +171,13 @@ const summaryLineFor = (item, key) => {
       .filter(Boolean).join(' / ');
     return `文章生成未完成：${clip(failure.message, 360) || '内容不完整'}${spec ? `（${spec}）` : ''}`;
   }
+  if (item.kind === 'guided_learning') {
+    const session = item.session || {};
+    const steps = Array.isArray(session.steps) ? session.steps : [];
+    const index = Math.max(0, Math.min(steps.length - 1, Number(session.currentStepIndex) || 0));
+    const current = steps[index] || {};
+    return `互动教学：${clip(session.target?.title, 160) || '未命名目标'}；状态 ${clip(session.status, 32) || 'active'}；第 ${index + 1}/${steps.length || 1} 步 ${clip(current.title, 120) || '未命名步骤'}`;
+  }
   return '';
 };
 

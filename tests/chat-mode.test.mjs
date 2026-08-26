@@ -154,7 +154,8 @@ test('chat supersession clears stale UI and keeps agent failure retries safe', a
   assert.match(begin[1], /resetGenerateButton\(\)/);
   assert.match(begin[1], /removeThinking\(\)/);
   assert.match(begin[1], /removeArticleGenerationStatus\(\)/);
-  assert.match(source, /normalizeGenerationFailure\(artifact\.failure, value\)/);
+  assert.match(source, /normalizeGenerationFailure\(artifact\.failure, requestText\)/);
+  assert.match(source, /publishHomeAgentReply\(reply, requestText\)/);
   assert.match(source, /normalizeGenerationFailure as hydrateGenerationFailure/);
   assert.match(source, /homeRequestGate\.invalidate\(\)/);
   assert.match(source, /if \(!this\.isHomeRequestActive\(epoch, requestVersion\) \|\| signal\?\.aborted\)/);

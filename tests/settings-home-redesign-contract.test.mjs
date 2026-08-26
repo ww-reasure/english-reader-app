@@ -41,6 +41,11 @@ test('settings redesign preserves every interactive configuration contract', () 
   for (const name of ['targetTrack', 'readingMode', 'theme']) {
     assert.match(settingsSource, new RegExp(`name="${name}"`), `${name} control must remain rendered`);
   }
+  assert.match(settingsSource, /name="homeLearningResponseMode"/);
+  assert.match(settingsSource, /每次询问/);
+  assert.match(settingsSource, /默认详细解析/);
+  assert.match(settingsSource, /默认互动教学/);
+  assert.match(settingsSource, /Config\.set\('home_learning_response_mode'/);
   assert.match(settingsSource, /SettingsView\.save\(\)/);
 });
 

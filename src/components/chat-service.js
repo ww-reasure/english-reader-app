@@ -3,6 +3,7 @@ import { assembleChatMessages } from './multimodal-context.mjs';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
 const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
+const isGuidedLearningCall = call => ['create_guided_learning', 'adapt_guided_learning'].includes(call?.function?.name);
 const TIMELY_QUERY_PATTERNS = [
   /新闻|时讯|资讯|热点|快讯|突发|头条|实时|时事|今日|今天|最新|最近|近日|近期|当前|进展|动态|大事|天气|预报/,
   /\b(news|headline|breaking|latest|today|current|recent|update|live|weather|what happened)\b/i
@@ -15,6 +16,10 @@ const isTimelyQuery = message => {
 const generationToolFailure = () => ({
   type: 'generation_failure',
   failure: { message: '文章定制暂时失败，请重新生成。', reason: 'tool_error' }
+});
+const guidedLearningToolFailure = () => ({
+  type: 'guided_learning_failure',
+  failure: { message: '互动教学暂时无法生成，请重试或改用详细解析。', reason: 'tool_error' }
 });
 const completeReply = (content, artifacts, toolSupport = null) => ({
   content,
@@ -60,13 +65,14 @@ export class ChatService {
     responseFormat = null,
     temperature = null,
     attachmentGroup = null,
-    modelOverride = null
+    modelOverride = null,
+    webResearchEnabled = true
   }) {
     this.cancel(sessionKey);
     const controller = new AbortController();
     this.controllers.set(sessionKey, controller);
     const requestId = `${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const plan = kind === 'home' && this.webResearch?.resolve
+    const plan = webResearchEnabled && kind === 'home' && this.webResearch?.resolve
       ? this.webResearch.resolve()
       : { native: false, tavily: true };
     const forceFirstSearch = Boolean(plan.native) && isTimelyQuery(userMessage);
@@ -163,8 +169,14 @@ export class ChatService {
           try {
             handled = await toolRunner(name, JSON.parse(toolCall?.function?.arguments || '{}'), { signal: controller.signal });
           } catch (error) {
-            if (!isReadingGenerationCall(toolCall) || controller.signal.aborted) throw error;
-            handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+            if (controller.signal.aborted) throw error;
+            if (isReadingGenerationCall(toolCall)) {
+              handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+            } else if (isGuidedLearningCall(toolCall)) {
+              handled = { result: { status: 'tool_error' }, artifact: guidedLearningToolFailure() };
+            } else {
+              throw error;
+            }
           }
           if (handled.artifact) artifacts.push(handled.artifact);
           return { call: toolCall, name, result: handled.result };
@@ -174,7 +186,9 @@ export class ChatService {
         // request authorization boundary and prevents a failing read from
         // hiding an already-created article.
         const generationCall = reply.tool_calls.find(isReadingGenerationCall);
-        const callsToRun = generationCall ? [generationCall] : reply.tool_calls;
+        const guidedLearningCall = reply.tool_calls.find(isGuidedLearningCall);
+        const writeCall = generationCall || guidedLearningCall;
+        const callsToRun = writeCall ? [writeCall] : reply.tool_calls;
         const toolResults = await Promise.all(callsToRun.map(runToolCall));
         if (artifacts.some(item => item.type === 'article')) {
           return completeReply('已生成一篇定制阅读，点击卡片开始阅读。', artifacts, toolSupport);
@@ -183,6 +197,15 @@ export class ChatService {
           return completeReply('', artifacts, toolSupport);
         }
         if (artifacts.some(item => item.type === 'generation_blocked')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning_update')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning_failure')) {
           return completeReply('', artifacts, toolSupport);
         }
         if (generationCall) {

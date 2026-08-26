@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 const SETTINGS_URL = new URL('../src/views/settings.js', import.meta.url);
 const MODEL_CATALOG_SOURCE = await readFile(new URL('../src/components/deepseek-model-catalog.mjs', import.meta.url), 'utf8');
+const HOME_GUIDED_SOURCE = await readFile(new URL('../src/components/home-guided-learning.mjs', import.meta.url), 'utf8');
 function dataModule(source) {
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 }
@@ -36,6 +37,7 @@ function createSettingsDependencies(values) {
     webResearch: dataModule('export const createWebResearch = () => ({ hasKey: () => false, search: async () => ({ status: "missing_key", sources: [] }), testConnection: async () => ({ ok: false, reason: "missing_key" }) });'),
     deepSeekResponses: dataModule('export const createDeepSeekResponsesClient = () => ({ test: async () => ({ ok: true }) }); export const isDeepSeekNativeSearchSupported = () => true;'),
     modelCatalog: dataModule(MODEL_CATALOG_SOURCE),
+    homeGuided: dataModule(HOME_GUIDED_SOURCE),
   };
 }
 async function renderSettings(values) {
@@ -51,6 +53,8 @@ async function renderSettings(values) {
     .replace("from '../components/web-research.mjs'", `from '${dependencies.webResearch}'`)
     .replace("from '../components/deepseek-responses.mjs'", `from '${dependencies.deepSeekResponses}'`)
     .replace("from '../components/deepseek-model-catalog.mjs'", `from '${dependencies.modelCatalog}'`);
+  const fullyAdapted = adapted
+    .replace("from '../components/home-guided-learning.mjs'", `from '${dependencies.homeGuided}'`);
   const originalWindow = globalThis.window;
   const originalDocument = globalThis.document;
   globalThis.window = {};
@@ -59,7 +63,7 @@ async function renderSettings(values) {
     getElementById: () => null
   };
   try {
-    const { SettingsView } = await import(dataModule(adapted));
+    const { SettingsView } = await import(dataModule(fullyAdapted));
     const container = { innerHTML: '' };
     SettingsView.render(container);
     return container.innerHTML;
