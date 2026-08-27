@@ -6,6 +6,7 @@ node_modules/
 www/
 *.apk
 *.aab
+*.apk.sha256
 
 # Android build
 android/.gradle/

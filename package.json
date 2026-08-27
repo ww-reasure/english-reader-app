@@ -1,6 +1,7 @@
 {
   "name": "english-reader-app",
   "version": "2.0.0",
+  "private": true,
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
   "scripts": {
@@ -38,7 +39,7 @@
     "android"
   ],
   "author": "Wang Xiaoming",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "commonjs",
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.0",
@@ -56,12 +57,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ww-reasure/english-reader-app.git"
+    "url": "https://github.com/ww-reasure/english-reader-private.git"
   },
   "bugs": {
-    "url": "https://github.com/ww-reasure/english-reader-app/issues"
+    "url": "https://github.com/ww-reasure/english-reader-private/issues"
   },
-  "homepage": "https://github.com/ww-reasure/english-reader-app#readme",
+  "homepage": "https://github.com/ww-reasure/english-reader-private#readme",
   "overrides": {
     "brace-expansion": "5.0.9",
     "nanoid": "3.3.17"

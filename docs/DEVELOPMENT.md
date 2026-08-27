@@ -70,8 +70,8 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/ww-reasure/english-reader-app.git
-cd english-reader-app
+git clone https://github.com/ww-reasure/english-reader-private.git
+cd english-reader-private
 
 # 安装依赖
 npm install
@@ -191,4 +191,4 @@ A: 会自动使用 Free Dictionary API 在线查询，再不行会用 AI 翻译�
 
 ---
 
-更多问题请查看 [Issues](https://github.com/ww-reasure/english-reader-app/issues)。
+问题请通过私有仓库协作渠道反馈，不使用公开 Issue。
