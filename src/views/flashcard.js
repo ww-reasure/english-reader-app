@@ -44,6 +44,7 @@ import {
   sessionDebtValue,
   ACTIVE_SESSION_KEY
 } from '../review-session.mjs';
+import { getReviewPersistence } from '../review-persistence.mjs';
 import { settleSessionReview } from '../recovery-scheduler.mjs';
 import { ActivityType } from '../learning-activity.mjs';
 import { localDayKey } from '../learning-day.mjs';
@@ -85,6 +86,18 @@ const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
 
 const numberOrZero = value => Math.max(0, Number(value) || 0);
 
+function diagnosticLogger() {
+  try {
+    return globalThis?.__englishReaderDiagnosticLogger || null;
+  } catch {
+    return null;
+  }
+}
+
+function diagnosticCorrelationId() {
+  return `review:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function reviewRecoveryTransition(before = {}, after = {}, stubborn = false) {
   const beforeStage = Math.max(0, Math.trunc(Number(before.recoveryStage) || 0));
   const afterStage = Math.max(0, Math.trunc(Number(after.recoveryStage) || 0));
@@ -117,12 +130,15 @@ export const FlashcardView = {
   currentPhonetic: '',
   currentDefinitionLines: [],
   ratingAttempt: null,
+  ratingCorrelationId: '',
   pendingKnowledgeEvidence: null,
   practiceScope: '',
   practiceWordIds: [],
   practiceCompletedWordIds: new Set(),
   practiceMissingCount: 0,
   sessionQueue: null,
+  reviewPersistence: null,
+  wordCache: new Map(),
   reviewSessionId: '',
   reviewTimer: null,
   reviewSummarySaved: false,
@@ -139,6 +155,8 @@ export const FlashcardView = {
   _phraseController: null,
   _similarController: null,
   _rootController: null,
+  _definitionRequestToken: 0,
+  _reviewPersistenceUnsubscribe: null,
 
   // Today's reviewed words (persisted across sessions)
   TODAY_KEY: 'todayReviewedWords',
@@ -190,6 +208,24 @@ export const FlashcardView = {
     this.reviewSessionId = '';
     this.reviewTimer = null;
     this.reviewSummarySaved = false;
+    this.ratingCorrelationId = '';
+  },
+
+  bindReviewPersistenceStatus() {
+    this._reviewPersistenceUnsubscribe?.();
+    this._reviewPersistenceUnsubscribe = this.reviewPersistence?.subscribe?.(event => {
+      if (!event || !this.container || !['rating_failed', 'rating_completed'].includes(event.type)) return;
+      const currentWord = this.words[this.currentIndex];
+      if (!currentWord || Number(event.wordId) !== Number(currentWord.id)) return;
+      if (event.type === 'rating_failed') {
+        this.studyNotice = '评分已记录但暂未保存，点击重试可继续同步。';
+        if (this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
+      }
+      if (event.type === 'rating_completed' && (this.studyNotice.includes('暂未保存') || this.studyNotice.includes('重试'))) {
+        this.studyNotice = '已保存';
+        if (this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
+      }
+    }) || null;
   },
 
   startReviewTimer({ practiceSession = null, persistedSession = null } = {}) {
@@ -267,6 +303,9 @@ export const FlashcardView = {
     await this.persistReviewSummary('partial');
     this.invalidateCardRequests();
     this.container = container;
+    this.reviewPersistence = getReviewPersistence(DB);
+    this.bindReviewPersistenceStatus();
+    this.wordCache = new Map();
     this.resetReviewTelemetry();
     this.practiceScope = '';
     this.practiceWordIds = [];
@@ -297,6 +336,7 @@ export const FlashcardView = {
     }
     const allWords = practiceWords ?? await DB.getAllLearnWords();
     const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
+    this.wordCache = new Map(allWords.map(word => [Number(word.id), { ...word, expectedRevision: Math.max(0, Number(word.expectedRevision ?? word.reviewRevision) || 0) }]));
     let persistedSession = null;
     if (!requestedScope) {
       persistedSession = await (DB.getReviewSession
@@ -334,7 +374,7 @@ export const FlashcardView = {
       } else {
         if (restored) await clearSessionQueue({ db: DB });
         this.sessionQueue = createSessionQueue(dueWords.map(word => word.id));
-        await this.persistCurrentSession();
+        this.persistCurrentSession();
       }
     }
     this.words = dueWords;
@@ -369,45 +409,84 @@ export const FlashcardView = {
     return SpacedRepetition.getDueCount(allWords);
   },
 
-  async persistCurrentSession() {
-    if (this.sessionQueue) await persistSessionQueue(this.sessionQueue, { db: DB });
+  persistCurrentSession() {
+    if (!this.sessionQueue) return null;
+    const span = diagnosticLogger()?.beginSpan('review.session_persist', {
+      category: 'review',
+      correlationId: this.ratingCorrelationId || undefined,
+      payload: { pendingCount: this.sessionQueue.getPendingCount?.() || 0 }
+    });
+    try {
+      const result = this.reviewPersistence?.enqueueSession({
+        key: ACTIVE_SESSION_KEY,
+        snapshot: this.sessionQueue.snapshot()
+      });
+      if (!result) throw new Error('复习会话后台保存不可用');
+      span?.end({ payload: { ok: true, queued: true, sequence: result.sequence } });
+      return result;
+    } catch (error) {
+      span?.end({
+        level: 'error',
+        payload: { ok: false, queued: false, errorName: error?.name || 'Error' }
+      });
+      // localStorage/journal may be unavailable in privacy mode. Keep the
+      // original direct save as a last-resort async path without blocking the
+      // card transition or creating an unhandled rejection.
+      void persistSessionQueue(this.sessionQueue, { db: DB })
+        .catch(saveError => diagnosticLogger()?.record('review.session_save_failed', {
+          category: 'review',
+          level: 'error',
+          correlationId: this.ratingCorrelationId || undefined,
+          payload: { errorName: saveError?.name || 'Error', fallback: true }
+        }));
+      return { accepted: false, fallback: true, error };
+    }
   },
 
   // Render a single word at the start of its recall phase.
   async renderCard(container) {
     this.cleanupExampleWordLookup();
     this.cancelCardPronunciation();
+    const session = ++this.cardSession;
     if (!this.practiceScope && this.sessionQueue) {
       if (this.sessionQueue.isEmpty()) {
         this.renderResult(container);
         return;
       }
       const wordId = this.sessionQueue.next();
-      await this.persistCurrentSession();
-      const queuedWord = await DB.findLearnWordById(wordId);
+      this.persistCurrentSession();
+      let queuedWord = this.wordCache.get(Number(wordId)) || null;
       if (!queuedWord) {
+        // This is only a recovery path for a stale/missing in-memory snapshot;
+        // ordinary card changes never perform this read or revalidation.
+        const revisionCheck = await ReviewQueue.revalidate({
+          id: wordId,
+          expectedRevision: this.sessionQueue.getExpectedRevision(wordId)
+        });
+        queuedWord = revisionCheck.current ? revisionCheck.word : null;
+      }
+      if (!queuedWord) {
+        this.currentIndex += 1;
         return this.renderCard(container);
       }
-      const queuedRevision = Math.max(0, Number(queuedWord.reviewRevision) || 0);
+      const queuedRevision = Math.max(0, Number(queuedWord.expectedRevision ?? queuedWord.reviewRevision) || 0);
       const bufferRevision = this.sessionQueue.getExpectedRevision(wordId);
       this.words[this.currentIndex] = { ...queuedWord, expectedRevision: bufferRevision ?? queuedRevision };
+      this.wordCache.set(Number(wordId), { ...this.words[this.currentIndex] });
       this.sessionQueue.syncExpectedRevision(wordId, this.words[this.currentIndex].expectedRevision);
     } else if (this.currentIndex >= this.words.length) {
       this.renderResult(container);
       return;
     }
 
-    const session = ++this.cardSession;
-    let word = this.words[this.currentIndex];
-    if (!this.practiceScope) {
-      const revisionCheck = await ReviewQueue.revalidate({ id: word.id, expectedRevision: word.expectedRevision });
-      if (!revisionCheck.current) {
-        this.currentIndex++;
-        return this.renderCard(container);
-      }
-      word = { ...revisionCheck.word, expectedRevision: word.expectedRevision };
-      this.words[this.currentIndex] = word;
+    let word = this.words[this.currentIndex] || this.wordCache.get(Number(this.words[this.currentIndex]?.id));
+    if (!word) {
+      this.renderResult(container);
+      return;
     }
+    word = { ...word };
+    this.words[this.currentIndex] = word;
+    this.wordCache.set(Number(word.id), word);
     this.reviewState = createReviewState();
     this.studyTab = 'examples';
     this.studyExampleIndex = 0;
@@ -421,11 +500,6 @@ export const FlashcardView = {
     this.ratingAttempt = null;
     this.pendingKnowledgeEvidence = null;
 
-    word = await ensureSavedWordDefinition(word, {
-      lookup: Dictionary.lookup.bind(Dictionary),
-      update: DB.updateLearnWordDefinition.bind(DB)
-    });
-    this.words[this.currentIndex] = word;
     const definitionLines = getDefinitionDisplayLines(word);
     const translation = definitionLines[0]?.glossZh || getSavableTranslation(word) || '暂无翻译';
     const phonetic = formatPhonetic(word.phonetic);
@@ -435,8 +509,35 @@ export const FlashcardView = {
     this.currentPhonetic = phonetic;
     this.currentDefinitionLines = definitionLines;
     this.renderRecall(container);
+    diagnosticLogger()?.record('review.card_rendered', {
+      category: 'review',
+      correlationId: this.ratingCorrelationId || undefined,
+      payload: { phase: 'recall' },
+      detail: { word: word.word, scope: this.practiceScope || 'scheduled' }
+    });
     this.noteReviewActivity();
     this.startCardPronunciation(word.word, session);
+    void this.hydrateWordDefinition(word, session);
+  },
+
+  async hydrateWordDefinition(word, session) {
+    if (!word?.id) return;
+    const enriched = await ensureSavedWordDefinition(word, {
+      lookup: Dictionary.lookup.bind(Dictionary),
+      update: DB.updateLearnWordDefinition.bind(DB)
+    }).catch(() => word);
+    if (session !== this.cardSession || !this.container) return;
+    const current = this.words[this.currentIndex];
+    if (!current || Number(current.id) !== Number(word.id)) return;
+    const updated = { ...enriched, expectedRevision: current.expectedRevision };
+    this.words[this.currentIndex] = updated;
+    this.wordCache.set(Number(updated.id), updated);
+    const definitionLines = getDefinitionDisplayLines(updated);
+    this.currentTranslation = definitionLines[0]?.glossZh || getSavableTranslation(updated) || '暂无翻译';
+    this.currentPhonetic = formatPhonetic(updated.phonetic);
+    this.currentDefinitionLines = definitionLines;
+    if (this.reviewState.phase === REVIEW_PHASES.RECALL) this.renderRecall(this.container);
+    if (this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
   },
 
   cancelCardPronunciation() {
@@ -527,12 +628,53 @@ export const FlashcardView = {
     this.noteReviewActivity();
 
     const session = this.cardSession;
+    const word = this.words[this.currentIndex];
+    const correlationId = diagnosticCorrelationId();
+    this.ratingCorrelationId = correlationId;
+    const logger = diagnosticLogger();
+    logger?.record('review.rating_clicked', {
+      category: 'review',
+      correlationId,
+      payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' },
+      detail: { word: word?.word, scope: this.practiceScope || 'scheduled' }
+    });
+    logger?.record('review.rating_save_start', {
+      category: 'review',
+      correlationId,
+      payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+    });
+    const saveSpan = logger?.beginSpan('review.rating_save', {
+      category: 'review',
+      correlationId,
+      payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+    });
     this.reviewState = submittingState;
     this.renderRecall(this.container);
 
     try {
-      await this.recordRating(quality);
-    } catch {
+      await this.recordRating(quality, { correlationId });
+      saveSpan?.end({ payload: { ok: true } });
+      logger?.record('review.ui_responded', {
+        category: 'review',
+        correlationId,
+        payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+      });
+      logger?.record('review.rating_saved', {
+        category: 'review',
+        correlationId,
+        payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+      });
+    } catch (error) {
+      saveSpan?.end({
+        level: 'error',
+        payload: { ok: false, errorName: error?.name || 'Error' }
+      });
+      logger?.record('review.rating_save_failed', {
+        category: 'review',
+        level: 'error',
+        correlationId,
+        payload: { quality, errorName: error?.name || 'Error' }
+      });
       if (session !== this.cardSession) return;
       this.reviewState = {
         ...this.reviewState,
@@ -548,6 +690,11 @@ export const FlashcardView = {
     this.reviewState = finishRating(this.reviewState);
     this.studyDetails = { examples: [], rootAnalysis: null, examPresentation: null, loading: true, phrases: { status: 'idle', items: [] }, similar: { status: 'idle', items: [] } };
     this.renderStudy(this.container);
+    logger?.record('review.study_rendered', {
+      category: 'review',
+      correlationId,
+      payload: { phase: 'study', quality }
+    });
     this.loadStudyDetails(session);
   },
 
@@ -584,7 +731,7 @@ export const FlashcardView = {
             </div>
           </section>
           <div class="flashcard-study-next flashcard-study-bottom-dock">
-            ${this.studyNotice ? `<p class="flashcard-correction-notice" role="status">${esc(this.studyNotice)}</p>` : ''}
+            ${this.renderStudyNotice()}
             <button class="flashcard-next-btn" type="button" onclick="FlashcardView.advanceToNextWord()">下一词</button>
             ${canCorrectRating || isCorrecting ? `<button class="flashcard-correction-btn" type="button" ${isCorrecting ? 'disabled' : ''} onclick="FlashcardView.correctMistakenKnown()">${isCorrecting ? '正在更正…' : '记错了'}</button>` : ''}
           </div>
@@ -612,6 +759,26 @@ export const FlashcardView = {
     if (this.studyTab === 'examples' && !this.studyDetails.loading) {
       this.bindExampleWordLookup();
     }
+  },
+
+  renderStudyNotice() {
+    if (!this.studyNotice) return '';
+    const retryable = this.studyNotice.includes('暂未保存') || this.studyNotice.includes('保存失败');
+    return `<p class="flashcard-correction-notice" role="status">${esc(this.studyNotice)}${retryable ? ' <button class="flashcard-save-retry" type="button" onclick="FlashcardView.retryPendingRatings()">重试保存</button>' : ''}</p>`;
+  },
+
+  async retryPendingRatings() {
+    if (!this.reviewPersistence?.retryFailed) return;
+    this.studyNotice = '正在重试保存…';
+    if (this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
+    try {
+      const status = await this.reviewPersistence.retryFailed();
+      if (!status.rating.failed) this.studyNotice = '已重新提交保存';
+      else this.studyNotice = '仍有评分未保存，请稍后再次重试。';
+    } catch {
+      this.studyNotice = '保存重试失败，请稍后再次重试。';
+    }
+    if (this.container && this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
   },
 
   renderStudyPanel() {
@@ -955,8 +1122,12 @@ export const FlashcardView = {
     this.noteReviewActivity();
     this.commitPendingKnowledgeEvidence();
     if (!this.practiceScope && this.sessionQueue) {
+      // A completed rating normally clears the active card in rate(). Keep
+      // this defensive call so an explicit “next”/restored session cannot
+      // leave the displayed card stranded in the checkpoint.
+      this.sessionQueue.completeActive?.(this.words[this.currentIndex]?.id);
       this.currentIndex++;
-      void this.persistCurrentSession();
+      this.persistCurrentSession();
     } else {
       this.currentIndex++;
     }
@@ -973,7 +1144,8 @@ export const FlashcardView = {
   },
 
   // Record a rating
-  async recordRating(quality) {
+  async recordRating(quality, { correlationId = this.ratingCorrelationId } = {}) {
+    const logger = diagnosticLogger();
     const word = this.words[this.currentIndex];
     const meaningRevealed = Boolean(this.reviewState.meaningRevealed);
     const attempt = {
@@ -982,28 +1154,96 @@ export const FlashcardView = {
       initialQuality: quality
     };
     if (this.practiceScope) {
-      await DB.recordLearnWordPractice(word.id, {
-        rating: quality,
-        sawAnswer: meaningRevealed,
-        practiceScope: this.practiceScope
+      const practiceSpan = logger?.beginSpan('review.practice_transaction', {
+        category: 'review',
+        correlationId,
+        payload: { quality, scope: this.practiceScope }
       });
+      try {
+        await DB.recordLearnWordPractice(word.id, {
+          rating: quality,
+          sawAnswer: meaningRevealed,
+          practiceScope: this.practiceScope
+        });
+        practiceSpan?.end({ payload: { ok: true } });
+      } catch (error) {
+        practiceSpan?.end({
+          level: 'error',
+          payload: { ok: false, errorName: error?.name || 'Error' }
+        });
+        throw error;
+      }
       this.practiceCompletedWordIds.add(Number(word.id));
     } else {
+      const expectedRevision = Math.max(0, Number(word.expectedRevision ?? word.reviewRevision) || 0);
+      const outcome = this.sessionQueue?.rate(word.id, quality, {
+        expectedRevision,
+        now: Date.now()
+      }) || { reinserted: false, stubborn: false };
+      this.sessionQueue?.completeActive?.(word.id);
       const sessionDebt = this.sessionQueue?.getDebt(word.id) || 0;
       const srsData = settleSessionReview(attempt.baseline, quality, sessionDebt);
-      const updatedWord = await DB.settleSessionReview(word.id, srsData, {
+      const optimisticWord = {
+        ...word,
+        ...srsData,
+        reviewRevision: expectedRevision + 1,
+        expectedRevision: expectedRevision + 1
+      };
+      Object.assign(word, optimisticWord);
+      this.wordCache.set(Number(word.id), { ...word });
+      this.sessionQueue?.syncExpectedRevision(word.id, optimisticWord.expectedRevision);
+      this.recordRecoveryTransition(attempt.baseline, optimisticWord, outcome.stubborn);
+      const srsSpan = logger?.beginSpan('review.srs_transaction', {
+        category: 'db',
+        correlationId,
+        payload: { quality, sessionDebt }
+      });
+      const event = {
         rating: quality,
         source: 'flashcard',
         sawAnswer: meaningRevealed,
         attemptId: attempt.id,
-        expectedRevision: word.expectedRevision,
-        sessionDebt
-      });
-      this.recordRecoveryTransition(word, updatedWord || srsData, this.sessionQueue?.isStubborn(word.id));
-      Object.assign(word, updatedWord || srsData, { expectedRevision: updatedWord?.reviewRevision ?? word.expectedRevision });
+        expectedRevision,
+        sessionDebt,
+        correlationId
+      };
+      try {
+        const queued = this.reviewPersistence?.enqueueRating({
+          operationId: attempt.id,
+          attemptId: attempt.id,
+          wordId: word.id,
+          expectedRevision,
+          srsData,
+          event,
+          correlationId
+        });
+        if (!queued) throw new Error('正式复习后台保存不可用');
+        srsSpan?.end({ payload: { ok: true, queued: true } });
+      } catch (error) {
+        // If the durable journal cannot be written, fall back to the old
+        // awaited transaction so a rating is never acknowledged without a
+        // local recovery path.
+        try {
+          const updatedWord = await DB.settleSessionReview(word.id, srsData, { ...event }, {
+            expectedRevision,
+            attemptId: attempt.id,
+            correlationId
+          });
+          Object.assign(word, updatedWord || optimisticWord, {
+            expectedRevision: updatedWord?.reviewRevision ?? optimisticWord.expectedRevision
+          });
+          this.wordCache.set(Number(word.id), { ...word });
+          srsSpan?.end({ payload: { ok: true, queued: false, fallback: true } });
+        } catch (fallbackError) {
+          srsSpan?.end({
+            level: 'error',
+            payload: { ok: false, fallback: true, errorName: fallbackError?.name || error?.name || 'Error' }
+          });
+          throw fallbackError;
+        }
+      }
       if (this.sessionQueue) {
-        const outcome = this.sessionQueue.rate(word.id, quality, { expectedRevision: word.expectedRevision });
-        await this.persistCurrentSession();
+        this.persistCurrentSession();
         if (outcome.reinserted) {
           this.reviewState = finishRating(this.reviewState);
           this.renderStudy(this.container);
@@ -1059,19 +1299,22 @@ export const FlashcardView = {
       } else {
         const sessionDebt = (this.sessionQueue?.getDebt(word.id) || 0) + sessionDebtValue(1);
         const correctedSrs = settleSessionReview(attempt.baseline, 1, sessionDebt);
-        const correctedWord = await DB.settleSessionReview(word.id, correctedSrs, {
-          rating: 1,
-          source: 'flashcard',
-          sawAnswer: true,
+        // The original rating is journaled asynchronously. Flush it before
+        // the in-place correction so the audit event exists, then use the
+        // dedicated correction API (a correction is not a second attempt).
+        await this.reviewPersistence?.flush({ timeoutMs: 5000 });
+        const correctedWord = await DB.correctLearnWordReview(word.id, correctedSrs, {
           attemptId: attempt.id,
-          expectedRevision: word.expectedRevision,
-          sessionDebt
+          expectedRevision: Math.max(0, Number(word.reviewRevision) || 0),
+          sawAnswer: true,
+          correctionReason: 'mistaken-known'
         });
         this.recordRecoveryTransition(attempt.baseline, correctedWord || correctedSrs, this.sessionQueue?.isStubborn(word.id));
         Object.assign(word, correctedWord || correctedSrs, { expectedRevision: correctedWord?.reviewRevision ?? word.expectedRevision });
+        this.wordCache.set(Number(word.id), { ...word });
         if (this.sessionQueue) {
           const outcome = this.sessionQueue.rate(word.id, 1, { expectedRevision: word.expectedRevision });
-          await this.persistCurrentSession();
+          this.persistCurrentSession();
           if (outcome.reinserted) {
             this.reviewState = finishRatingCorrection(this.reviewState);
             this.studyNotice = '已更正为“忘了”，将隔 3 个词后再次出现。';
@@ -1129,6 +1372,9 @@ export const FlashcardView = {
     if (!skipWord(this.reviewState)) return;
     this.noteReviewActivity();
     this.skippedCount += 1;
+    if (!this.practiceScope && this.sessionQueue) {
+      this.sessionQueue.completeActive?.(this.words[this.currentIndex]?.id);
+    }
     this.currentIndex++;
     this.renderCard(this.container);
   },
@@ -1138,6 +1384,15 @@ export const FlashcardView = {
     const isPractice = Boolean(this.practiceScope);
     const completedPracticeScope = this.practiceScope;
     this.invalidateCardRequests();
+    if (!isPractice) {
+      // Completion must not wait for storage. clearSession() also protects
+      // against a checkpoint that was already in flight when the last card
+      // was advanced.
+      const clear = this.reviewPersistence?.clearSession
+        ? this.reviewPersistence.clearSession({ key: ACTIVE_SESSION_KEY })
+        : clearSessionQueue({ db: DB });
+      void Promise.resolve(clear).catch(() => {});
+    }
     const practiceCompleted = isPractice && finalizePracticeSession({
       scope: completedPracticeScope,
       expectedWordIds: this.practiceWordIds,
@@ -1303,6 +1558,9 @@ export const FlashcardView = {
   cleanup() {
     this.invalidateCardRequests();
     void this.persistReviewSummary('partial');
+    this._reviewPersistenceUnsubscribe?.();
+    this._reviewPersistenceUnsubscribe = null;
+    void this.reviewPersistence?.flush?.({ timeoutMs: 1500 }).catch(() => {});
     this.closeStudyInfo();
     this.practiceScope = '';
     this.practiceWordIds = [];

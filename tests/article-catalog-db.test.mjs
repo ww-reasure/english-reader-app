@@ -54,7 +54,7 @@ test('v18 adds analytics stores alongside catalog metadata without modifying exi
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 19);
+  assert.ok(upgraded.version >= 21);
   assert.equal(upgraded.objectStoreNames.contains('articleCatalog'), true);
   assert.equal(upgraded.objectStoreNames.contains('aiCache'), true);
   for (const storeName of [

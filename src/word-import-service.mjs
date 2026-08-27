@@ -3,7 +3,9 @@ import { ActivityType, importWordDedupeKey } from './learning-activity.mjs';
 import { getDefinitionSenses, getSavableTranslation } from './components/definition-trust.mjs';
 import { DEFINITION_SCHEMA_VERSION } from './components/saved-word-definition.mjs';
 
-const MAX_WORDS = 200;
+export const MAX_WORDS_PER_BATCH = 200;
+export const MAX_PDF_WORDS = 5000;
+const MAX_WORDS = MAX_WORDS_PER_BATCH;
 const MAX_LEMMA_LENGTH = 200;
 const BATCH_PREFIX = 'import-batch:';
 const CATEGORIES = Object.freeze(['new', 'externalReview', 'todayIgnored', 'invalid', 'failed']);
@@ -33,22 +35,46 @@ function normalizeImportCandidate(value) {
   return raw.toLocaleLowerCase('en-US').slice(0, MAX_LEMMA_LENGTH);
 }
 
-export function normalizeImportWords(text) {
-  const matches = String(text || '').match(/[a-zA-Z]{2,}/g) || [];
+export function normalizeImportWords(text, { limit = MAX_WORDS, returnMeta = false } = {}) {
+  const safeLimit = Number.isFinite(Number(limit))
+    ? Math.max(1, Math.floor(Number(limit)))
+    : MAX_WORDS;
+  const source = String(text || '');
+  const pattern = /[a-zA-Z]{2,}/g;
   const seen = new Set();
   const words = [];
-  for (const match of matches) {
-    if (match.length > MAX_LEMMA_LENGTH) continue;
-    const lemma = normalizeImportCandidate(match);
+  let truncated = false;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const rawMatch = match[0];
+    if (rawMatch.length > MAX_LEMMA_LENGTH) continue;
+    const lemma = normalizeImportCandidate(rawMatch);
     if (!lemma || seen.has(lemma)) continue;
     seen.add(lemma);
     words.push(lemma);
-    if (words.length >= MAX_WORDS) break;
+    if (words.length >= safeLimit) {
+      let nextMatch;
+      while ((nextMatch = pattern.exec(source)) !== null) {
+        const nextRawMatch = nextMatch[0];
+        if (nextRawMatch.length > MAX_LEMMA_LENGTH) continue;
+        const nextLemma = normalizeImportCandidate(nextRawMatch);
+        if (!nextLemma || seen.has(nextLemma)) continue;
+        truncated = true;
+        break;
+      }
+      break;
+    }
   }
-  return words;
+  return returnMeta ? { words, truncated } : words;
 }
 
-export async function analyzeWordImport({ words = [], findWord, findDaily, dayKey } = {}) {
+function hasFact(collection, lemma) {
+  if (collection && typeof collection.has === 'function') return collection.has(lemma);
+  if (Array.isArray(collection)) return collection.includes(lemma);
+  return false;
+}
+
+export async function analyzeWordImport({ words = [], findWord, findDaily, dayKey, classified = null } = {}) {
   const categories = emptyCategories();
   const normalizedWords = [];
   const seen = new Set();
@@ -62,12 +88,16 @@ export async function analyzeWordImport({ words = [], findWord, findDaily, dayKe
     seen.add(lemma);
     normalizedWords.push(lemma);
     try {
-      const existing = typeof findWord === 'function' ? await findWord(lemma) : null;
+      const existing = classified
+        ? hasFact(classified.existingWords, lemma)
+        : typeof findWord === 'function' ? await findWord(lemma) : null;
       if (!existing) {
         categories.new.push(lemma);
         continue;
       }
-      const daily = typeof findDaily === 'function' ? await findDaily(lemma, dayKey) : null;
+      const daily = classified
+        ? hasFact(classified.todayProcessedWords, lemma)
+        : typeof findDaily === 'function' ? await findDaily(lemma, dayKey) : null;
       categories[daily ? 'todayIgnored' : 'externalReview'].push(lemma);
     } catch {
       categories.failed.push(lemma);
@@ -89,6 +119,14 @@ function createBatchId(dayKey) {
   return `import-${dayKey}-${random || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
 }
 
+function chunkWords(words, size = MAX_WORDS_PER_BATCH) {
+  const chunks = [];
+  for (let index = 0; index < words.length; index += size) {
+    chunks.push({ batchIndex: chunks.length + 1, words: words.slice(index, index + size) });
+  }
+  return chunks;
+}
+
 export class WordImportService {
   constructor({ db, lookup = async () => null, now = () => Date.now() } = {}) {
     if (!db) throw new TypeError('导入服务需要数据库');
@@ -101,19 +139,47 @@ export class WordImportService {
     return `${BATCH_PREFIX}${String(batchId || '')}`;
   }
 
-  async createPlan(text) {
+  async createPlan(text, { source = 'manual', maxWords } = {}) {
     const now = this.now();
     const dayKey = localDayKey(now);
-    const words = normalizeImportWords(text);
+    const normalized = normalizeImportWords(text, {
+      limit: maxWords ?? (source === 'pdf' ? MAX_PDF_WORDS : MAX_WORDS),
+      returnMeta: true
+    });
+    const words = normalized.words;
+    const batches = chunkWords(words);
+    const limitExceeded = normalized.truncated;
+    const basePlan = {
+      batchId: createBatchId(dayKey),
+      dayKey,
+      source: String(source || 'manual'),
+      wordLimit: maxWords ?? (source === 'pdf' ? MAX_PDF_WORDS : MAX_WORDS),
+      truncated: normalized.truncated,
+      limitExceeded,
+      words,
+      batches,
+      batchCount: batches.length,
+      status: 'preview'
+    };
+    if (limitExceeded) {
+      return {
+        ...basePlan,
+        categories: emptyCategories(),
+        counts: { recognized: words.length, new: 0, externalReview: 0, todayIgnored: 0, invalid: 0 }
+      };
+    }
+    const classified = typeof this.db.classifyWordImportCandidates === 'function'
+      ? await this.db.classifyWordImportCandidates(words, dayKey)
+      : null;
     const result = await analyzeWordImport({
       words,
       dayKey,
+      classified,
       findWord: word => this.db.findLearnWord?.(word),
       findDaily: word => this.db.getLearningActivityByDedupeKey?.(importWordDedupeKey(dayKey, word))
     });
     return {
-      batchId: createBatchId(dayKey),
-      dayKey,
+      ...basePlan,
       words: result.words,
       categories: result.categories,
       counts: result.counts,
@@ -198,6 +264,9 @@ export class WordImportService {
 
   async execute(plan, { onProgress = () => {} } = {}) {
     const source = clone(plan || {});
+    if (source.limitExceeded || source.truncated) {
+      throw new Error(`本次导入超过 ${Number(source.wordLimit) || MAX_PDF_WORDS} 个唯一词，请拆分文件后重试`);
+    }
     const completed = new Set(Array.isArray(source.completedLemmas) ? source.completedLemmas : []);
     const failures = [];
     const summary = {
@@ -210,54 +279,71 @@ export class WordImportService {
       failed: 0
     };
     const words = Array.isArray(source.words) ? source.words : [];
+    const batches = Array.isArray(source.batches) && source.batches.length
+      ? source.batches.map((batch, index) => ({
+        batchIndex: Number(batch?.batchIndex) || index + 1,
+        words: Array.isArray(batch?.words) ? batch.words : []
+      }))
+      : chunkWords(words);
+    const batchCount = batches.length;
     const recognized = Number(source.counts?.recognized) || words.length;
     const state = {
       ...source,
       status: 'in_progress',
       completedLemmas: [...completed],
       failed: [],
-      progress: { processed: 0, recognized },
+      progress: { processed: 0, recognized, batchIndex: 0, batchCount },
       summary
     };
     await this.saveBatch(state);
 
-    for (const lemma of words) {
-      if (completed.has(lemma)) continue;
-      const category = this.categoryFor(lemma, source.categories);
-      let result = null;
-      let failure = null;
-      try {
-        if (category === 'invalid') throw new Error('无法识别的单词');
-        result = await this.applyWord(lemma, { plan: source, category, occurredAt: this.now() });
-        completed.add(lemma);
-        this.summarizeResult(summary, result);
-      } catch (error) {
-        failure = { lemma, reason: clipReason(error) };
-        failures.push(failure);
-        summary.failed = failures.length;
-      }
+    for (const [batchOffset, batch] of batches.entries()) {
+      const batchIndex = Number(batch.batchIndex) || batchOffset + 1;
+      for (const lemma of batch.words) {
+        if (completed.has(lemma)) continue;
+        const category = this.categoryFor(lemma, source.categories);
+        let result = null;
+        let failure = null;
+        try {
+          if (category === 'invalid') throw new Error('无法识别的单词');
+          result = await this.applyWord(lemma, { plan: source, category, occurredAt: this.now() });
+          completed.add(lemma);
+          this.summarizeResult(summary, result);
+        } catch (error) {
+          failure = { lemma, reason: clipReason(error) };
+          failures.push(failure);
+          summary.failed = failures.length;
+        }
 
-      state.completedLemmas = [...completed];
-      state.failed = [...failures];
-      state.progress = { processed: state.completedLemmas.length + failures.length, recognized };
-      state.summary = { ...summary };
-      await this.saveBatch(state);
-      try {
-        await onProgress({
-          lemma,
-          result,
-          failure,
-          processed: state.progress.processed,
+        state.completedLemmas = [...completed];
+        state.failed = [...failures];
+        state.progress = {
+          processed: state.completedLemmas.length + failures.length,
           recognized,
-          summary: { ...summary }
-        });
-      } catch {}
+          batchIndex,
+          batchCount
+        };
+        state.summary = { ...summary };
+        await this.saveBatch(state);
+        try {
+          await onProgress({
+            lemma,
+            result,
+            failure,
+            processed: state.progress.processed,
+            recognized,
+            batchIndex,
+            batchCount,
+            summary: { ...summary }
+          });
+        } catch {}
+      }
     }
 
     state.status = failures.length ? 'failed' : 'completed';
     state.failed = [...failures];
     state.summary = { ...summary };
-    state.progress = { processed: state.completedLemmas.length + failures.length, recognized };
+    state.progress = { processed: state.completedLemmas.length + failures.length, recognized, batchIndex: batchCount, batchCount };
     await this.saveBatch(state);
     if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function') {
       document.dispatchEvent(new CustomEvent('word-library-changed', {

@@ -26,6 +26,10 @@ const TRUSTED_VOCABULARY_DEFINITION_FIELDS = [
   'definitionLexiconVersion'
 ];
 
+const DIAGNOSTIC_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DIAGNOSTIC_LOG_MAX_ENTRIES = 5_000;
+const DIAGNOSTIC_LOG_MAX_BYTES = 2 * 1024 * 1024;
+
 function normalizeStoredCloudMetadata(article = {}) {
   return normalizeCloudArticleMetadata(article);
 }
@@ -108,14 +112,81 @@ function updateRecordFields(db, storeName, id, fields) {
   });
 }
 
+function diagnosticLogger() {
+  try {
+    return globalThis?.__englishReaderDiagnosticLogger || null;
+  } catch {
+    return null;
+  }
+}
+
+// Keep one physical connection per database/version pair. Import preview and
+// other high-frequency read paths all share this cache; a failed or upgraded
+// connection is removed by the lifecycle handlers below.
+const connectionCache = new Map();
+const openingConnections = new Map();
+
+function databaseCacheKey(name, version) {
+  return `${String(name)}:${Number(version)}`;
+}
+
+function closeCachedConnectionsForDatabase(name, keepKey) {
+  for (const [key, connection] of connectionCache.entries()) {
+    if (!key.startsWith(`${String(name)}:`) || key === keepKey) continue;
+    try {
+      connection.close();
+    } catch {}
+    connectionCache.delete(key);
+  }
+}
+
+function attachConnectionLifecycle(connection, key) {
+  const invalidate = () => {
+    if (connectionCache.get(key) === connection) connectionCache.delete(key);
+  };
+  try {
+    const nativeClose = connection.close.bind(connection);
+    connection.close = (...args) => {
+      invalidate();
+      return nativeClose(...args);
+    };
+  } catch {}
+  connection.onversionchange = () => {
+    try {
+      connection.close();
+    } catch {}
+    invalidate();
+  };
+  try {
+    connection.onclose = invalidate;
+  } catch {}
+  return connection;
+}
+
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 19, // v19: additive chat image attachment persistence
+  DB_VERSION: 21, // v21: idempotent formal review attempts
 
   // Open database connection with retry
-  open(retries = 3) {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+  open(retries = 3, { diagnostics = true, correlationId = undefined } = {}) {
+    const databaseName = String(this.DB_NAME);
+    const databaseVersion = Number(this.DB_VERSION);
+    const key = databaseCacheKey(databaseName, databaseVersion);
+    const cached = connectionCache.get(key);
+    if (cached) return Promise.resolve(cached);
+    if (openingConnections.has(key)) return openingConnections.get(key);
+
+    closeCachedConnectionsForDatabase(databaseName, key);
+
+    const openWithRetry = remaining => new Promise((resolve, reject) => {
+      const span = diagnostics
+        ? diagnosticLogger()?.beginSpan('db.open', {
+          category: 'db',
+          correlationId,
+          payload: { dbVersion: databaseVersion }
+        })
+        : null;
+      const req = indexedDB.open(databaseName, databaseVersion);
 
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
@@ -406,17 +477,58 @@ export const DB = {
           store.createIndex('createdAt', 'createdAt');
           store.createIndex('lastAccessedAt', 'lastAccessedAt');
         }
+
+        // v20: local diagnostic events. This store is additive and is never
+        // involved in vocabulary, article, review, report, or SRS writes.
+        if (!db.objectStoreNames.contains('diagnosticLogs')) {
+          const store = db.createObjectStore('diagnosticLogs', { keyPath: 'id' });
+          store.createIndex('occurredAt', 'occurredAt');
+          store.createIndex('level', 'level');
+          store.createIndex('category', 'category');
+          store.createIndex('event', 'event');
+        }
+
+        // v21: allow replayed optimistic review writes to detect the original
+        // event without changing any existing learning or review records.
+        if (e.oldVersion < 21) {
+          const store = e.target.transaction.objectStore('reviewEvents');
+          if (!store.indexNames.contains('attemptId')) {
+            store.createIndex('attemptId', 'attemptId', { unique: false });
+          }
+        }
       };
 
-      req.onsuccess = () => resolve(req.result);
+      req.onblocked = () => {
+        diagnosticLogger()?.record('db.open.blocked', {
+          category: 'db',
+          level: 'error',
+          payload: { dbVersion: databaseVersion }
+        });
+      };
+      req.onsuccess = () => {
+        const connection = attachConnectionLifecycle(req.result, key);
+        connectionCache.set(key, connection);
+        span?.end({ payload: { version: connection?.version } });
+        resolve(connection);
+      };
       req.onerror = () => {
-        if (retries > 1) {
-          setTimeout(() => this.open(retries - 1).then(resolve).catch(reject), 100);
+        span?.end({
+          level: 'error',
+          payload: { errorName: req.error?.name || 'UnknownError' }
+        });
+        if (remaining > 1) {
+          setTimeout(() => openWithRetry(remaining - 1).then(resolve).catch(reject), 100);
         } else {
-          reject(req.error);
+          reject(req.error || new Error('IndexedDB 打开失败'));
         }
       };
     });
+
+    const opening = openWithRetry(Math.max(1, Number(retries) || 1)).finally(() => {
+      if (openingConnections.get(key) === opening) openingConnections.delete(key);
+    });
+    openingConnections.set(key, opening);
+    return opening;
   },
 
   // ===== Articles =====
@@ -968,6 +1080,51 @@ export const DB = {
     });
   },
 
+  // Classify an import preview with one read-only transaction. The word and
+  // daily-activity indexes are queried from the same connection so a large
+  // PDF does not open IndexedDB once (or twice) per word.
+  async classifyWordImportCandidates(words = [], dayKey = '') {
+    const candidates = [...new Set((Array.isArray(words) ? words : [])
+      .map(word => String(word || '').trim().toLocaleLowerCase('en-US'))
+      .filter(Boolean))];
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'learningActivityEvents'], 'readonly');
+      const learnIndex = tx.objectStore('learnWords').index('word');
+      const activityIndex = tx.objectStore('learningActivityEvents').index('dedupeKey');
+      const existingWords = new Set();
+      const todayProcessedWords = new Set();
+      let failure = null;
+
+      const fail = error => {
+        failure = error || new Error('导入预分析失败');
+        try {
+          tx.abort();
+        } catch {}
+      };
+
+      for (const candidate of candidates) {
+        const stemWord = getStemForm(candidate);
+        if (!stemWord) continue;
+        const wordRequest = learnIndex.get(stemWord);
+        wordRequest.onerror = () => fail(wordRequest.error);
+        wordRequest.onsuccess = () => {
+          if (!wordRequest.result) return;
+          existingWords.add(candidate);
+          const dailyRequest = activityIndex.get(importWordDedupeKey(dayKey, stemWord));
+          dailyRequest.onerror = () => fail(dailyRequest.error);
+          dailyRequest.onsuccess = () => {
+            if (dailyRequest.result) todayProcessedWords.add(candidate);
+          };
+        };
+      }
+
+      tx.oncomplete = () => resolve({ existingWords, todayProcessedWords });
+      tx.onerror = () => reject(failure || tx.error || new Error('导入预分析失败'));
+      tx.onabort = () => reject(failure || tx.error || new Error('导入预分析失败'));
+    });
+  },
+
   async findLearnWordById(id) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -1181,7 +1338,7 @@ export const DB = {
   // Apply a schedule and append the explicit evidence in one transaction.
   // Existing words are left intact until the user actually reviews them.
   async recordLearnWordReview(id, srsData, event) {
-    const db = await this.open();
+    const db = await this.open(3, { correlationId: event?.correlationId });
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
       const words = tx.objectStore('learnWords');
@@ -1202,6 +1359,9 @@ export const DB = {
           return;
         }
         updatedWord = { ...word, ...srsData, reviewRevision: currentRevision + 1 };
+        // expectedRevision is a transient UI CAS token, never a learnWords
+        // field. Remove it defensively for older callers too.
+        delete updatedWord.expectedRevision;
         words.put(updatedWord);
         events.add({
           wordId: id,
@@ -1251,6 +1411,12 @@ export const DB = {
           return;
         }
 
+        if (correction.expectedRevision !== undefined
+          && Number(correction.expectedRevision) !== Math.max(0, Number(word.reviewRevision) || 0)) {
+          fail('该单词已在另一种复习方式中更新');
+          return;
+        }
+
         const eventRequest = events.index('wordId').getAll(id);
         eventRequest.onsuccess = () => {
           const matching = eventRequest.result
@@ -1262,6 +1428,7 @@ export const DB = {
           }
 
           updatedWord = { ...word, ...srsData };
+          delete updatedWord.expectedRevision;
           words.put(updatedWord);
           events.put({
             ...matching,
@@ -1315,6 +1482,95 @@ export const DB = {
       });
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+    });
+  },
+
+  // ===== Local diagnostic logs =====
+
+  async appendDiagnosticLogs(items = []) {
+    const rows = Array.isArray(items)
+      ? items.filter(item => item?.id).map(clonePlain)
+      : [];
+    if (!rows.length) return 0;
+    const db = await this.open(3, { diagnostics: false });
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('diagnosticLogs', 'readwrite');
+      const store = tx.objectStore('diagnosticLogs');
+      rows.forEach(row => store.put(row));
+      const allRequest = store.getAll();
+      allRequest.onsuccess = () => {
+        const cutoff = Date.now() - DIAGNOSTIC_LOG_RETENTION_MS;
+        const retained = allRequest.result
+          .filter(row => Number(row.occurredAt) >= cutoff)
+          .sort((left, right) => Number(right.occurredAt) - Number(left.occurredAt)
+            || String(right.id).localeCompare(String(left.id)))
+          .slice(0, DIAGNOSTIC_LOG_MAX_ENTRIES);
+        let bytes = 0;
+        const bounded = [];
+        for (const row of retained) {
+          let rowBytes = 0;
+          try { rowBytes = JSON.stringify(row).length; } catch { rowBytes = 0; }
+          if (bounded.length && bytes + rowBytes > DIAGNOSTIC_LOG_MAX_BYTES) break;
+          bounded.push(row);
+          bytes += rowBytes;
+        }
+        store.clear();
+        bounded.forEach(row => store.put(row));
+      };
+      allRequest.onerror = () => reject(allRequest.error);
+      tx.oncomplete = () => resolve(rows.length);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('诊断日志保存失败'));
+    });
+  },
+
+  async listDiagnosticLogs({ from, to, limit = 5_000 } = {}) {
+    const lower = numericValue(from);
+    const upper = numericValue(to);
+    const requestedLimit = Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 5_000;
+    const cappedLimit = Math.max(0, Math.min(5_000, requestedLimit));
+    const db = await this.open(3, { diagnostics: false });
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('diagnosticLogs', 'readonly');
+      const index = tx.objectStore('diagnosticLogs').index('occurredAt');
+      const req = index.getAll();
+      req.onsuccess = () => {
+        const rows = req.result
+          .filter(row => (lower === null || Number(row.occurredAt) >= lower)
+            && (upper === null || Number(row.occurredAt) <= upper))
+          .sort((left, right) => Number(left.occurredAt) - Number(right.occurredAt)
+            || String(left.id).localeCompare(String(right.id)));
+        resolve((cappedLimit === 0 ? [] : rows.slice(-cappedLimit)).map(clonePlain));
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getDiagnosticLogStats() {
+    const rows = await this.listDiagnosticLogs({ limit: 5_000 });
+    return {
+      count: rows.length,
+      bytes: rows.reduce((total, row) => {
+        try {
+          return total + JSON.stringify(row).length;
+        } catch {
+          return total;
+        }
+      }, 0),
+      oldestAt: rows[0]?.occurredAt ?? null,
+      newestAt: rows[rows.length - 1]?.occurredAt ?? null
+    };
+  },
+
+  async clearDiagnosticLogs() {
+    const db = await this.open(3, { diagnostics: false });
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('diagnosticLogs', 'readwrite');
+      tx.objectStore('diagnosticLogs').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('诊断日志清除失败'));
     });
   },
 
@@ -1626,28 +1882,47 @@ export const DB = {
 
   // V2 会话结算：正式复习评分统一入口。按 recovery 状态机更新 learnWords，
   // 并在同一事务写入带 sessionDebt / recoveryStage 的 reviewEvents。
-  async settleSessionReview(id, srsData, event = {}) {
-    const db = await this.open();
+  async settleSessionReview(id, srsData, event = {}, options = {}) {
+    const db = await this.open(3, { correlationId: event?.correlationId });
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
       const words = tx.objectStore('learnWords');
       const events = tx.objectStore('reviewEvents');
-      const getReq = words.get(id);
       let updatedWord = null;
       let failure = null;
+      const attemptId = String(options.attemptId || event.attemptId || '').trim();
+      const expectedRevision = options.expectedRevision !== undefined
+        ? options.expectedRevision
+        : event.expectedRevision;
+      let word = null;
+      let wordReady = false;
+      let attemptReady = !attemptId;
+      let existingAttempt = null;
 
-      getReq.onsuccess = () => {
-        const word = getReq.result;
+      const finishReadPhase = () => {
+        if (!wordReady || !attemptReady) return;
         if (!word) {
           failure = abortTransaction(tx, new Error('学习词不存在'));
           return;
         }
+
+        // A retry after the original transaction committed is a successful
+        // no-op. This check happens inside the same readwrite transaction as
+        // the revision check and write, so it cannot double-advance SRS.
+        if (existingAttempt) {
+          updatedWord = { ...word };
+          return;
+        }
+
         const currentRevision = Math.max(0, Number(word.reviewRevision) || 0);
-        if (event.expectedRevision !== undefined && Number(event.expectedRevision) !== currentRevision) {
+        if (expectedRevision !== undefined && Number(expectedRevision) !== currentRevision) {
           failure = abortTransaction(tx, new Error('该单词已在另一种复习方式中更新'));
           return;
         }
         updatedWord = { ...word, ...srsData, reviewRevision: currentRevision + 1 };
+        // expectedRevision is a transient UI CAS token, never a learnWords
+        // field. Remove it defensively for older callers too.
+        delete updatedWord.expectedRevision;
         words.put(updatedWord);
         events.add({
           wordId: id,
@@ -1665,9 +1940,34 @@ export const DB = {
           recoveryStage: Number(srsData.recoveryStage) || 0,
           recoveryTarget: Number(srsData.recoveryTarget) || 0,
           lastDebt: Number(srsData.lastDebt) || 0,
-          ...event
+          ...event,
+          ...(attemptId ? { attemptId } : {})
         });
       };
+
+      const getReq = words.get(id);
+      getReq.onsuccess = () => {
+        word = getReq.result;
+        wordReady = true;
+        finishReadPhase();
+      };
+      getReq.onerror = () => {
+        failure = getReq.error;
+        tx.abort();
+      };
+
+      if (attemptId && events.indexNames.contains('attemptId')) {
+        const attemptReq = events.index('attemptId').get(attemptId);
+        attemptReq.onsuccess = () => {
+          existingAttempt = attemptReq.result || null;
+          attemptReady = true;
+          finishReadPhase();
+        };
+        attemptReq.onerror = () => {
+          failure = attemptReq.error;
+          tx.abort();
+        };
+      }
       tx.oncomplete = () => resolve(updatedWord);
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('复习记录保存失败'));

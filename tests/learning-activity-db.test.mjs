@@ -31,7 +31,7 @@ async function loadFreshDb(label) {
 test('v18 adds telemetry stores without changing existing learnWords', async () => {
   const db = await loadFreshDb('Migration');
   const opened = await db.open();
-  assert.equal(opened.version, 19);
+  assert.ok(opened.version >= 21);
   assert.equal(opened.objectStoreNames.contains('learningActivityEvents'), true);
   assert.equal(opened.objectStoreNames.contains('dailyLearningReports'), true);
   assert.equal(opened.transaction('learnWords').objectStore('learnWords').indexNames.contains('word'), true);

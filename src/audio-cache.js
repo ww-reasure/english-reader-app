@@ -4,16 +4,27 @@
  *
  * Flow:
  *   1. getAudio(word) → check Cache API → play if cached
- *   2. If not cached → fetch from Free Dictionary API → play + cache
+ *   2. If not cached → resolve Free Dictionary / Wikimedia recordings → play + cache
  *   3. preloadWords(text) → extract words → dedup → batch download → cache
  */
 
 import { getStemForm } from './helpers.js';
+import {
+  createPronunciationResolver,
+  fetchPronunciationResponse,
+  normalizePronunciationWord
+} from './pronunciation-resolver.mjs';
+
+const RESOLUTION_CACHE_VERSION = 1;
+const RESOLUTION_CACHE_PREFIX = 'https://english-reader.local/pronunciation-resolution/';
+const POSITIVE_RESOLUTION_TTL = 30 * 24 * 60 * 60 * 1000;
+const NEGATIVE_RESOLUTION_TTL = 24 * 60 * 60 * 1000;
 
 export const AudioCache = {
   CACHE_NAME: 'english-reader-audio',
   CONCURRENCY: 5,
   _activeAudio: null,
+  _resolver: createPronunciationResolver(),
 
   isAborted(signal) {
     return Boolean(signal?.aborted);
@@ -27,9 +38,6 @@ export const AudioCache = {
       }
     } catch {}
     this._activeAudio = null;
-    try {
-      speechSynthesis?.cancel();
-    } catch {}
   },
 
   // Get cache instance
@@ -37,8 +45,9 @@ export const AudioCache = {
     return await caches.open(this.CACHE_NAME);
   },
 
-  // Get audio URL variants for a word (Free Dictionary API has multiple formats)
-  getAudioUrls(word) {
+  // Keep already-downloaded legacy files usable, but never probe these guessed
+  // URLs on the network. New recordings come only from authoritative API data.
+  getLegacyAudioUrls(word) {
     const w = word.toLowerCase();
     return [
       `https://api.dictionaryapi.dev/media/pronunciations/en/${w}-uk.mp3`,
@@ -48,14 +57,67 @@ export const AudioCache = {
     ];
   },
 
-  // Fetch the first available pronunciation directly. This avoids the old
-  // HEAD probe + second download pattern, which doubled requests in normal use.
-  async fetchAudio(word, { signal } = {}) {
-    for (const url of this.getAudioUrls(word)) {
+  getResolutionCacheUrl(word) {
+    return `${RESOLUTION_CACHE_PREFIX}${encodeURIComponent(word)}`;
+  },
+
+  async readResolution(cache, word, { includeWikimedia = true } = {}) {
+    if (!cache) return null;
+    try {
+      const response = await cache.match(this.getResolutionCacheUrl(word));
+      if (!response) return null;
+      const payload = await response.json();
+      if (payload?.version !== RESOLUTION_CACHE_VERSION || !Array.isArray(payload?.candidates)) return null;
+      if (includeWikimedia && payload.scope !== 'full' && payload.candidates.length === 0) return null;
+      const ttl = payload.candidates.length ? POSITIVE_RESOLUTION_TTL : NEGATIVE_RESOLUTION_TTL;
+      if (!Number.isFinite(payload.savedAt) || Date.now() - payload.savedAt > ttl) return null;
+      return payload.candidates;
+    } catch {
+      return null;
+    }
+  },
+
+  async writeResolution(cache, word, candidates, { includeWikimedia = true } = {}) {
+    if (!cache || typeof Response === 'undefined') return;
+    try {
+      const response = new Response(JSON.stringify({
+        version: RESOLUTION_CACHE_VERSION,
+        savedAt: Date.now(),
+        scope: includeWikimedia ? 'full' : 'dictionary',
+        candidates
+      }), { headers: { 'Content-Type': 'application/json' } });
+      await cache.put(this.getResolutionCacheUrl(word), response);
+    } catch {}
+  },
+
+  async getPronunciationMetadata(word, { cache: suppliedCache = null } = {}) {
+    const key = normalizePronunciationWord(word);
+    if (!key) return [];
+    try {
+      const cache = suppliedCache || await this.getCache();
+      return await this.readResolution(cache, key, { includeWikimedia: true }) || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async resolveCandidates(word, { signal, includeWikimedia = true, cache = null } = {}) {
+    const cached = await this.readResolution(cache, word, { includeWikimedia });
+    if (cached) return cached;
+    const candidates = await this._resolver.resolve(word, { signal, includeWikimedia });
+    if (!this.isAborted(signal)) await this.writeResolution(cache, word, candidates, { includeWikimedia });
+    return candidates;
+  },
+
+  async fetchAudio(word, { signal, includeWikimedia = true, cache = null } = {}) {
+    const candidates = await this.resolveCandidates(word, { signal, includeWikimedia, cache });
+    for (const candidate of candidates) {
       if (this.isAborted(signal)) return null;
       try {
-        const response = await fetch(url, { signal });
-        if (response.ok) return { url, response };
+        const cached = cache ? await cache.match(candidate.url) : null;
+        if (cached) return { ...candidate, response: cached, cached: true };
+        const response = await fetchPronunciationResponse(candidate.url, { signal });
+        if (response) return { ...candidate, response, cached: false };
       } catch {
         if (this.isAborted(signal)) return null;
       }
@@ -91,118 +153,99 @@ export const AudioCache = {
     }
   },
 
-  // Get and play audio (try multiple URL formats + cache)
-  async getAudio(word, { signal, silent = false } = {}) {
+  async playResponse(response, { signal } = {}) {
     if (this.isAborted(signal)) return false;
-    const key = word.toLowerCase().replace(/[^a-z\-']/g, '');
-    if (!key || key.length < 2) return false;
-
-    // 1. Check cache first (try all URL variants)
+    let objectUrl = '';
     try {
-      if (typeof caches !== 'undefined') {
-        const cache = await this.getCache();
-        for (const url of this.getAudioUrls(key)) {
-          if (this.isAborted(signal)) return false;
-          const cached = await cache.match(url);
-          if (cached) {
-            const blob = await cached.blob();
-            const objectUrl = URL.createObjectURL(blob);
-            const audio = new Audio(objectUrl);
-            // 释放 blob URL 防泄漏(音频结束或出错都 revoke)
-            this.stop();
-            this._activeAudio = audio;
-            audio.onended = () => {
-              if (this._activeAudio === audio) this._activeAudio = null;
-              URL.revokeObjectURL(objectUrl);
-            };
-            audio.onerror = () => {
-              if (this._activeAudio === audio) this._activeAudio = null;
-              URL.revokeObjectURL(objectUrl);
-            };
-            if (this.isAborted(signal)) {
-              URL.revokeObjectURL(objectUrl);
-              return false;
-            }
-            await audio.play();
-            if (this.isAborted(signal)) {
-              this.stop();
-              URL.revokeObjectURL(objectUrl);
-              return false;
-            }
-            return true;
-          }
-        }
-      }
-    } catch {}
-
-    // 2. Fetch a working pronunciation from network
-    const audioResult = await this.fetchAudio(key, { signal });
-    if (this.isAborted(signal)) return false;
-    if (!audioResult) {
-      // 无在线发音 → 回退系统 TTS(离线/API缺词也能读)
-      if (this._speak(word, { signal })) return true;
-      if (!silent) this._showToast(`"${word}" 暂无发音`);
-      return false;
-    }
-
-    // 3. Cache and play the already-downloaded response (no duplicate request)
-    try {
-      const { url, response } = audioResult;
-      if (this.isAborted(signal)) return false;
-      // 先克隆用于缓存, 再用原响应播放
-      try {
-        if (typeof caches !== 'undefined') {
-          const cache = await this.getCache();
-          await cache.put(url, response.clone());
-        }
-      } catch {}
       const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
+      objectUrl = URL.createObjectURL(blob);
       const audio = new Audio(objectUrl);
       this.stop();
       this._activeAudio = audio;
-      audio.onended = () => {
+      const release = () => {
         if (this._activeAudio === audio) this._activeAudio = null;
         URL.revokeObjectURL(objectUrl);
       };
-      audio.onerror = () => {
-        if (this._activeAudio === audio) this._activeAudio = null;
-        URL.revokeObjectURL(objectUrl);
-      };
+      audio.onended = release;
+      audio.onerror = release;
       if (this.isAborted(signal)) {
-        URL.revokeObjectURL(objectUrl);
+        release();
         return false;
       }
       await audio.play();
       if (this.isAborted(signal)) {
         this.stop();
-        URL.revokeObjectURL(objectUrl);
+        release();
         return false;
       }
       return true;
-    } catch (e) {
-      console.warn('Audio play failed:', e);
-      // 播放失败也尝试 TTS 兜底
-      if (this._speak(word, { signal })) return true;
+    } catch {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (this._activeAudio) this._activeAudio = null;
       return false;
     }
   },
 
-  // 系统 TTS 兜底发音
-  _speak(word, { signal } = {}) {
-    if (this.isAborted(signal)) return false;
-    try {
-      if (typeof speechSynthesis === 'undefined') return false;
-      const u = new SpeechSynthesisUtterance(word);
-      u.lang = 'en-US';
-      u.rate = 0.9;
-      this.stop();
+  async playCandidates(candidates, { signal, cache = null } = {}) {
+    for (const candidate of candidates) {
       if (this.isAborted(signal)) return false;
-      speechSynthesis.speak(u);
-      return true;
-    } catch {
-      return false;
+      const cached = cache ? await cache.match(candidate.url).catch(() => null) : null;
+      if (cached && await this.playResponse(cached, { signal })) return true;
     }
+
+    // API candidates are already ordered by preferred accent. Trying the first
+    // authoritative URL with a hard timeout keeps a stalled CDN from delaying
+    // the Wikimedia fallback or probing a series of URLs on the same host.
+    const candidate = candidates[0];
+    if (!candidate || this.isAborted(signal)) return false;
+    const response = await fetchPronunciationResponse(candidate.url, { signal });
+    if (!response || this.isAborted(signal)) return false;
+    if (cache) await cache.put(candidate.url, response.clone()).catch(() => {});
+    return this.playResponse(response, { signal });
+  },
+
+  // Get and play a recorded pronunciation. Synthetic speech is deliberately
+  // excluded so audio quality remains consistent across the learning app.
+  async getAudio(word, { signal, silent = false } = {}) {
+    if (this.isAborted(signal)) return false;
+    const key = normalizePronunciationWord(word);
+    if (!key || key.length < 2) return false;
+
+    let cache = null;
+    try {
+      if (typeof caches !== 'undefined') cache = await this.getCache();
+    } catch {}
+
+    // Preserve audio downloaded by older app versions without issuing guessed
+    // network requests for those historical URL shapes.
+    if (cache) {
+      for (const url of this.getLegacyAudioUrls(key)) {
+        if (this.isAborted(signal)) return false;
+        const cached = await cache.match(url).catch(() => null);
+        if (cached && await this.playResponse(cached, { signal })) return true;
+      }
+    }
+
+    const candidates = await this.resolveCandidates(key, { signal, includeWikimedia: true, cache });
+    if (this.isAborted(signal)) return false;
+
+    const dictionary = candidates.filter(candidate => candidate.source === 'free-dictionary');
+    let wikimedia = candidates.filter(candidate => candidate.source === 'wikimedia-commons');
+    if (dictionary.length && await this.playCandidates(dictionary, { signal, cache })) return true;
+
+    // A dictionary entry can exist while its media CDN is unavailable. Only in
+    // that case, explicitly resolve the independent Lingua Libre recording.
+    if (dictionary.length && !wikimedia.length) {
+      wikimedia = await this._resolver.resolveWikimedia(key, { signal });
+      if (this.isAborted(signal)) return false;
+      const merged = [...candidates, ...wikimedia]
+        .filter((candidate, index, list) => list.findIndex(item => item.url === candidate.url) === index);
+      await this.writeResolution(cache, key, merged, { includeWikimedia: true });
+    }
+    if (await this.playCandidates(wikimedia, { signal, cache })) return true;
+
+    if (!silent) this._showToast(`"${word}" 暂无真人发音`);
+    return false;
   },
 
   // Simple toast notification
@@ -238,17 +281,12 @@ export const AudioCache = {
       }
     }
 
-    // Filter already cached (check all URL variants)
+    // Bulk preload intentionally stays on the lightweight dictionary source;
+    // Wikimedia is queried on demand when the user taps a missing recording.
     const cache = await this.getCache();
     const toFetch = [];
     for (const word of unique) {
-      const urls = this.getAudioUrls(word);
-      let found = false;
-      for (const url of urls) {
-        const cached = await cache.match(url);
-        if (cached) { found = true; break; }
-      }
-      if (!found) toFetch.push(word);
+      if (!await this.isCached(word, { cache })) toFetch.push(word);
     }
 
     if (toFetch.length === 0) return 0;
@@ -261,9 +299,10 @@ export const AudioCache = {
       const batch = toFetch.slice(i, i + this.CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map(async word => {
-          const audioResult = await this.fetchAudio(word);
+          const audioResult = await this.fetchAudio(word, { includeWikimedia: false, cache });
           if (!audioResult) return false;
-          const { url, response } = audioResult;
+          const { url, response, cached } = audioResult;
+          if (cached) return false;
           await cache.put(url, response);
           return true;
         })
@@ -285,7 +324,7 @@ export const AudioCache = {
         const estimate = await navigator.storage.estimate();
         // Rough estimate: audio cache is a subset of total usage
         const cache = await this.getCache();
-        const keys = await cache.keys();
+        const keys = (await cache.keys()).filter(request => !request.url.startsWith(RESOLUTION_CACHE_PREFIX));
         return {
           count: keys.length,
           estimatedMB: Math.round((keys.length * 15) / 1024 * 10) / 10  // ~15KB per word
@@ -306,11 +345,18 @@ export const AudioCache = {
   },
 
   // Check if a word is cached
-  async isCached(word) {
+  async isCached(word, { cache: suppliedCache = null } = {}) {
     try {
-      const cache = await this.getCache();
-      for (const url of this.getAudioUrls(word)) {
+      const key = normalizePronunciationWord(word);
+      if (!key) return false;
+      const cache = suppliedCache || await this.getCache();
+      for (const url of this.getLegacyAudioUrls(key)) {
         const cached = await cache.match(url);
+        if (cached) return true;
+      }
+      const candidates = await this.readResolution(cache, key, { includeWikimedia: false });
+      for (const candidate of candidates || []) {
+        const cached = await cache.match(candidate.url);
         if (cached) return true;
       }
       return false;
@@ -320,4 +366,4 @@ export const AudioCache = {
   }
 };
 
-window.AudioCache = AudioCache;
+if (typeof window !== 'undefined') window.AudioCache = AudioCache;

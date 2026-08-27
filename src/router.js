@@ -57,6 +57,15 @@ export const Router = {
       hash = '#/vocab';
       history.replaceState(history.state, '', `${location.pathname}${location.search}${hash}`);
     }
+    try {
+      globalThis?.__englishReaderDiagnosticLogger?.record('route.navigate', {
+        category: 'app',
+        route: hash.split('?')[0],
+        payload: { route: hash.split('?')[0] }
+      });
+    } catch {
+      // Diagnostics are best-effort and must not affect navigation.
+    }
     const app = document.getElementById('app');
 
     // Cleanup previous view's event listeners

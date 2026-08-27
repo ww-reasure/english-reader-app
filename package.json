@@ -50,6 +50,7 @@
     "@capacitor/share": "^8.0.1",
     "@fortawesome/fontawesome-free": "^7.3.1",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "3.11.174",
     "udpipe-wasm": "0.1.0",
     "yauzl": "^2.10.0"
   },

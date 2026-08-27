@@ -62,7 +62,7 @@ test('database migration stores immutable review events with the word update', a
   assert.ok(Number(version) >= 9, 'review-event migration requires database version 9 or later');
   assert.match(source, /createObjectStore\('reviewEvents'/);
   assert.match(source, /recordLearnWordReview\(id, srsData, event\)/);
-  assert.match(source, /async settleSessionReview\(id, srsData, event(?: = \{\})?\)/);
+  assert.match(source, /async settleSessionReview\(id, srsData, event(?: = \{\})?(?:, options = \{\})?\)/);
   assert.match(source, /addReviewEvent\(event\)/);
   assert.match(source, /db\.transaction\(\['learnWords', 'reviewEvents'\], 'readwrite'\)/);
 });

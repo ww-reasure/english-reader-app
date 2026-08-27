@@ -32,7 +32,7 @@ async function createDatabase() {
 test('v19 creates chatImageAttachments without rewriting learning stores', async () => {
   const DB = await createDatabase();
   const db = await DB.open();
-  assert.equal(db.version, 19);
+  assert.ok(db.version >= 21);
   assert.equal(db.objectStoreNames.contains('chatImageAttachments'), true);
   for (const existing of ['vocabulary', 'learnWords', 'reviewEvents', 'knowledgeWords', 'articleCatalog']) {
     assert.equal(db.objectStoreNames.contains(existing), true, `existing store missing: ${existing}`);

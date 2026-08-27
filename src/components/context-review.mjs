@@ -354,9 +354,9 @@ export function createContextReviewService({
       };
     },
 
-    async submit({ item, result, assistedLookupCount = 0 } = {}) {
+    async submit({ item, result, assistedLookupCount = 0, validate = true } = {}) {
       if (!item || result === 'skipped') return { accepted: false, reason: 'skipped' };
-      if (coordinator) {
+      if (coordinator && validate) {
         const checked = await coordinator.revalidate({ id: item.wordId, expectedRevision: item.expectedRevision });
         if (!checked.current) return { accepted: false, reason: checked.reason };
         item = { ...item, word: checked.word };

@@ -16,6 +16,7 @@ import { makeContextReviewCacheKey } from '../components/context-review-runtime.
 import { ActivityType } from '../learning-activity.mjs';
 import { localDayKey } from '../learning-day.mjs';
 import { StudySessionTimer } from '../study-session-timer.mjs';
+import { getReviewPersistence, readEmergencySessionCheckpoint } from '../review-persistence.mjs';
 
 const ACTIVE_SESSION_ID = 'context-review-active';
 const TODAY_KEY = 'todayReviewedWords';
@@ -114,6 +115,7 @@ export const ContextReviewView = {
   session: null,
   currentIndex: 0,
   answered: null,
+  submitting: false,
   assistedLookupCount: 0,
   counts: { known: 0, uncertain: 0, unknown: 0, skipped: 0 },
   notice: '',
@@ -132,6 +134,24 @@ export const ContextReviewView = {
   reviewTimerStartedAt: 0,
   reviewSummarySaved: false,
   completedWordIds: new Set(),
+  reviewPersistence: null,
+  _reviewPersistenceUnsubscribe: null,
+
+  bindReviewPersistenceStatus() {
+    this._reviewPersistenceUnsubscribe?.();
+    this._reviewPersistenceUnsubscribe = this.reviewPersistence?.subscribe?.(event => {
+      if (!event || !this.container || !['rating_failed', 'rating_completed'].includes(event.type)) return;
+      const current = this.session?.items?.[this.currentIndex];
+      if (!current || Number(event.wordId) !== Number(current.wordId)) return;
+      if (event.type === 'rating_failed') {
+        this.notice = '本次判断已记录但暂未保存，稍后将自动重试。';
+        if (this.answered) this.renderCard();
+      } else if (event.type === 'rating_completed' && this.notice.includes('暂未保存')) {
+        this.notice = '已保存';
+        if (this.answered) this.renderCard();
+      }
+    }) || null;
+  },
 
   startReviewTimer() {
     if (!this.session || (this.reviewTimer && !this.reviewSummarySaved)) return;
@@ -193,9 +213,12 @@ export const ContextReviewView = {
   async render(container) {
     this.cleanup();
     this.container = container;
+    this.reviewPersistence = getReviewPersistence(DB);
+    this.bindReviewPersistenceStatus();
     this.session = null;
     this.currentIndex = 0;
     this.answered = null;
+    this.submitting = false;
     this.assistedLookupCount = 0;
     this.counts = { known: 0, uncertain: 0, unknown: 0, skipped: 0 };
     this.completedWordIds = new Set();
@@ -209,7 +232,13 @@ export const ContextReviewView = {
     this.controller = new AbortController();
     container.innerHTML = '<main class="app-standard-page context-review-page context-review-content" data-context-review-content="loading"><div class="context-review-loading"><span></span><p>正在准备语境句子…</p><small>优先使用目标考试真题原句，缺失时按当前难度补全</small></div></main>';
     try {
-      const restored = await DB.getContextReviewSession(ACTIVE_SESSION_ID);
+      const [storedSession, emergencySession] = await Promise.all([
+        DB.getContextReviewSession(ACTIVE_SESSION_ID).catch(() => null),
+        Promise.resolve(readEmergencySessionCheckpoint({ key: ACTIVE_SESSION_ID }))
+      ]);
+      const restored = [storedSession, emergencySession]
+        .filter(value => value?.items?.length)
+        .sort((a, b) => (Number(b.sequence) || 0) - (Number(a.sequence) || 0) || (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0] || null;
       if (restored?.items?.length) {
         this.session = restored;
         this.session.sessionId ||= `context-review:${Number(this.session.createdAt) || Date.now()}`;
@@ -244,7 +273,7 @@ export const ContextReviewView = {
         this.session.activeDurationMs = Math.max(0, Number(this.session.activeDurationMs) || 0);
         this.session.id = ACTIVE_SESSION_ID;
         this.currentIndex = 0;
-        await this.persistSession();
+         this.persistSession();
       }
       this.startReviewTimer();
       await this.showCurrent();
@@ -262,25 +291,35 @@ export const ContextReviewView = {
     this.hideTooltip();
     while (this.currentIndex < (this.session?.items?.length || 0)) {
       const item = this.session.items[this.currentIndex];
-      const checked = await ReviewQueue.revalidate({ id: item.wordId, expectedRevision: item.expectedRevision });
-      if (checked.current) {
-        item.word = checked.word;
-        item.lastUsedAt = Date.now();
-        if (item.difficultyStatus !== 'offline-fallback') {
-          void DB.saveContextReviewSentences([item]).catch(() => {});
+      if (!item?.word) {
+        const checked = await DB.findLearnWordById(item?.wordId).catch(() => null);
+        if (!checked) {
+          this.commitPendingKnowledgeEvidence();
+          this.currentIndex += 1;
+          continue;
         }
-        break;
+        item.word = { ...checked, expectedRevision: item.expectedRevision ?? checked.reviewRevision };
       }
-      this.commitPendingKnowledgeEvidence();
-      this.currentIndex += 1;
+      item.lastUsedAt = Date.now();
+      if (item.difficultyStatus !== 'offline-fallback') {
+        void DB.saveContextReviewSentences([item]).catch(() => {});
+      }
+      break;
     }
     if (!this.container) return;
     if (this.currentIndex >= (this.session?.items?.length || 0)) {
-      await DB.deleteContextReviewSession(ACTIVE_SESSION_ID);
+      // Do not make the result screen wait for IndexedDB. The persistence
+      // coordinator marks this session discarded and removes it after any
+      // in-flight checkpoint finishes, so a late save cannot resurrect it.
+      const clear = this.reviewPersistence?.clearSession
+        ? this.reviewPersistence.clearSession({ key: ACTIVE_SESSION_ID })
+        : DB.deleteContextReviewSession(ACTIVE_SESSION_ID);
+      void Promise.resolve(clear).catch(() => {});
       this.renderResult();
       return;
     }
     this.answered = null;
+    this.submitting = false;
     this.assistedLookupCount = 0;
     this.notice = '';
     this.translationLoading = false;
@@ -289,7 +328,7 @@ export const ContextReviewView = {
     this.correctionDone = false;
     this.pendingEvidence = null;
     this.noteReviewActivity();
-    await this.persistSession();
+    this.persistSession();
     this.renderCard();
   },
 
@@ -297,6 +336,7 @@ export const ContextReviewView = {
     this.unbindInteractions();
     const item = this.session.items[this.currentIndex];
     const answered = Boolean(this.answered);
+    const submitting = Boolean(this.submitting);
     const progress = Math.round((this.currentIndex / this.session.items.length) * 100);
     this.container.innerHTML = `
       <main class="app-standard-page context-review-page context-review-content" data-context-review-content="card" aria-labelledby="contextReviewTitle">
@@ -310,7 +350,7 @@ export const ContextReviewView = {
         <section class="context-review-sheet context-review-detail-pane ${answered ? 'is-answered' : ''}" data-context-review-pane="detail">
           <p class="context-review-instruction">${answered ? `你的判断：${RESULT_LABELS[this.answered]}` : '读句子，判断高亮单词在这里是否认识'}</p>
           <p class="context-review-sentence">${wordTokens(item.sentence, item, answered)}</p>
-          ${answered ? `<div class="context-review-answer" aria-live="polite">
+        ${answered ? `<div class="context-review-answer" aria-live="polite">
             <div class="context-review-answer-label">本句义</div>
             ${renderDefinition(item)}
             <div class="context-review-answer-label">整句翻译</div>
@@ -319,16 +359,16 @@ export const ContextReviewView = {
             <p class="context-review-source">${renderContextSource(item)}</p>
           </div>` : `<p class="context-review-help">可点击其他英文词查释义；目标词会保持隐藏，查词不会直接影响本题评分。</p>`}
         </section>
-        ${this.notice ? `<p class="context-review-notice" role="status">${esc(this.notice)}</p>` : ''}
+        ${this.renderNotice()}
         ${answered ? `<div class="context-review-after-actions">
           <button class="btn btn-outline" type="button" data-context-detail>完整学习详情</button>
-          <button class="btn btn-primary" type="button" data-context-next>下一句</button>
-          ${this.answered === ContextReviewResult.KNOWN && !this.correctionDone ? '<button class="context-review-correct" type="button" data-context-correct>记错了</button>' : ''}
+          <button class="btn btn-primary" type="button" data-context-next ${submitting ? 'disabled' : ''}>下一句</button>
+          ${this.answered === ContextReviewResult.KNOWN && !this.correctionDone ? `<button class="context-review-correct" type="button" data-context-correct ${submitting ? 'disabled' : ''}>${submitting ? '正在保存…' : '记错了'}</button>` : ''}
         </div>` : `<div class="context-review-rating" aria-label="语境判断">
-          <button type="button" data-context-result="known"><i class="fa-regular fa-face-smile"></i><span>认识</span></button>
-          <button type="button" data-context-result="uncertain"><i class="fa-regular fa-face-meh"></i><span>模糊</span></button>
-          <button type="button" data-context-result="unknown"><i class="fa-regular fa-face-frown"></i><span>不认识</span></button>
-          <button class="context-review-skip" type="button" data-context-result="skipped">跳过</button>
+          <button type="button" data-context-result="known" ${submitting ? 'disabled' : ''}><i class="fa-regular fa-face-smile"></i><span>${submitting ? '保存中…' : '认识'}</span></button>
+          <button type="button" data-context-result="uncertain" ${submitting ? 'disabled' : ''}><i class="fa-regular fa-face-meh"></i><span>${submitting ? '保存中…' : '模糊'}</span></button>
+          <button type="button" data-context-result="unknown" ${submitting ? 'disabled' : ''}><i class="fa-regular fa-face-frown"></i><span>${submitting ? '保存中…' : '不认识'}</span></button>
+          <button class="context-review-skip" type="button" data-context-result="skipped" ${submitting ? 'disabled' : ''}>跳过</button>
         </div>`}
       </main>`;
     this.bindInteractions();
@@ -344,6 +384,7 @@ export const ContextReviewView = {
       if (target.closest('[data-context-next]')) return void this.next();
       if (target.closest('[data-context-detail]')) return this.openDetail();
       if (target.closest('[data-context-correct]')) return void this.correctMistake();
+      if (target.closest('[data-context-retry]')) return void this.retryPendingRatings();
       if (target.closest('[data-context-translation-retry]')) return void this.loadTranslation(this.session.items[this.currentIndex]);
       if (target.closest('[data-context-target]')) {
         if (!this.answered) {
@@ -357,6 +398,25 @@ export const ContextReviewView = {
     };
     this.container.addEventListener('click', this._clickHandler);
     this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
+  },
+
+  renderNotice() {
+    if (!this.notice) return '';
+    const retryable = this.notice.includes('暂未保存') || this.notice.includes('保存失败');
+    return `<p class="context-review-notice" role="status">${esc(this.notice)}${retryable ? ' <button class="context-review-save-retry" type="button" data-context-retry>重试保存</button>' : ''}</p>`;
+  },
+
+  async retryPendingRatings() {
+    if (!this.reviewPersistence?.retryFailed) return;
+    this.notice = '正在重试保存…';
+    this.renderCard();
+    try {
+      const status = await this.reviewPersistence.retryFailed();
+      this.notice = status.rating.failed ? '仍有判断未保存，请稍后再次重试。' : '已重新提交保存';
+    } catch {
+      this.notice = '保存重试失败，请稍后再次重试。';
+    }
+    if (this.container) this.renderCard();
   },
 
   unbindInteractions() {
@@ -394,26 +454,29 @@ export const ContextReviewView = {
   },
 
   async submit(result) {
-    if (this.answered || !Object.values(ContextReviewResult).includes(result)) return;
+    if (this.answered || this.submitting || !Object.values(ContextReviewResult).includes(result)) return;
     if (result === ContextReviewResult.SKIPPED) {
+      this.submitting = true;
       this.counts.skipped += 1;
       this.currentIndex += 1;
-      await this.persistSession();
+      this.persistSession();
       await this.showCurrent();
       return;
     }
+    this.submitting = true;
     const item = this.session.items[this.currentIndex];
     this.correctionBaseline = { ...item.word };
-    this.notice = '正在保存本次判断…';
+    this.notice = '已记录，正在后台保存…';
     this.renderCard();
     try {
-      const saved = await ContextReview.submit({ item, result, assistedLookupCount: this.assistedLookupCount });
+      const saved = await ContextReview.submit({ item, result, assistedLookupCount: this.assistedLookupCount, validate: false });
       if (!saved.accepted) {
+        this.submitting = false;
         this.notice = ['revision-mismatch', 'reviewed-elsewhere', 'no-longer-due'].includes(saved.reason)
           ? '这个词已在另一种复习方式中完成，已自动跳过。'
           : '本次未计分。';
         this.currentIndex += 1;
-        await this.persistSession();
+        this.persistSession();
         await this.showCurrent();
         return;
       }
@@ -429,14 +492,16 @@ export const ContextReviewView = {
         source: 'context-review'
       };
       this.answered = result;
+      this.submitting = false;
       this.counts[result] += 1;
       this.completedWordIds.add(Number(item.wordId));
       rememberToday(saved.word, result, this.correctionAttemptId);
       this.notice = this.assistedLookupCount ? `本题查询了 ${this.assistedLookupCount} 个辅助词，目标词评分不受直接影响。` : '';
-      await this.persistSession();
+      this.persistSession();
       this.renderCard();
       if (!item.translationZh) void this.loadTranslation(item);
     } catch (error) {
+      this.submitting = false;
       this.notice = String(error?.message || '').includes('另一种复习方式')
         ? '这个词刚刚已在另一种复习方式完成，已自动跳过。'
         : '保存失败，请重新选择。';
@@ -479,13 +544,17 @@ export const ContextReviewView = {
   },
 
   async correctMistake() {
-    if (this.answered !== ContextReviewResult.KNOWN || this.correctionDone || !this.correctionAttemptId) return;
+    if (this.answered !== ContextReviewResult.KNOWN || this.correctionDone || !this.correctionAttemptId || this.submitting) return;
     this.noteReviewActivity();
+    this.submitting = true;
+    this.renderCard();
     const item = this.session.items[this.currentIndex];
     try {
       const corrected = scheduleContextReview(this.correctionBaseline, ContextReviewResult.UNKNOWN, Date.now());
+      await this.reviewPersistence?.flush({ timeoutMs: 5000 });
       const updated = await DB.correctLearnWordReview(item.wordId, corrected, {
         attemptId: this.correctionAttemptId,
+        expectedRevision: Math.max(0, Number(item.word?.reviewRevision) || 0),
         sawAnswer: true,
         correctionReason: 'mistaken-context-known'
       });
@@ -497,19 +566,21 @@ export const ContextReviewView = {
       if (this.pendingEvidence) this.pendingEvidence = { ...this.pendingEvidence, result: ContextReviewResult.UNKNOWN };
       rememberToday(updated, ContextReviewResult.UNKNOWN, this.correctionAttemptId);
       this.notice = '已更正为不认识，将在短时复习中再次出现。';
-      await this.persistSession();
+      this.persistSession();
     } catch {
       this.notice = '更正失败，请重试。';
     }
+    this.submitting = false;
     this.renderCard();
   },
 
   async next() {
-    if (!this.answered) return;
+    if (!this.answered || this.submitting) return;
     this.noteReviewActivity();
+    this.submitting = true;
     this.commitPendingKnowledgeEvidence();
     this.currentIndex += 1;
-    await this.persistSession();
+    this.persistSession();
     await this.showCurrent();
   },
 
@@ -519,13 +590,13 @@ export const ContextReviewView = {
     if (evidence) void knowledgeEvidenceBridge.recordContextReview(evidence);
   },
 
-  async persistSession() {
-    if (!this.session) return;
+  persistSession() {
+    if (!this.session) return null;
     if (this.reviewTimer && !this.reviewSummarySaved) {
       this.session.startedAt ||= this.reviewTimerStartedAt || Date.now();
       this.session.activeDurationMs = Math.max(0, Math.round(this.reviewTimerBaseDuration + this.reviewTimer.getActiveDuration()));
     }
-    await DB.saveContextReviewSession({
+    const snapshot = {
       ...this.session,
       id: ACTIVE_SESSION_ID,
       currentIndex: this.currentIndex,
@@ -533,7 +604,17 @@ export const ContextReviewView = {
       completedWordIds: [...this.completedWordIds],
       pendingEvidence: this.pendingEvidence,
       updatedAt: Date.now()
-    });
+    };
+    try {
+      const queued = this.reviewPersistence?.enqueueSession({ key: ACTIVE_SESSION_ID, snapshot });
+      if (!queued) throw new Error('语境会话后台保存不可用');
+      return queued;
+    } catch {
+      // Preserve the previous direct write as the safe fallback when the
+      // journal/localStorage is unavailable.
+      void DB.saveContextReviewSession(snapshot).catch(() => {});
+      return { accepted: false, fallback: true };
+    }
   },
 
   renderResult() {
@@ -567,8 +648,11 @@ export const ContextReviewView = {
   cleanup() {
     void this.persistReviewSummary('partial');
     this.commitPendingKnowledgeEvidence();
+    this._reviewPersistenceUnsubscribe?.();
+    this._reviewPersistenceUnsubscribe = null;
+    void this.reviewPersistence?.flush?.({ timeoutMs: 1500 }).catch(() => {});
     if (this.session && this.currentIndex < (this.session.items?.length || 0)) {
-      void this.persistSession().catch(() => {});
+      this.persistSession();
     }
     this.controller?.abort();
     this.controller = null;

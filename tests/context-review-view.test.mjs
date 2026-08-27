@@ -86,6 +86,6 @@ test('context review persists an active session summary without changing scoring
   assert.match(source, /buildReviewSummary/);
   assert.match(source, /persistReviewSummary\('completed'\)/);
   assert.match(source, /persistReviewSummary\('partial'\)/);
-  assert.match(source, /await this\.persistSession\(\)/);
+  assert.match(source, /this\.persistSession\(\)/);
   assert.match(source, /counts\[result\] \+= 1/);
 });

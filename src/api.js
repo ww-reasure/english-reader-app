@@ -78,6 +78,18 @@ const apiUrl = (baseUrl, endpoint) => {
   return `${base}${path}`;
 };
 
+function diagnosticLogger() {
+  try {
+    return globalThis?.__englishReaderDiagnosticLogger || null;
+  } catch {
+    return null;
+  }
+}
+
+function diagnosticCorrelationId(prefix = 'api') {
+  return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
 const visionModelUnavailablePattern = /(?:model[\s\S]{0,80}(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)|(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)[\s\S]{0,80}model)/i;
 
 export function isVisionModelUnavailable(error) {
@@ -319,6 +331,16 @@ ${personalizationGuidance}
     const apiKey = Config.get('api_key');
     const baseUrl = Config.get('base_url');
     const model = modelOverride || Config.get('model');
+    const correlationId = diagnosticCorrelationId();
+    const requestSpan = diagnosticLogger()?.beginSpan('network.api_request', {
+      category: 'network',
+      correlationId,
+      payload: {
+        endpoint: String(endpoint || '').split('?')[0],
+        model: String(model || ''),
+        timeoutMs
+      }
+    });
 
     const controller = new AbortController();
     const abortRequest = () => controller.abort();
@@ -353,8 +375,18 @@ ${personalizationGuidance}
         throw error;
       }
 
-      return resp.json();
+      const result = await resp.json();
+      requestSpan?.end({ payload: { status: resp.status } });
+      return result;
     } catch (err) {
+      requestSpan?.end({
+        level: 'error',
+        payload: {
+          status: Number(err?.status) || undefined,
+          errorName: err?.name || 'Error',
+          timeout: err?.name === 'AbortError'
+        }
+      });
       if (err.name === 'AbortError') {
         throw new Error(signal?.aborted ? '请求已取消' : '请求超时，请检查网络连接');
       }
@@ -457,6 +489,17 @@ ${personalizationGuidance}
     const apiKey = Config.get('api_key');
     const baseUrl = Config.get('base_url');
     const model = Config.get('model');
+    const correlationId = diagnosticCorrelationId('api-stream');
+    const requestSpan = diagnosticLogger()?.beginSpan('network.api_stream', {
+      category: 'network',
+      correlationId,
+      payload: {
+        endpoint: String(endpoint || '').split('?')[0],
+        model: String(model || ''),
+        timeoutMs
+      }
+    });
+    let responseStatus;
     const controller = new AbortController();
     const abortRequest = () => controller.abort();
     if (signal) {
@@ -482,8 +525,10 @@ ${personalizationGuidance}
         body: JSON.stringify({ ...requestBody, stream: true }),
         signal: controller.signal
       });
+      responseStatus = response.status;
       if (!response.ok) {
         const error = new Error(`API error: ${response.status} - ${await response.text()}`);
+        error.status = response.status;
         error.streamUnsupported = [400, 404, 405, 415, 422].includes(response.status);
         throw error;
       }
@@ -496,9 +541,13 @@ ${personalizationGuidance}
         } catch {
           throw new Error('流式响应格式无效');
         }
+        requestSpan?.end({ payload: { status: response.status, streaming: false } });
         return { usage: payload?.usage || null, payload };
       }
-      if (!response.body?.getReader) return null;
+      if (!response.body?.getReader) {
+        requestSpan?.end({ payload: { status: response.status, streaming: false } });
+        return null;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -560,8 +609,17 @@ ${personalizationGuidance}
           if (idleTimer) clearTimeout(idleTimer);
         }
       }
+      requestSpan?.end({ payload: { status: response.status, streaming: true, finishReason } });
       return { usage, finishReason };
     } catch (error) {
+      requestSpan?.end({
+        level: 'error',
+        payload: {
+          status: responseStatus,
+          errorName: error?.name || 'Error',
+          timeout: /超时|timeout/i.test(String(error?.message || ''))
+        }
+      });
       if (error.name === 'AbortError') {
         throw new Error(signal?.aborted ? '请求已取消' : '流式请求已中断');
       }

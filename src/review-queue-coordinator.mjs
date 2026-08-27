@@ -39,6 +39,30 @@ export class ReviewQueueCoordinator {
       }));
   }
 
+  async getDueSummary({ targetTrack = '', recallLimit = 20, contextLimit = 10 } = {}) {
+    const words = (await this.db.getAllLearnWords()).filter(word => word?.archivedAt == null);
+    const now = this.now();
+    const isRecovery = word => Math.max(0, Math.trunc(Number(word?.recoveryStage) || 0)) > 0;
+    const isDue = word => isRecovery(word) || (!word?.nextReview || Number(word.nextReview) <= now);
+    const dueCount = words.filter(word => isRecovery(word) || (word?.nextReview && Number(word.nextReview) <= now)).length;
+    const newCount = words.filter(word => !word?.nextReview).length;
+    const candidateWords = words.length
+      ? this.srs.getDueWords(words, words.length, {
+        recoveryFirst: true,
+        newLimit: words.length,
+        targetTrack
+      })
+      : [];
+    return {
+      candidateCount: candidateWords.length,
+      recoveryCount: candidateWords.filter(isRecovery).length,
+      dueCount,
+      newCount,
+      recallLimit: Math.max(0, Number(recallLimit) || 20),
+      contextLimit: Math.max(0, Number(contextLimit) || 10)
+    };
+  }
+
   async revalidate(candidate) {
     const currentWord = await this.db.findLearnWordById(candidate?.id);
     if (!currentWord) return { current: false, reason: 'missing-word', word: null };

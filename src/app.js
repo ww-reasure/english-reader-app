@@ -12,6 +12,8 @@ import { installNativeNavigation } from './components/native-navigation.js';
 import { ArticleCatalog } from './components/article-catalog.js';
 import { DB } from './db.js';
 import { DailyLearningReportService } from './daily-learning-report-service.mjs';
+import { DiagnosticLogger } from './diagnostic-logger.mjs';
+import { getReviewPersistence } from './review-persistence.mjs';
 
 const dailyLearningReportMaintenance = new DailyLearningReportService({ db: DB, examProvider: {} });
 
@@ -47,6 +49,9 @@ function scheduleDailyReportPrune() {
 export const App = {
   // Cached DOM reference
   appEl: null,
+  diagnosticsInitialized: false,
+  reviewPersistence: null,
+  reviewPersistenceLifecycleInitialized: false,
 
   getApp() {
     if (!this.appEl) this.appEl = document.getElementById('app');
@@ -55,6 +60,7 @@ export const App = {
 
   // Initialize application
   async init() {
+    this.initDiagnostics();
     try {
       // Initialize modules
       await Config.initialize();
@@ -62,6 +68,15 @@ export const App = {
 
       // Start router
       Router.init();
+      this.reviewPersistence = getReviewPersistence(DB);
+      void this.reviewPersistence.replay().catch(error => {
+        DiagnosticLogger.record('review.pending_replay_failed', {
+          category: 'review',
+          level: 'warn',
+          payload: { errorName: error?.name || 'Error' }
+        });
+      });
+      this.initReviewPersistenceLifecycle();
       scheduleDailyReportPrune();
       scheduleCatalogPrewarm();
       this._removeNativeNavigation = await installNativeNavigation(Router);
@@ -74,10 +89,6 @@ export const App = {
         }, 0);
       }
 
-      // Global error handler for unhandled promise rejections
-      window.addEventListener('unhandledrejection', (event) => {
-        console.error('Unhandled promise rejection:', event.reason);
-      });
     } catch (err) {
       console.error('App initialization failed:', err);
       const app = this.getApp();
@@ -89,6 +100,80 @@ export const App = {
             <button class="btn btn-primary" onclick="location.reload()">刷新重试</button>
           </div>`;
       }
+    }
+  },
+
+  initReviewPersistenceLifecycle() {
+    if (this.reviewPersistenceLifecycleInitialized) return;
+    this.reviewPersistenceLifecycleInitialized = true;
+    const flush = () => {
+      void this.reviewPersistence?.flush({ timeoutMs: 1500 }).catch(error => {
+        DiagnosticLogger.record('review.flush_failed', {
+          category: 'review',
+          level: 'warn',
+          payload: { errorName: error?.name || 'Error' }
+        });
+      });
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+    }, { passive: true });
+    window.addEventListener('pagehide', flush, { passive: true });
+  },
+
+  initDiagnostics() {
+    if (this.diagnosticsInitialized) return;
+    this.diagnosticsInitialized = true;
+    try {
+      globalThis.__englishReaderDiagnosticLogger = DiagnosticLogger;
+      globalThis.__englishReaderDiagnosticDB = DB;
+      DiagnosticLogger.setContext({
+        appVersion: globalThis.__ENGLISH_READER_VERSION || '2.0.0',
+        platform: globalThis?.Capacitor?.getPlatform?.() || (globalThis?.Capacitor?.isNativePlatform?.() ? 'native' : 'web')
+      });
+      DiagnosticLogger.setPersistence({
+        append: rows => DB.appendDiagnosticLogs(rows),
+        list: range => DB.listDiagnosticLogs(range),
+        clear: () => DB.clearDiagnosticLogs()
+      });
+      DiagnosticLogger.record('app.start', {
+        category: 'app',
+        payload: { online: typeof navigator === 'undefined' ? null : navigator.onLine }
+      });
+
+      window.addEventListener('error', event => {
+        DiagnosticLogger.record('app.error', {
+          category: 'error',
+          level: 'error',
+          payload: {
+            errorName: event.error?.name || 'Error',
+            errorMessage: event.message || event.error?.message || '',
+            source: event.filename ? String(event.filename).split('/').pop() : ''
+          }
+        });
+      });
+      window.addEventListener('unhandledrejection', event => {
+        console.error('Unhandled promise rejection:', event.reason);
+        DiagnosticLogger.record('app.unhandled_rejection', {
+          category: 'error',
+          level: 'error',
+          payload: {
+            errorName: event.reason?.name || 'UnhandledRejection',
+            errorMessage: event.reason?.message || String(event.reason || '')
+          }
+        });
+      });
+      document.addEventListener('visibilitychange', () => {
+        DiagnosticLogger.record(document.visibilityState === 'visible' ? 'app.resume' : 'app.pause', {
+          category: 'app',
+          payload: { visibilityState: document.visibilityState }
+        });
+      }, { passive: true });
+      window.addEventListener('online', () => DiagnosticLogger.record('network.online', { category: 'network', payload: { online: true } }));
+      window.addEventListener('offline', () => DiagnosticLogger.record('network.offline', { category: 'network', level: 'warn', payload: { online: false } }));
+    } catch (error) {
+      // A diagnostics setup failure must never prevent the application from starting.
+      console.warn('Diagnostic logging setup failed:', error);
     }
   },
 

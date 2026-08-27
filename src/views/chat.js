@@ -33,7 +33,8 @@ import { getSharedArticleQualityService } from '../components/article-quality-se
 import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
-import { WordImportService, normalizeImportWords } from '../word-import-service.mjs';
+import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportWords } from '../word-import-service.mjs';
+import { createPdfImportService } from '../pdf-import.mjs';
 import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
 import { localDayKey } from '../learning-day.mjs';
 import { toDailyReportAgentSummary } from '../daily-learning-report.mjs';
@@ -80,6 +81,12 @@ const conversationStore = new ConversationStore();
 const examServices = createExamServices();
 const examLearningProvider = createExamLearningOverviewProvider({ services: examServices });
 const examRecordIdentity = value => `${value?.bankId || ''}:${value?.paperKey || ''}`;
+const pdfImportService = createPdfImportService();
+
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
 const dailyExamProvider = {
   async getDailyFacts() {
     const [paperGroups, attemptGroups, wrongGroups, translationGroups] = await Promise.all([
@@ -333,6 +340,10 @@ export const ChatView = {
     this.releaseChatActions();
     conversationStore.pruneExpiredArticleSessions(7 * 86400000);
     this.imageService = imageService;
+    diagnosticLogger()?.record('chat.rendered', {
+      category: 'ai',
+      payload: { scope: 'home' }
+    });
 
     container.innerHTML = `
       <div class="chat-container">
@@ -2200,6 +2211,18 @@ export const ChatView = {
     let attachmentGroup = null;
     let imageGroup = null;
     let userMessageId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestSpan = diagnosticLogger()?.beginSpan('chat.request', {
+      category: 'ai',
+      correlationId: `chat-request:${userMessageId}`,
+      detail: { scope: learningRequest.route, model: requestModel.model },
+      payload: { route: learningRequest.route, hasImages, model: requestModel.model }
+    });
+    diagnosticLogger()?.record('chat.request_start', {
+      category: 'ai',
+      correlationId: requestSpan?.correlationId,
+      detail: { scope: learningRequest.route, model: requestModel.model },
+      payload: { route: learningRequest.route, hasImages, model: requestModel.model }
+    });
     try {
       if (draftGroupId) {
         attachmentGroup = await this.getImageService().prepareForSend(draftGroupId, {
@@ -2332,6 +2355,13 @@ export const ChatView = {
 
     } catch (error) {
       if (!isCurrentRequest()) return;
+      requestSpan?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+      diagnosticLogger()?.record('chat.request_failed', {
+        category: 'ai',
+        level: 'error',
+        correlationId: requestSpan?.correlationId,
+        payload: { route: learningRequest.route, hasImages, name: error?.name || 'Error' }
+      });
       this.removeThinking();
       this.removeArticleGenerationStatus();
       const rawMessage = String(error?.message || '').trim();
@@ -2354,6 +2384,12 @@ export const ChatView = {
         this.updateImageSendState();
       }
     } finally {
+      requestSpan?.end({ payload: { route: learningRequest.route, hasImages } });
+      diagnosticLogger()?.record('chat.request_finished', {
+        category: 'ai',
+        correlationId: requestSpan?.correlationId,
+        payload: { route: learningRequest.route, hasImages }
+      });
       if (this._imageRequestController === imageRequestController) {
         this._imageRequestController = null;
       }
@@ -3316,16 +3352,29 @@ export const ChatView = {
 export const WordImport = {
   currentPlan: null,
   _lastInputText: '',
+  _pdfImportSequence: 0,
+  _planSequence: 0,
+  _planPromise: null,
+  _executePromise: null,
+  _importSource: 'manual',
+  _importLimitExceeded: false,
 
   // Show import modal
-  showModal() {
+  showModal({ source = 'manual', inputText = '', limitExceeded = false } = {}) {
+    this._pdfImportSequence += 1;
+    this._planSequence += 1;
+    this._planPromise = null;
+    this._executePromise = null;
+    this.currentPlan = null;
+    this._importSource = String(source || 'manual');
+    this._importLimitExceeded = Boolean(limitExceeded);
     const existing = document.getElementById('wordImportModal');
     if (existing) existing.remove();
 
     const overlay = document.createElement('div');
     overlay.id = 'wordImportModal';
     overlay.className = 'modal-overlay';
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.onclick = (e) => { if (e.target === overlay) this.closeModal(); };
 
     overlay.innerHTML = `
       <div class="modal modal-wide">
@@ -3344,22 +3393,43 @@ export const WordImport = {
         <div id="pdfSection" class="form-group" style="display:none">
           <label>选择 PDF 文件</label>
           <input type="file" id="pdfFileInput" accept=".pdf" onchange="WordImport.handlePdfUpload(event)">
-          <div id="pdfStatus" style="margin-top:8px;font-size:13px;color:var(--text-muted)"></div>
+          <div id="pdfStatus" role="status" aria-live="polite" style="margin-top:8px;font-size:13px;color:var(--text-muted)"></div>
         </div>
+        <div id="wordImportStatus" role="status" aria-live="polite" style="margin-top:8px;font-size:13px;color:var(--text-muted)"></div>
         <div class="modal-actions">
-          <button class="btn btn-primary" onclick="WordImport.handleImport()">预览导入</button>
-          <button class="btn" onclick="document.getElementById('wordImportModal').remove()">取消</button>
+          <button id="wordImportPreview" class="btn btn-primary" type="button" onclick="WordImport.handleImport()">预览导入</button>
+          <button id="wordImportCancel" class="btn" type="button" onclick="WordImport.closeModal()">取消</button>
         </div>
       </div>`;
 
     document.body.appendChild(overlay);
+    const input = document.getElementById('wordPasteInput');
+    if (inputText && input) input.value = inputText;
+    input?.addEventListener('input', () => {
+      if (this._importSource === 'pdf') {
+        this._importSource = 'manual';
+        this._importLimitExceeded = false;
+      }
+    });
+  },
+
+  closeModal() {
+    this._pdfImportSequence += 1;
+    this._planSequence += 1;
+    this._planPromise = null;
+    this._executePromise = null;
+    this.currentPlan = null;
+    document.getElementById('wordImportModal')?.remove();
   },
 
   // Toggle between paste and PDF methods
   toggleMethod() {
-    const method = document.getElementById('importMethod').value;
-    document.getElementById('pasteSection').style.display = method === 'paste' ? 'block' : 'none';
-    document.getElementById('pdfSection').style.display = method === 'pdf' ? 'block' : 'none';
+    const method = document.getElementById('importMethod')?.value;
+    const pasteSection = document.getElementById('pasteSection');
+    const pdfSection = document.getElementById('pdfSection');
+    if (!method || !pasteSection || !pdfSection) return;
+    pasteSection.style.display = method === 'paste' ? 'block' : 'none';
+    pdfSection.style.display = method === 'pdf' ? 'block' : 'none';
   },
 
   // Handle PDF file upload
@@ -3367,78 +3437,169 @@ export const WordImport = {
     const file = event.target.files[0];
     if (!file) return;
 
-    const status = document.getElementById('pdfStatus');
-    status.textContent = '正在解析 PDF...';
+    this._importSource = 'pdf';
+    this._importLimitExceeded = false;
+    const sequence = ++this._pdfImportSequence;
+    const updateStatus = message => {
+      if (sequence !== this._pdfImportSequence) return;
+      const status = document.getElementById('pdfStatus');
+      if (status) status.textContent = message;
+      const importStatus = document.getElementById('wordImportStatus');
+      if (importStatus) importStatus.textContent = message;
+    };
+    updateStatus('正在准备 PDF 解析器…');
+    const span = diagnosticLogger()?.beginSpan('vocab.import_pdf', {
+      category: 'vocabulary',
+      correlationId: `vocab-import-pdf:${Date.now()}`,
+      payload: { type: file.type || 'application/pdf', size: Number(file.size) || 0 }
+    });
 
     try {
-      const text = await this.extractPdfText(file);
-      const words = this.extractWordsFromText(text);
+      const text = await this.extractPdfText(file, {
+        onProgress: event => updateStatus(event?.message || '正在解析 PDF…')
+      });
+      if (sequence !== this._pdfImportSequence) {
+        span?.end({ level: 'info', payload: { cancelled: true } });
+        return;
+      }
+      const wordResult = this.extractWordsFromText(text, { limit: MAX_PDF_WORDS, returnMeta: true });
+      const words = wordResult.words;
+      this._importLimitExceeded = wordResult.truncated;
       document.getElementById('wordPasteInput').value = words.join('\n');
-      status.textContent = `已提取 ${words.length} 个单词`;
+      const batchCount = Math.ceil(words.length / MAX_WORDS_PER_BATCH);
+      updateStatus(wordResult.truncated
+        ? `已识别超过 ${MAX_PDF_WORDS} 个唯一词，请拆分 PDF；当前预览被禁止确认。`
+        : `已提取 ${words.length} 个单词，将分成 ${batchCount || 0} 批处理`);
       document.getElementById('importMethod').value = 'paste';
       this.toggleMethod();
+      span?.end({ payload: { extractedCount: words.length, truncated: wordResult.truncated, batchCount } });
+      diagnosticLogger()?.record('vocab.import_pdf', {
+        category: 'vocabulary',
+        correlationId: span?.correlationId,
+        payload: { ok: true, extractedCount: words.length, truncated: wordResult.truncated, batchCount }
+      });
     } catch (err) {
-      status.textContent = `解析失败：${err.message}`;
+      span?.end({ level: 'error', payload: { name: err?.name || 'Error' } });
+      diagnosticLogger()?.record('vocab.import_pdf', {
+        category: 'vocabulary',
+        level: 'error',
+        correlationId: span?.correlationId,
+        payload: { ok: false, name: err?.name || 'Error' }
+      });
+      if (sequence !== this._pdfImportSequence) return;
+      updateStatus(`解析失败：${err?.message || '请重试。'}`);
+      // Clearing the value allows the user to choose the same file again.
+      if (event.target) event.target.value = '';
     }
   },
 
   // Extract text from PDF using pdf.js
-  async extractPdfText(file) {
-    // Load pdf.js if not already loaded
-    if (!window.pdfjsLib) {
-      await this.loadPdfJs();
-    }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map(item => item.str).join(' ');
-      fullText += pageText + '\n';
-    }
-
-    return fullText;
+  async extractPdfText(file, options = {}) {
+    return pdfImportService.extractText(file, options);
   },
 
   // Load pdf.js library
   async loadPdfJs() {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      script.onload = () => {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        resolve();
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
+    return pdfImportService.loadParser();
   },
 
   // Extract English words from text
-  extractWordsFromText(text) {
-    return normalizeImportWords(text);
+  extractWordsFromText(text, options = {}) {
+    return normalizeImportWords(text, options);
   },
 
   // Handle word import
   async handleImport() {
-    const text = document.getElementById('wordPasteInput').value.trim();
+    if (this._planPromise) return this._planPromise;
+    const input = document.getElementById('wordPasteInput');
+    const text = input?.value.trim() || '';
+    const status = document.getElementById('wordImportStatus');
+    const previewButton = document.getElementById('wordImportPreview');
+    const span = diagnosticLogger()?.beginSpan('vocab.import_plan', {
+      category: 'vocabulary',
+      correlationId: `vocab-import-plan:${Date.now()}`,
+      payload: { inputLength: text.length }
+    });
+    const showError = message => {
+      if (status) status.textContent = message;
+      if (previewButton) {
+        previewButton.disabled = false;
+        previewButton.textContent = '预览导入';
+      }
+    };
     if (!text) {
+      span?.end({ level: 'warn', payload: { reason: 'empty_input' } });
+      showError('请输入或粘贴单词');
       alert('请输入或粘贴单词');
       return;
     }
 
-    const words = this.extractWordsFromText(text);
+    const wordResult = this.extractWordsFromText(text, {
+      limit: this._importSource === 'pdf' ? MAX_PDF_WORDS : MAX_WORDS_PER_BATCH,
+      returnMeta: true
+    });
+    if (wordResult.truncated || this._importLimitExceeded) {
+      this._importLimitExceeded = true;
+      const limit = this._importSource === 'pdf' ? MAX_PDF_WORDS : MAX_WORDS_PER_BATCH;
+      const message = this._importSource === 'pdf'
+        ? `超过 ${MAX_PDF_WORDS} 个唯一词，请拆分 PDF 后重试`
+        : `普通导入最多 ${MAX_WORDS_PER_BATCH} 个唯一词，请分批粘贴后重试`;
+      span?.end({ level: 'warn', payload: { reason: 'word_limit', limit } });
+      showError(message);
+      alert(message);
+      return;
+    }
+    const words = wordResult.words;
     if (words.length === 0) {
+      span?.end({ level: 'warn', payload: { reason: 'no_words' } });
+      showError('未识别到有效单词');
       alert('未识别到有效单词');
       return;
     }
-    const plan = await wordImportService.createPlan(text);
-    this._lastInputText = text;
-    this.renderImportPreview(plan);
+    const sequence = ++this._planSequence;
+    if (previewButton) {
+      previewButton.disabled = true;
+      previewButton.textContent = '分析中…';
+    }
+    if (status) status.textContent = `正在分析 ${words.length} 个词…`;
+
+    const task = (async () => {
+      try {
+        const plan = await wordImportService.createPlan(text, { source: this._importSource });
+        if (sequence !== this._planSequence || !document.getElementById('wordImportModal')) {
+          span?.end({ payload: { cancelled: true } });
+          return;
+        }
+        this._lastInputText = text;
+        this.renderImportPreview(plan);
+        span?.end({ payload: { recognizedCount: plan.counts?.recognized || words.length, batchCount: plan.batchCount || 0 } });
+        diagnosticLogger()?.record('vocab.import_plan', {
+          category: 'vocabulary',
+          correlationId: span?.correlationId,
+          payload: { ok: true, recognizedCount: plan.counts?.recognized || words.length, batchCount: plan.batchCount || 0 }
+        });
+      } catch (error) {
+        span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+        diagnosticLogger()?.record('vocab.import_plan', {
+          category: 'vocabulary',
+          level: 'error',
+          correlationId: span?.correlationId,
+          payload: { ok: false, name: error?.name || 'Error' }
+        });
+        if (sequence === this._planSequence) showError(`分析失败：${error?.message || '请重试。'}`);
+      }
+    })();
+    const tracked = task.finally(() => {
+      if (this._planPromise !== tracked) return;
+      this._planPromise = null;
+      const button = document.getElementById('wordImportPreview');
+      if (button && !this.currentPlan) {
+        button.disabled = false;
+        button.textContent = '预览导入';
+      }
+    });
+    this._planPromise = tracked;
+    return tracked;
   },
 
   renderImportPreview(plan) {
@@ -3447,10 +3608,15 @@ export const WordImport = {
     if (!modal) return;
     const counts = plan.counts || {};
     const failed = plan.categories?.failed?.length || 0;
+    const batchCount = Number(plan.batchCount) || 0;
+    const limitWarning = plan.limitExceeded
+      ? `<p class="word-import-limit-warning" role="alert">超过 ${Number(plan.wordLimit) || MAX_PDF_WORDS} 个唯一词，请拆分文件后再导入。</p>`
+      : '';
     modal.innerHTML = `
       <h2>确认导入</h2>
       <div class="word-import-preview" aria-live="polite">
-        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入我的词汇。</p>
+        <p class="word-import-preview-lead">已识别 ${counts.recognized || 0} 个有效词，确认后才会写入我的词汇${batchCount > 1 ? `，将分成 ${batchCount} 批处理` : ''}。</p>
+        ${limitWarning}
         <div class="word-import-preview-grid">
           <div class="word-import-preview-row"><span>识别到的有效词</span><strong>${counts.recognized || 0}</strong></div>
           <div class="word-import-preview-row"><span>新增词</span><strong>${counts.new || 0}</strong></div>
@@ -3459,43 +3625,74 @@ export const WordImport = {
           <div class="word-import-preview-row"><span>无法识别</span><strong>${counts.invalid || 0}</strong></div>
           <div class="word-import-preview-row"><span>预分析失败</span><strong>${failed}</strong></div>
         </div>
-        <div class="word-import-progress" role="status" aria-live="polite">等待确认：0/${counts.recognized || 0}</div>
+        <div class="word-import-progress" role="status" aria-live="polite">等待确认：0/${counts.recognized || 0}${batchCount ? `（共 ${batchCount} 批）` : ''}</div>
       </div>
       <div class="modal-actions">
-        <button id="wordImportConfirm" class="btn btn-primary" type="button">确认导入</button>
+        <button id="wordImportConfirm" class="btn btn-primary" type="button" ${plan.limitExceeded ? 'disabled' : ''}>确认导入</button>
         <button id="wordImportBack" class="btn" type="button">返回修改</button>
       </div>`;
     modal.querySelector('#wordImportConfirm')?.addEventListener('click', () => this.confirmImport());
     modal.querySelector('#wordImportBack')?.addEventListener('click', () => {
-      this.showModal();
-      const input = document.getElementById('wordPasteInput');
-      if (input) input.value = this._lastInputText;
+      this.showModal({
+        source: this.currentPlan?.source || this._importSource,
+        inputText: this._lastInputText,
+        limitExceeded: this.currentPlan?.limitExceeded || this._importLimitExceeded
+      });
     });
   },
 
   async confirmImport() {
     if (!this.currentPlan) return;
+    if (this.currentPlan.limitExceeded) return;
+    if (this._executePromise) return this._executePromise;
+    const span = diagnosticLogger()?.beginSpan('vocab.import_execute', {
+      category: 'vocabulary',
+      correlationId: `vocab-import-execute:${Date.now()}`,
+      payload: { recognizedCount: this.currentPlan.counts?.recognized || 0 }
+    });
     const modal = document.querySelector('#wordImportModal .modal');
     const confirm = modal?.querySelector('#wordImportConfirm');
     const back = modal?.querySelector('#wordImportBack');
     const progress = modal?.querySelector('.word-import-progress');
     if (confirm) confirm.disabled = true;
     if (back) back.disabled = true;
-    try {
-      const result = await wordImportService.execute(this.currentPlan, {
-        onProgress: ({ processed, recognized }) => {
-          if (progress) progress.textContent = `正在导入：${processed}/${recognized}`;
-        }
-      });
-      const summary = result.summary || {};
-      ChatView.addMessage('system', `导入完成：新增 ${summary.new || 0} 个，外部复习 ${summary.externalReview || 0} 个，调整排期 ${summary.scheduleAdjusted || 0} 个，Recovery 接触 ${summary.recoveryContact || 0} 个，今日已处理 ${summary.todayIgnored || 0} 个，失败 ${summary.failed || 0} 个。`);
-      modal?.closest('#wordImportModal')?.remove();
-      this.currentPlan = null;
-    } catch (error) {
-      if (progress) progress.textContent = `导入失败：${String(error?.message || error)}`;
-      if (confirm) confirm.disabled = false;
-      if (back) back.disabled = false;
-    }
+    const task = (async () => {
+      try {
+        const result = await wordImportService.execute(this.currentPlan, {
+          onProgress: ({ processed, recognized, batchIndex, batchCount }) => {
+            if (!progress) return;
+            const batchText = batchCount ? `第 ${batchIndex}/${batchCount} 批，` : '';
+            progress.textContent = `正在导入${batchText}${processed}/${recognized}`;
+          }
+        });
+        const summary = result.summary || {};
+        ChatView.addMessage('system', `导入完成：新增 ${summary.new || 0} 个，外部复习 ${summary.externalReview || 0} 个，调整排期 ${summary.scheduleAdjusted || 0} 个，Recovery 接触 ${summary.recoveryContact || 0} 个，今日已处理 ${summary.todayIgnored || 0} 个，失败 ${summary.failed || 0} 个。`);
+        modal?.closest('#wordImportModal')?.remove();
+        this.currentPlan = null;
+        span?.end({ payload: { ok: true, newCount: summary.new || 0, failedCount: summary.failed || 0 } });
+        diagnosticLogger()?.record('vocab.import', {
+          category: 'vocabulary',
+          correlationId: span?.correlationId,
+          payload: { ok: true, newCount: summary.new || 0, externalReviewCount: summary.externalReview || 0, failedCount: summary.failed || 0 }
+        });
+      } catch (error) {
+        span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+        diagnosticLogger()?.record('vocab.import', {
+          category: 'vocabulary',
+          level: 'error',
+          correlationId: span?.correlationId,
+          payload: { ok: false, name: error?.name || 'Error' }
+        });
+        if (progress) progress.textContent = `导入失败：${String(error?.message || error)}`;
+        if (confirm) confirm.disabled = false;
+        if (back) back.disabled = false;
+      }
+    })();
+    const tracked = task.finally(() => {
+      if (this._executePromise === tracked) this._executePromise = null;
+    });
+    this._executePromise = tracked;
+    return tracked;
   }
 };
 

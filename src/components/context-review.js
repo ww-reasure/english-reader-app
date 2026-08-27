@@ -6,6 +6,7 @@ import { createContextReviewService } from './context-review.mjs';
 import { createContextReviewGenerator, makeContextReviewCacheKey } from './context-review-runtime.mjs';
 import { ReviewQueue } from '../review-queue.js';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
+import { getReviewPersistence } from '../review-persistence.mjs';
 
 const CACHE_VERSION = 3;
 const normalize = value => String(value || '').trim().toLocaleLowerCase('en-US');
@@ -50,6 +51,8 @@ const generateBatch = createContextReviewGenerator({
   getTranslation: getSavableTranslation
 });
 
+const reviewPersistence = getReviewPersistence(DB);
+
 export const ContextReview = createContextReviewService({
   examExamples: (word, targetTrack) => ExamCorpus.getExamples(word, targetTrack),
   articles: () => DB.getAllArticles(),
@@ -58,17 +61,46 @@ export const ContextReview = createContextReviewService({
   loadCached,
   saveCached,
   coordinator: ReviewQueue,
-  recordReview: async ({ item, result, schedule, assistedLookupCount }) => {
-    const attemptId = `context:${item.wordId}:${Date.now()}`;
-    return DB.settleSessionReview(item.wordId, schedule, {
+  recordReview: ({ item, result, schedule, assistedLookupCount }) => {
+    const attemptId = `context:${item.wordId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const expectedRevision = Math.max(0, Number(item.expectedRevision ?? item.word?.reviewRevision) || 0);
+    const correlationId = `review:context:${item.wordId}:${Date.now()}`;
+    const event = {
       rating: result === 'known' ? 5 : result === 'uncertain' ? 3 : 1,
       source: 'context-review',
       sawAnswer: false,
       contextResult: result,
       assistedLookupCount: Math.max(0, Number(assistedLookupCount) || 0),
-      expectedRevision: item.expectedRevision,
+      expectedRevision,
       sessionDebt: result === 'uncertain' ? 1 : result === 'unknown' ? 2 : 0,
+      attemptId,
+      correlationId
+    };
+    const optimisticWord = {
+      ...(item.word || {}),
+      ...schedule,
+      reviewRevision: expectedRevision + 1,
+      expectedRevision: expectedRevision + 1,
       attemptId
-    }).then(word => ({ ...word, attemptId }));
+    };
+    try {
+      const queued = reviewPersistence.enqueueRating({
+        operationId: attemptId,
+        attemptId,
+        wordId: item.wordId,
+        expectedRevision,
+        srsData: schedule,
+        event,
+        correlationId
+      });
+      if (!queued) throw new Error('语境复习后台保存不可用');
+      return optimisticWord;
+    } catch {
+      return DB.settleSessionReview(item.wordId, schedule, event, {
+        expectedRevision,
+        attemptId,
+        correlationId
+      }).then(word => ({ ...word, attemptId }));
+    }
   }
 });

@@ -37,6 +37,10 @@ const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
 });
 const readingLexiconLoader = createLexiconLoader();
 
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
 export const ReadingView = {
   timer: null,
   articleData: null,
@@ -230,6 +234,11 @@ export const ReadingView = {
   async render(container, articleId) {
     this.cleanup();
     this.container = container;
+    const renderSpan = diagnosticLogger()?.beginSpan('reading.render', {
+      category: 'reading',
+      correlationId: `reading-render:${articleId || 'unknown'}:${Date.now()}`,
+      payload: { articleId }
+    });
     this.clickedWords = [];
     this.readingScrollDepth = 0;
     this.reviewWordsMap = new Map();
@@ -251,6 +260,7 @@ export const ReadingView = {
     const article = await DB.getArticle(articleId);
     if (!article) {
       container.innerHTML = '<div class="empty-state">文章不存在</div>';
+      renderSpan?.end({ level: 'error', payload: { reason: 'article_not_found' } });
       return;
     }
     this.articleData = article;
@@ -284,6 +294,11 @@ export const ReadingView = {
         <div id="wordTooltip" class="word-tooltip" style="display:none"></div>`;
       this.initInteractions();
       this._bindViewportLifecycle();
+      renderSpan?.end({ payload: { articleId: article.id, wordCount: 0, empty: true } });
+      diagnosticLogger()?.record('reading.rendered', {
+        category: 'reading',
+        payload: { articleId: article.id, wordCount: 0, empty: true }
+      });
       return;
     }
 
@@ -386,6 +401,11 @@ export const ReadingView = {
 
     // Auto-start timer
     this.autoStartTimer();
+    renderSpan?.end({ payload: { articleId: article.id, wordCount: article.wordCount || 0, paragraphCount: enParas.length } });
+    diagnosticLogger()?.record('reading.rendered', {
+      category: 'reading',
+      payload: { articleId: article.id, wordCount: article.wordCount || 0, paragraphCount: enParas.length, reviewMode: this.reviewMode }
+    });
   },
 
   _recordReadingLookup({ word, data, reviewWord, lookupId, source = 'reading-word-lookup', collect = true }) {
@@ -430,6 +450,11 @@ export const ReadingView = {
     const sessionId = String(lookupContext.sessionId || this._readingLookupContext().sessionId);
     const bucket = Math.floor(occurredAt / 2000);
     const dedupeKey = `lookup:${sessionId}:${normalizedLemma}:${bucket}`;
+    diagnosticLogger()?.record('reading.word_lookup', {
+      category: 'reading',
+      detail: { word: normalizedLemma },
+      payload: { articleId: lookupContext.articleId ?? this.articleData?.id ?? null, lookupId }
+    });
     try {
       void DB.saveLearningActivity({
         id: `reading-lookup:${dedupeKey}`,
@@ -455,6 +480,11 @@ export const ReadingView = {
     const occurredAt = Date.now();
     const resolvedSessionId = String(sessionId || this._readingLookupContext().sessionId);
     const lemma = String(provenance.lemma || '').trim().toLowerCase();
+    diagnosticLogger()?.record('reading.word_saved', {
+      category: 'reading',
+      detail: { word: lemma },
+      payload: { articleId: provenance.articleId ?? this.articleData?.id ?? null, createdLearnWord: Boolean(provenance.createdLearnWord) }
+    });
     try {
       void DB.saveLearningActivity({
         id: `reading-saved:${resolvedSessionId}:${lemma}:${occurredAt}:${++this._learningActivitySequence}`,
@@ -914,7 +944,17 @@ export const ReadingView = {
       activeSeconds: elapsed,
       wordCount
     });
+    const completeSpan = diagnosticLogger()?.beginSpan('reading.complete', {
+      category: 'reading',
+      correlationId: `reading-complete:${this.articleData?.id || 'unknown'}:${Date.now()}`,
+      payload: { articleId: this.articleData?.id, wordCount }
+    });
     if (!readingQualification.qualified) {
+      completeSpan?.end({ payload: { qualified: false, reason: readingQualification.reason || 'qualification' } });
+      diagnosticLogger()?.record('reading.completed', {
+        category: 'reading',
+        payload: { articleId: this.articleData?.id, qualified: false, elapsedMs: elapsed }
+      });
       this.showIncompleteReadingPrompt(readingQualification);
       return;
     }
@@ -982,6 +1022,11 @@ export const ReadingView = {
 
     // Show summary popup
     await this.showSummary(elapsed, wpm, { qualifiesForCalibration: readingQualification.qualified });
+    completeSpan?.end({ payload: { qualified: true, elapsedMs: elapsed, wordCount, reviewMode: this.reviewMode } });
+    diagnosticLogger()?.record('reading.completed', {
+      category: 'reading',
+      payload: { articleId: this.articleData?.id, qualified: true, elapsedMs: elapsed, wordCount, reviewMode: this.reviewMode }
+    });
   },
 
   async showSummary(elapsed, wpm, readingQualification = {}) {

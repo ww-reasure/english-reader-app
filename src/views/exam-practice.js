@@ -23,6 +23,10 @@ import { StudySessionTimer } from '../study-session-timer.mjs';
 const IDLE_PAUSE_MS = 2 * 60 * 1000;
 const AUTOSAVE_MS = 500;
 
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
 const examTypeKey = unit => unit?.type === 'matching' && unit.matchingVariant
   ? `${unit.type}:${unit.matchingVariant}`
   : unit?.type || 'unknown';
@@ -181,16 +185,23 @@ export const ExamPracticeView = {
 
   async render(container, attemptId, mode = null) {
     await this.cleanup();
+    const renderSpan = diagnosticLogger()?.beginSpan('exam.render', {
+      category: 'exam',
+      correlationId: `exam-render:${attemptId || 'unknown'}:${Date.now()}`,
+      payload: { attemptId, mode }
+    });
     const services = createExamServices();
     const examId = await resolveAttemptExam(services, attemptId) || 'kaoyan_en1';
     const practice = await services.practiceService.getPractice({ examId, attemptId });
     const { attempt, paper, unit, responses: savedResponses, questions } = practice;
     if (attempt.status === 'submitted' && mode === 'explanation') {
       await this.renderSubmittedExplanation(container, practice);
+      renderSpan?.end({ payload: { examId, attemptId, explanation: true } });
       return;
     }
     if (attempt.status !== 'in_progress') {
       container.innerHTML = '<div class="empty-state">该练习已结束</div>';
+      renderSpan?.end({ level: 'warn', payload: { examId, attemptId, status: attempt.status } });
       return;
     }
 
@@ -272,6 +283,11 @@ export const ExamPracticeView = {
     this.replaceMenuWithBack();
     this.bindEvents();
     this.startTimer();
+    renderSpan?.end({ payload: { examId, attemptId, questionCount: this.questions.length, explanation: false } });
+    diagnosticLogger()?.record('exam.rendered', {
+      category: 'exam',
+      payload: { examId, attemptId, unitKey: this.unit?.unitKey, questionCount: this.questions.length, explanation: false }
+    });
   },
 
   async renderSubmittedExplanation(container, practice) {
@@ -336,6 +352,10 @@ export const ExamPracticeView = {
     this.bindExplanationEvents();
     this.bindSubmittedSelection();
     this.bindExplanationSentenceLongPress();
+    diagnosticLogger()?.record('exam.rendered', {
+      category: 'exam',
+      payload: { examId: attempt.examId, attemptId: attempt.attemptId, unitKey: this.unit?.unitKey, questionCount: this.questions.length, explanation: true }
+    });
   },
 
   getQuestionsForUnit(unit) {
@@ -827,9 +847,29 @@ export const ExamPracticeView = {
       responses: [...this.responses.values()],
       activeDurationMs: this.getActiveDuration()
     };
+    const span = diagnosticLogger()?.beginSpan('exam.autosave', {
+      category: 'exam',
+      correlationId: `exam-autosave:${this.attempt.attemptId}:${Date.now()}`,
+      payload: { attemptId: this.attempt.attemptId, responseCount: snapshot.responses.length }
+    });
     this._savePromise = this.services.practiceService.autosave(snapshot)
       .then(next => {
         if (!this._disposed) this.attempt = next;
+        span?.end({ payload: { attemptId: next?.attemptId || snapshot.attempt.attemptId } });
+        diagnosticLogger()?.record('exam.autosave', {
+          category: 'exam',
+          payload: { attemptId: snapshot.attempt.attemptId, responseCount: snapshot.responses.length, ok: true }
+        });
+        return next;
+      })
+      .catch(error => {
+        span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+        diagnosticLogger()?.record('exam.autosave', {
+          category: 'exam',
+          level: 'error',
+          payload: { attemptId: snapshot.attempt.attemptId, responseCount: snapshot.responses.length, ok: false, name: error?.name || 'Error' }
+        });
+        throw error;
       })
       .finally(() => {
         this._savePromise = null;
@@ -1436,6 +1476,16 @@ export const ExamPracticeView = {
   async submit() {
     if (this._submitting) return;
     this._submitting = true;
+    const span = diagnosticLogger()?.beginSpan('exam.submit', {
+      category: 'exam',
+      correlationId: `exam-submit:${this.attempt?.attemptId || 'unknown'}:${Date.now()}`,
+      payload: { attemptId: this.attempt?.attemptId, questionCount: this.questions?.length || 0 }
+    });
+    diagnosticLogger()?.record('exam.submit_start', {
+      category: 'exam',
+      correlationId: span?.correlationId,
+      payload: { attemptId: this.attempt?.attemptId, questionCount: this.questions?.length || 0 }
+    });
     try {
       this.pauseTimer('submit');
       await this.flushActiveSlices();
@@ -1458,7 +1508,22 @@ export const ExamPracticeView = {
       }
       this.examStudyTimer?.finish('submitted');
       this._disposed = true;
+      span?.end({ payload: { attemptId: this.attempt.attemptId, ok: true } });
+      diagnosticLogger()?.record('exam.submitted', {
+        category: 'exam',
+        correlationId: span?.correlationId,
+        payload: { attemptId: this.attempt.attemptId, ok: true }
+      });
       location.hash = `#/exam/result/${this.attempt.attemptId}`;
+    } catch (error) {
+      span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+      diagnosticLogger()?.record('exam.submitted', {
+        category: 'exam',
+        level: 'error',
+        correlationId: span?.correlationId,
+        payload: { attemptId: this.attempt?.attemptId, ok: false, name: error?.name || 'Error' }
+      });
+      throw error;
     } finally {
       this._submitting = false;
     }

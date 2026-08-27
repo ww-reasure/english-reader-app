@@ -18,7 +18,43 @@ import {
 } from '../components/deepseek-model-catalog.mjs';
 import { HOME_LEARNING_RESPONSE_MODES, normalizeHomeLearningResponseMode } from '../components/home-guided-learning.mjs';
 
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
+function diagnosticDb() {
+  return globalThis.__englishReaderDiagnosticDB || null;
+}
+
+function formatDiagnosticBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDiagnosticRemaining(until) {
+  const deadline = Number(until);
+  if (!Number.isFinite(deadline)) return '未开启';
+  const remaining = Math.max(0, deadline - Date.now());
+  if (!remaining) return '未开启';
+  const minutes = Math.ceil(remaining / 60_000);
+  return minutes < 60 ? `已开启，剩余约 ${minutes} 分钟` : `已开启，剩余约 ${Math.ceil(minutes / 60)} 小时`;
+}
+
+function formatDiagnosticDetailStatus(status = {}) {
+  if (status.detailed) return formatDiagnosticRemaining(status.detailedUntil);
+  const reasonLabels = {
+    manual: '详细日志已手动关闭',
+    timeout: '详细日志已到时间自动关闭',
+    event_limit: '详细日志已达到数量上限并自动关闭'
+  };
+  return reasonLabels[status.detailedStopReason] || '详细日志未开启';
+}
+
 export const SettingsView = {
+  _diagnosticRefreshToken: 0,
+
   // Render settings page
   render(container) {
     const currentTheme = Config.get('theme') || 'light';
@@ -41,6 +77,14 @@ export const SettingsView = {
     const assessmentDate = Config.get('assessment_date') || '';
     const currentModeDetails = CHALLENGE_DETAILS[currentMode];
     const selectableTracks = listSelectableTracks();
+    const diagnosticStatus = diagnosticLogger()?.getStatus?.() || {
+      detailed: false,
+      detailedUntil: null,
+      detailedCount: 0,
+      eventCount: 0,
+      lastError: null,
+      detailedStopReason: null
+    };
     const currentTrackDetails = selectableTracks.find(track => track.id === currentTrack);
     const trackOptions = selectableTracks.map(track => `
       <label class="settings-choice settings-target-option">
@@ -316,6 +360,35 @@ export const SettingsView = {
               <section><h3>发音缓存</h3><p class="settings-desc">文章生成后自动缓存单词发音，离线也能播放。</p><div id="audioCacheInfo" class="audio-cache-info">加载中...</div><button class="btn btn-outline btn-sm" onclick="SettingsView.clearAudioCache()">清除缓存</button></section>
             </div>
           </details>
+
+          <details class="settings-disclosure settings-diagnostic-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i></span>
+              <span><strong>问题排查</strong><small id="settingsDiagnosticSummary">${formatDiagnosticDetailStatus(diagnosticStatus)}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body settings-diagnostic-body">
+              <p class="settings-desc">基础日志正在记录并只保存在本机，用于定位卡顿、保存失败和网络异常；不会自动上传，也不会记录 API Key、完整对话或文章全文。</p>
+              <div class="settings-diagnostic-status" id="settingsDiagnosticStatus" role="status">
+                <span>日志数量</span><strong id="settingsDiagnosticCount">${diagnosticStatus.eventCount || 0}</strong>
+                <span>占用空间</span><strong id="settingsDiagnosticBytes">读取中…</strong>
+                <span>最近错误</span><strong id="settingsDiagnosticError">${esc(diagnosticStatus.lastError?.message || '暂无')}</strong>
+              </div>
+              <div class="settings-switch-row settings-diagnostic-switch-row">
+                <div class="settings-switch-copy"><strong>开启详细日志</strong><span id="settingsDiagnosticDetailHint">只在排查问题时临时开启，最多持续 30 分钟或 2000 条详细事件。</span></div>
+                <label class="settings-switch-control">
+                  <span class="sr-only">开启详细日志</span>
+                  <input id="settingsDiagnosticDetailed" type="checkbox" role="switch" aria-checked="${diagnosticStatus.detailed ? 'true' : 'false'}" ${diagnosticStatus.detailed ? 'checked' : ''}>
+                  <b id="settingsDiagnosticDetailedState">${diagnosticStatus.detailed ? '开' : '关'}</b>
+                </label>
+              </div>
+              <div class="settings-diagnostic-actions">
+                <button class="btn btn-outline btn-sm" id="settingsDiagnosticExport" type="button" onclick="SettingsView.exportDiagnosticLogs()">导出诊断日志</button>
+                <button class="btn btn-text btn-sm" id="settingsDiagnosticClear" type="button" onclick="SettingsView.clearDiagnosticLogs()">清除诊断日志</button>
+              </div>
+              <p id="settingsDiagnosticActionStatus" class="settings-form-status" role="status"></p>
+            </div>
+          </details>
         </section>
 
         <div class="settings-actions"><button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button></div>
@@ -341,6 +414,103 @@ export const SettingsView = {
     this.loadTitleTranslationCacheInfo();
     this.loadAudioCacheInfo();
     this.onWebResearchModeChange();
+    const diagnosticToggle = findInContainer('#settingsDiagnosticDetailed');
+    diagnosticToggle?.addEventListener('change', event => this.setDiagnosticDetail(event.target.checked));
+    void this.refreshDiagnosticStatus();
+  },
+
+  setDiagnosticDetail(enabled) {
+    const logger = diagnosticLogger();
+    if (enabled) logger?.enableDetailed?.();
+    else logger?.disableDetailed?.();
+    void this.refreshDiagnosticStatus();
+  },
+
+  async refreshDiagnosticStatus() {
+    const refreshToken = ++this._diagnosticRefreshToken;
+    const logger = diagnosticLogger();
+    const status = logger?.getStatus?.() || {
+      detailed: false,
+      detailedUntil: null,
+      detailedStopReason: null,
+      eventCount: 0,
+      lastError: null
+    };
+    const count = document.getElementById('settingsDiagnosticCount');
+    const bytes = document.getElementById('settingsDiagnosticBytes');
+    const error = document.getElementById('settingsDiagnosticError');
+    const summary = document.getElementById('settingsDiagnosticSummary');
+    const toggle = document.getElementById('settingsDiagnosticDetailed');
+    const toggleState = document.getElementById('settingsDiagnosticDetailedState');
+    if (count) count.textContent = String(status.eventCount);
+    if (error) error.textContent = status.lastError?.message || '暂无';
+    if (summary) summary.textContent = formatDiagnosticDetailStatus(status);
+    if (toggle) {
+      toggle.checked = status.detailed;
+      toggle.setAttribute('aria-checked', String(status.detailed));
+    }
+    if (toggleState) toggleState.textContent = status.detailed ? '开' : '关';
+    try {
+      const db = diagnosticDb();
+      if (!db?.getDiagnosticLogStats) throw new Error('诊断日志数据库未就绪');
+      const stats = await db.getDiagnosticLogStats();
+      if (refreshToken !== this._diagnosticRefreshToken) return;
+      const latestStatus = logger?.getStatus?.() || status;
+      if (count) count.textContent = String(Math.max(latestStatus.eventCount || 0, stats.count));
+      if (bytes) bytes.textContent = formatDiagnosticBytes(stats.bytes);
+      if (error) error.textContent = latestStatus.lastError?.message || '暂无';
+      if (summary) summary.textContent = formatDiagnosticDetailStatus(latestStatus);
+      if (toggle) {
+        toggle.checked = Boolean(latestStatus.detailed);
+        toggle.setAttribute('aria-checked', String(Boolean(latestStatus.detailed)));
+      }
+      if (toggleState) toggleState.textContent = latestStatus.detailed ? '开' : '关';
+    } catch {
+      if (refreshToken !== this._diagnosticRefreshToken) return;
+      if (bytes) bytes.textContent = '暂不可用';
+    }
+  },
+
+  async exportDiagnosticLogs() {
+    const button = document.getElementById('settingsDiagnosticExport');
+    const actionStatus = document.getElementById('settingsDiagnosticActionStatus');
+    if (button) button.disabled = true;
+    if (actionStatus) {
+      actionStatus.textContent = '正在整理本机诊断日志…';
+      actionStatus.className = 'settings-form-status';
+    }
+    try {
+      const logger = diagnosticLogger();
+      const exportModule = await import('../diagnostic-export.mjs');
+      const result = await exportModule.exportDiagnosticLogs({
+        logger,
+        app: {
+          version: globalThis.__ENGLISH_READER_VERSION || '2.0.0',
+          platform: globalThis?.Capacitor?.getPlatform?.() || 'web',
+          dbVersion: diagnosticDb()?.DB_VERSION
+        }
+      });
+      if (actionStatus) {
+        actionStatus.textContent = result.ok
+          ? (result.shared === false ? '已保存到本机缓存；系统分享不可用，可从下载结果中取得文件。' : `已导出：${result.fileName}`)
+          : `导出失败：${result.error}`;
+        actionStatus.className = `settings-form-status ${result.ok ? 'is-success' : 'is-error'}`;
+      }
+    } finally {
+      if (button) button.disabled = false;
+      void this.refreshDiagnosticStatus();
+    }
+  },
+
+  async clearDiagnosticLogs() {
+    if (!confirm('确定要清除本机诊断日志吗？这不会影响单词、文章、复习记录或日报。')) return;
+    const actionStatus = document.getElementById('settingsDiagnosticActionStatus');
+    await diagnosticLogger()?.clear?.();
+    if (actionStatus) {
+      actionStatus.textContent = '诊断日志已清除。';
+      actionStatus.className = 'settings-form-status is-success';
+    }
+    void this.refreshDiagnosticStatus();
   },
 
   // Handle model preset change

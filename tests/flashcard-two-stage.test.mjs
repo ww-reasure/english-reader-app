@@ -15,6 +15,22 @@ import {
   nextWord
 } from '../src/flashcard-flow.mjs';
 
+async function loadAudioCacheModule() {
+  const [audioSource, resolverSource] = await Promise.all([
+    readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pronunciation-resolver.mjs', import.meta.url), 'utf8')
+  ]);
+  const resolverUrl = `data:text/javascript;base64,${Buffer.from(resolverSource).toString('base64')}`;
+  const adaptedAudioSource = audioSource
+    .replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
+    .replace(
+      /import \{\s*createPronunciationResolver,\s*fetchPronunciationResponse,\s*normalizePronunciationWord\s*\} from '\.\/pronunciation-resolver\.mjs';/,
+      `import { createPronunciationResolver, fetchPronunciationResponse, normalizePronunciationWord } from '${resolverUrl}';`
+    );
+
+  return import(`data:text/javascript;base64,${Buffer.from(adaptedAudioSource).toString('base64')}`);
+}
+
 test('revealing a meaning keeps recall scoring available but disables known', () => {
   const revealed = revealMeaning(createReviewState());
 
@@ -278,11 +294,7 @@ test('an aborted pronunciation request does not fetch or fall back to speech', a
     };
     globalThis.SpeechSynthesisUtterance = class {};
     globalThis.speechSynthesis = { cancel() {}, speak() {} };
-    const audioSource = await readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8');
-    const audioModule = `data:text/javascript;base64,${Buffer.from(
-      audioSource.replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
-    ).toString('base64')}`;
-    const { AudioCache } = await import(audioModule);
+    const { AudioCache } = await loadAudioCacheModule();
     const controller = new AbortController();
     controller.abort();
 
@@ -311,11 +323,7 @@ test('silent automatic pronunciation does not show a missing-audio toast', async
     globalThis.speechSynthesis = undefined;
     globalThis.SpeechSynthesisUtterance = undefined;
     globalThis.document = undefined;
-    const audioSource = await readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8');
-    const audioModule = `data:text/javascript;base64,${Buffer.from(
-      audioSource.replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
-    ).toString('base64')}`;
-    const { AudioCache } = await import(audioModule);
+    const { AudioCache } = await loadAudioCacheModule();
 
     assert.equal(await AudioCache.getAudio('practice', { silent: true }), false);
   } finally {

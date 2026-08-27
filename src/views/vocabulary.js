@@ -25,6 +25,10 @@ const SOURCE_FILTERS = Object.freeze(['all', 'reading', 'import']);
 const STATUS_FILTERS = Object.freeze(['all', 'new', 'learning', 'review', 'stable']);
 const SORT_MODES = Object.freeze(['recent', 'alpha', 'due']);
 
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
 function renderDefinitionPreview(word) {
   const primary = getDefinitionDisplayLines(word)[0];
   return primary ? `${primary.label} ${primary.glossZh}` : getSavableTranslation(word) || '待重新查询';
@@ -67,10 +71,20 @@ export const VocabularyView = {
 
   async render(container) {
     this.container = container;
-    this.rows = await DB.getUnifiedVocabulary();
-    this.bindLibraryEvents();
-    this.bindPageEvents();
-    await this.renderPage();
+    const span = diagnosticLogger()?.beginSpan('vocab.render', {
+      category: 'vocabulary',
+      payload: { sourceFilter: this.sourceFilter, statusFilter: this.statusFilter }
+    });
+    try {
+      this.rows = await DB.getUnifiedVocabulary();
+      this.bindLibraryEvents();
+      this.bindPageEvents();
+      await this.renderPage();
+      span?.end({ payload: { wordCount: this.rows.length } });
+    } catch (error) {
+      span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
+      throw error;
+    }
   },
 
   async renderPage() {
@@ -169,6 +183,10 @@ export const VocabularyView = {
           ${rows.length ? rows.map(row => this.renderRow(row)).join('') : '<div class="empty-state vocab-unified-empty">没有符合条件的词汇。</div>'}
         </div>
       </section>`;
+    diagnosticLogger()?.record('vocab.rendered', {
+      category: 'vocabulary',
+      payload: { totalCount, visibleCount: rows.length, sourceFilter: this.sourceFilter, statusFilter: this.statusFilter }
+    });
   },
 
   renderSourceTab(value, label) {

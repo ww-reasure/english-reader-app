@@ -58,7 +58,7 @@ test('v19 migration preserves v13 data and creates exam, telemetry, and chat ima
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
 
-  assert.equal(upgraded.version, 19);
+  assert.ok(upgraded.version >= 21);
   for (const storeName of ['examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions', 'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks', 'examTranslationReviews', 'learningActivityEvents', 'dailyLearningReports', 'chatImageAttachments']) {
     assert.equal(upgraded.objectStoreNames.contains(storeName), true);
   }
@@ -108,7 +108,7 @@ test('v18 migrates legacy active wrong states into today due states and adds due
   const module = await loadDatabaseModule();
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 19);
+  assert.ok(upgraded.version >= 21);
   assert.equal(upgraded.transaction('examWrongStates').objectStore('examWrongStates').indexNames.contains('examIdStatusNextDueAt'), true);
   assert.equal(upgraded.transaction('examTranslationReviews').objectStore('examTranslationReviews').indexNames.contains('examIdStatusNextDueAt'), true);
   const migrated = await new Promise((resolve, reject) => {

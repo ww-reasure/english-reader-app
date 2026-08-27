@@ -81,6 +81,47 @@ test('settleSessionReview 拒绝 revision 不一致的评分', async () => {
   );
 });
 
+test('settleSessionReview 不把界面临时 expectedRevision 写进词条', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({ word: 'transient', reviewRevision: 0 });
+
+  await DB.settleSessionReview(wordId, {
+    state: 'review',
+    interval: 2,
+    nextReview: 2000,
+    expectedRevision: 1
+  }, { rating: 5, expectedRevision: 0, attemptId: 'attempt-transient' });
+
+  const saved = await DB.findLearnWordById(wordId);
+  assert.equal(saved.reviewRevision, 1);
+  assert.equal(saved.expectedRevision, undefined);
+});
+
+test('correctLearnWordReview 拒绝并发 revision，不能覆盖另一种复习', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({ word: 'concurrent', reviewRevision: 0 });
+  const attemptId = 'attempt-concurrent-correction';
+
+  await DB.recordLearnWordReview(wordId, {
+    state: 'review', interval: 4, nextReview: 4000
+  }, { rating: 5, source: 'flashcard', attemptId, expectedRevision: 0 });
+  await DB.recordLearnWordReview(wordId, {
+    state: 'review', interval: 5, nextReview: 5000
+  }, { rating: 5, source: 'context-review', attemptId: 'attempt-other', expectedRevision: 1 });
+
+  await assert.rejects(
+    DB.correctLearnWordReview(wordId, { state: 'relearning', interval: 0 }, {
+      attemptId,
+      expectedRevision: 1,
+      sawAnswer: true
+    }),
+    /已在另一种复习方式中更新/
+  );
+  const saved = await DB.findLearnWordById(wordId);
+  assert.equal(saved.reviewRevision, 2);
+  assert.equal(saved.interval, 5);
+});
+
 test('recovery 会话描述符可写入与读取（跨刷新恢复）', async () => {
   const { DB } = await createDatabase();
   await DB.saveReviewSession({
