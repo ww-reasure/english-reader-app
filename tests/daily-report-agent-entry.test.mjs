@@ -23,6 +23,16 @@ test('the daily report button delegates to the normal composer and guards duplic
   assert.doesNotMatch(handler, /getOrCreate|publishDailyReport|dailyReportAnalyzer|DailyReportAnalyzer/);
 });
 
+test('the quick-action cleanup branch excludes daily report while preserving random and review behavior', () => {
+  const quickActions = section("    document.getElementById('quickActionRail').addEventListener('click'", '  setChatFollowUp');
+  assert.match(quickActions, /\['random',\s*'review'\]\.includes\(name\)/);
+  assert.doesNotMatch(quickActions, /\['random',\s*'review',\s*'daily-report'\]\.includes\(name\)/);
+  assert.match(quickActions, /clearGuidedLearningReply\(\)/);
+  assert.match(quickActions, /skipPendingLearningChoices\(\)/);
+  assert.match(quickActions, /pauseActiveGuidedSessions\(\)/);
+  assert.match(quickActions, /else if \(name === 'daily-report'\)[\s\S]*handleDailyReport\(\)/);
+});
+
 test('explicit daily report requests leave input, image, and quote state untouched', () => {
   const submitter = section('  async submitComposer', '  async handleDailyReport');
   assert.match(submitter, /async submitComposer\(\{\s*explicitText\s*=\s*null\s*,\s*consumeComposer\s*=\s*true\s*\}\s*=\s*\{\}\)/);

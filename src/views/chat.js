@@ -1468,7 +1468,7 @@ export const ChatView = {
       const action = e.target.closest('[data-action]');
       if (!action) return;
       const { action: name, topic } = action.dataset;
-      if (['random', 'review', 'daily-report'].includes(name)) {
+      if (['random', 'review'].includes(name)) {
         this.clearGuidedLearningReply();
         this.skipPendingLearningChoices();
         this.pauseActiveGuidedSessions();
