@@ -21,9 +21,10 @@ const report = {
 };
 
 async function loadAgent() {
-  const [source, analytics] = await Promise.all([
+  const [source, analytics, learningDay] = await Promise.all([
     readFile(new URL('../src/components/learning-agent.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8')
+    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/learning-day.mjs', import.meta.url), 'utf8')
   ]);
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
   const adapted = source.replace(
@@ -31,6 +32,9 @@ async function loadAgent() {
     analytics
       .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
       .replace(/^export /gm, '')
+  ).replace(
+    "import { localDayKey } from '../learning-day.mjs';",
+    learningDay.replace(/^export /gm, '')
   );
   return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
@@ -39,7 +43,7 @@ function createAgent(LearningAgent, provider = {}) {
   return new LearningAgent({ db: {}, srs: {}, dailyReportProvider: provider });
 }
 
-test('declares three bounded read-only daily learning tools', () => {
+test('declares bounded read-only daily learning tools', () => {
   return loadAgent().then(({ LEARNING_TOOLS }) => {
   const names = LEARNING_TOOLS.map(tool => tool.function.name);
   assert.ok(names.includes('get_daily_learning_report'));
@@ -49,6 +53,9 @@ test('declares three bounded read-only daily learning tools', () => {
   assert.equal(listTool.function.parameters.properties.limit.maximum, 30);
   const detailTool = LEARNING_TOOLS.find(tool => tool.function.name === 'get_learning_activity_detail');
   assert.deepEqual(detailTool.function.parameters.properties.category.enum, ['vocabulary', 'lookup', 'reading', 'review', 'exam']);
+  const todayTool = LEARNING_TOOLS.find(tool => tool.function.name === 'get_today_learning_report');
+  assert.ok(todayTool);
+  assert.deepEqual(todayTool.function.parameters, { type: 'object', properties: {}, additionalProperties: false });
   });
 });
 
@@ -75,6 +82,38 @@ test('tools reject out-of-range dates, categories, and limits', async () => {
   });
   await assert.rejects(() => agent.execute('get_learning_activity_detail', { date: '2020-01-01', category: 'database', limit: 999 }));
   assert.deepEqual(await agent.execute('list_recent_learning_reports', { limit: 999 }), { source: 'recent_learning_reports', status: 'empty', reports: [] });
+});
+
+test('today report ignores model date arguments and asks the service for the local day without analysis', async () => {
+  const { LearningAgent } = await loadAgent();
+  const now = new Date(2026, 7, 24, 23, 30).getTime();
+  const calls = [];
+  const agent = createAgent(LearningAgent, {
+    getOrCreate: async (dateKey, options) => {
+      calls.push({ dateKey, options });
+      return { dateKey, facts: { dateKey } };
+    }
+  });
+  agent.now = () => now;
+
+  await agent.execute('get_today_learning_report', { date: '1999-01-01', withAnalysis: true });
+
+  assert.deepEqual(calls, [{ dateKey: '2026-08-24', options: { withAnalysis: false } }]);
+});
+
+test('historical daily report tool keeps the explicit date and analysis option', async () => {
+  const { LearningAgent } = await loadAgent();
+  const calls = [];
+  const report = { dateKey: '2026-08-23', facts: { dateKey: '2026-08-23' } };
+  const agent = createAgent(LearningAgent, {
+    getOrCreate: async (dateKey, options) => {
+      calls.push({ dateKey, options });
+      return report;
+    }
+  });
+
+  assert.equal(await agent.execute('get_daily_learning_report', { date: '2026-08-23', withAnalysis: true }), report);
+  assert.deepEqual(calls, [{ dateKey: '2026-08-23', options: { withAnalysis: true } }]);
 });
 
 test('recent report tool forwards available, empty, and unavailable provider statuses', async () => {

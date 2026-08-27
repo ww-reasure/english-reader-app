@@ -921,3 +921,54 @@ export function toDailyReportAgentSummary(report = {}) {
     aiAnalysisAvailable: Boolean(text(report.aiAnalysis?.text || report.aiAnalysis?.summary))
   };
 }
+
+const DAILY_REPORT_STATUS_KEYS = ['vocabulary', 'reading', 'wordReview', 'exam', 'trends'];
+const DAILY_REPORT_STATUSES = new Set(['available', 'empty', 'partial', 'unavailable']);
+
+function normalizeReportStatus(value) {
+  const status = text(value).toLowerCase();
+  if (status === 'complete') return 'available';
+  return DAILY_REPORT_STATUSES.has(status) ? status : null;
+}
+
+function reportDataStatus(report, summary) {
+  const explicit = report?.dataStatus && typeof report.dataStatus === 'object' ? report.dataStatus : {};
+  const completeness = summary.completeness && typeof summary.completeness === 'object'
+    ? summary.completeness
+    : {};
+  const overall = normalizeReportStatus(report?.status)
+    || (typeof summary.completeness === 'string' ? normalizeReportStatus(summary.completeness) : null)
+    || 'unavailable';
+  return Object.fromEntries(DAILY_REPORT_STATUS_KEYS.map(key => [
+    key,
+    normalizeReportStatus(explicit[key] ?? completeness[key]) || overall
+  ]));
+}
+
+/**
+ * Build the bounded payload exposed to the home Agent for the current-day
+ * report. The full saved report remains behind the daily report artifact; the
+ * tool result deliberately contains facts and status only.
+ */
+export function toDailyReportToolResult(report = {}) {
+  const source = report && typeof report === 'object' ? report : {};
+  const facts = source.facts && typeof source.facts === 'object'
+    ? source.facts
+    : source.data && typeof source.data === 'object'
+      ? source.data
+      : source;
+  const summary = toDailyReportAgentSummary(facts);
+  const dataStatus = reportDataStatus(source, summary);
+  const dateKey = summary.dateKey || text(source.dateKey);
+  const aiAnalysisAvailable = summary.aiAnalysisAvailable
+    || text(source.aiAnalysis?.text || source.aiAnalysis?.summary).length > 0
+    || text(source.analysisStatus).toLowerCase() === 'available';
+  return {
+    source: 'daily_learning_report',
+    dataFingerprint: text(source.dataFingerprint).slice(0, 160),
+    ...summary,
+    dateKey,
+    dataStatus,
+    aiAnalysisAvailable
+  };
+}

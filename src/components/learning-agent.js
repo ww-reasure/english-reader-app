@@ -1,4 +1,5 @@
 import { buildReadingAnalytics } from '../reading-analytics.mjs';
+import { localDayKey } from '../learning-day.mjs';
 
 const clip = (value, limit) => String(value || '').slice(0, limit);
 const activeLearnWords = words => (Array.isArray(words) ? words : []).filter(word => word?.archivedAt == null);
@@ -20,6 +21,14 @@ export const LEARNING_TOOLS = [
       name: 'get_exam_learning_overview',
       description: '只读查询真题练习表现、趋势和复习摘要。仅当用户明确提到某一年时传入 year；仅在明确提到四级或英语一时传入 bankId。',
       parameters: { type: 'object', properties: { year: { type: 'integer', minimum: 2000, maximum: 2100 }, bankId: { type: 'string' } } }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_today_learning_report',
+      description: '只读查询今天本地日期的学习日报。日期由 App 自动确定，不需要也不接受日期参数；只返回本地有界学习事实。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
     }
   },
   {
@@ -137,6 +146,7 @@ export class LearningAgent {
     if (name === 'list_saved_articles') return this.listSavedArticles(args);
     if (name === 'get_review_queue') return this.getReviewQueue();
     if (name === 'get_exam_learning_priorities') return this.getExamLearningPriorities();
+    if (name === 'get_today_learning_report') return this.getTodayLearningReport();
     if (name === 'get_daily_learning_report') return this.getDailyLearningReport(args);
     if (name === 'list_recent_learning_reports') return this.listRecentLearningReports(args);
     if (name === 'get_learning_activity_detail') return this.getLearningActivityDetail(args);
@@ -151,6 +161,12 @@ export class LearningAgent {
     const dateKey = dateArg(args);
     if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
     return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: Boolean(args.withAnalysis) });
+  }
+
+  async getTodayLearningReport() {
+    const dateKey = localDayKey(this.now());
+    if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
+    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: false });
   }
 
   async listRecentLearningReports(args = {}) {

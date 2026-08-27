@@ -3,9 +3,10 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 async function loadAgent() {
-  const [source, analytics] = await Promise.all([
+  const [source, analytics, learningDay] = await Promise.all([
     readFile(new URL('../src/components/learning-agent.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8')
+    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/learning-day.mjs', import.meta.url), 'utf8')
   ]);
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
   const adapted = source.replace(
@@ -13,6 +14,9 @@ async function loadAgent() {
     analytics
       .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
       .replace(/^export /gm, '')
+  ).replace(
+    "import { localDayKey } from '../learning-day.mjs';",
+    learningDay.replace(/^export /gm, '')
   );
   return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
