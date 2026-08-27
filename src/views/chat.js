@@ -36,7 +36,6 @@ import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learn
 import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportWords } from '../word-import-service.mjs';
 import { createPdfImportService } from '../pdf-import.mjs';
 import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
-import { localDayKey } from '../learning-day.mjs';
 import { toDailyReportAgentSummary, toDailyReportToolResult } from '../daily-learning-report.mjs';
 import { renderDailyReportCard } from '../components/daily-report-card.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
@@ -311,6 +310,7 @@ export const ChatView = {
   _guidedReplyTarget: null,
   _guidedActionCleanup: null,
   _guidedRequestController: null,
+  _dailyReportRequestPending: false,
   imageDraftGroupId: null,
   activeImageGroupId: null,
   imageDraftState: 'idle',
@@ -2397,24 +2397,16 @@ export const ChatView = {
   },
 
   async handleDailyReport() {
-    const epoch = this.homeEpoch;
-    this.showThinking('正在整理今日日报…');
+    if (this._dailyReportRequestPending) return;
+    this._dailyReportRequestPending = true;
+    const input = document.getElementById('promptInput');
+    const previousValue = input?.value || '';
+    if (input) input.value = '给我今日日报';
     try {
-      const report = await dailyLearningReportService.getOrCreate(localDayKey(), {
-        withAnalysis: Config.hasApiKey()
-      });
-      if (epoch !== this.homeEpoch) return;
-      this.removeThinking();
-      this.publishDailyReport(report);
-    } catch (error) {
-      if (epoch !== this.homeEpoch) return;
-      this.removeThinking();
-      const reason = redactAgentSecrets(String(error?.message || '').trim()).slice(0, 180);
-      this.appendConversation({
-        role: 'assistant',
-        kind: 'error',
-        content: reason ? `日报暂时无法生成：${reason}` : '日报暂时无法生成，请稍后重试。'
-      });
+      return await this.submitComposer();
+    } finally {
+      this._dailyReportRequestPending = false;
+      if (input && input.value === '给我今日日报') input.value = previousValue;
     }
   },
 

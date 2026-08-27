@@ -55,12 +55,16 @@ test('conversation stores only report reference fields', async () => {
   assert.equal(saved.report, undefined);
 });
 
-test('home exposes the daily report quick action and service fallback contract', async () => {
+test('home exposes the daily report quick action through the main agent composer', async () => {
   const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
   assert.match(source, /data-action="daily-report"/);
   assert.match(source, /DailyLearningReportService/);
-  assert.match(source, /getOrCreate\(localDayKey\(\)/);
-  assert.match(source, /withAnalysis:\s*Config\.hasApiKey\(\)/);
+  const start = source.indexOf('  async handleDailyReport()');
+  const end = source.indexOf('  async executeHomeTool', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /submitComposer\s*\(/);
+  assert.doesNotMatch(handler, /getOrCreate|publishDailyReport|dailyReportAnalyzer/);
 });
 
 test('today report tool result is bounded, structured, and keeps category data status', () => {
