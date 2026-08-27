@@ -169,3 +169,39 @@ test('activity detail distinguishes an empty read from a failed read', async () 
   }).getActivityDetail({ dateKey: DATE_KEY, category: 'lookup' });
   assert.equal(failedDetail.completeness, 'unavailable');
 });
+
+test('recent reports are available when history is read successfully', async () => {
+  const service = createService({
+    db: {
+      async listDailyLearningReports() {
+        return [{ dateKey: DATE_KEY, updatedAt: NOW }];
+      }
+    }
+  });
+
+  const result = await service.listRecent();
+
+  assert.equal(result.status, 'available');
+  assert.equal(result.reports.length, 1);
+  assert.equal(result.reports[0].dateKey, DATE_KEY);
+});
+
+test('recent reports are empty when history is read successfully with no rows', async () => {
+  const result = await createService().listRecent();
+
+  assert.deepEqual(result, { status: 'empty', reports: [] });
+});
+
+test('recent reports are unavailable when history cannot be read', async () => {
+  const service = createService({
+    db: {
+      async listDailyLearningReports() {
+        throw new Error('IndexedDB unavailable');
+      }
+    }
+  });
+
+  const result = await service.listRecent();
+
+  assert.deepEqual(result, { status: 'unavailable', reports: [] });
+});

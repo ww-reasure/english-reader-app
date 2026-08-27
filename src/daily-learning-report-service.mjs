@@ -378,8 +378,8 @@ export class DailyLearningReportService {
 
   async listRecent(limit = 30) {
     const capped = Math.max(0, Math.min(MAX_REPORT_DAYS, Math.trunc(Number(limit) || 30)));
-    const rows = await callOptional(this.db, 'listDailyLearningReports', [], { limit: capped });
-    return asArray(rows).slice(0, capped).map(item => ({
+    const source = await readSource(this.db, 'listDailyLearningReports', [], { limit: capped });
+    const reports = asArray(source.value).slice(0, capped).map(item => ({
       dateKey: text(item.dateKey),
       updatedAt: Number(item.updatedAt) || 0,
       expiresAt: Number(item.expiresAt) || 0,
@@ -389,6 +389,12 @@ export class DailyLearningReportService {
       completeness: { ...(item.facts?.completeness || item.completeness || {}) },
       summary: clip(item.aiAnalysis?.summary, 240)
     }));
+    return {
+      status: !source.ok
+        ? Completeness.UNAVAILABLE
+        : reports.length ? Completeness.AVAILABLE : Completeness.EMPTY,
+      reports
+    };
   }
 
   async prune() {

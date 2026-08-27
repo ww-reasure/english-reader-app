@@ -111,6 +111,7 @@ export const LEARNING_TOOLS = [
 
 const DAILY_REPORT_CATEGORIES = new Set(['vocabulary', 'lookup', 'reading', 'review', 'exam']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const RECENT_REPORT_STATUSES = new Set(['available', 'empty', 'partial', 'unavailable']);
 
 function dateArg(args = {}) {
   const date = String(args.date || args.dateKey || '').trim();
@@ -155,7 +156,20 @@ export class LearningAgent {
   async listRecentLearningReports(args = {}) {
     const limit = Math.max(1, Math.min(30, Math.trunc(Number(args.limit) || 30)));
     if (!this.dailyReportProvider?.listRecent) return { source: 'recent_learning_reports', status: 'unavailable', reports: [] };
-    return { source: 'recent_learning_reports', status: 'available', reports: (await this.dailyReportProvider.listRecent(limit)).slice(0, 30) };
+    let result;
+    try {
+      result = await this.dailyReportProvider.listRecent(limit);
+    } catch {
+      return { source: 'recent_learning_reports', status: 'unavailable', reports: [] };
+    }
+
+    const isLegacyArray = Array.isArray(result);
+    const reports = (isLegacyArray ? result : Array.isArray(result?.reports) ? result.reports : []).slice(0, 30);
+    const providerStatus = !isLegacyArray && typeof result?.status === 'string' ? result.status : '';
+    const status = RECENT_REPORT_STATUSES.has(providerStatus)
+      ? providerStatus
+      : reports.length ? 'available' : isLegacyArray ? 'empty' : 'unavailable';
+    return { source: 'recent_learning_reports', status, reports };
   }
 
   async getLearningActivityDetail(args = {}) {

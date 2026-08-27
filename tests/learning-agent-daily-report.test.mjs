@@ -74,7 +74,27 @@ test('tools reject out-of-range dates, categories, and limits', async () => {
     listRecent: async () => []
   });
   await assert.rejects(() => agent.execute('get_learning_activity_detail', { date: '2020-01-01', category: 'database', limit: 999 }));
-  assert.deepEqual(await agent.execute('list_recent_learning_reports', { limit: 999 }), { source: 'recent_learning_reports', status: 'available', reports: [] });
+  assert.deepEqual(await agent.execute('list_recent_learning_reports', { limit: 999 }), { source: 'recent_learning_reports', status: 'empty', reports: [] });
+});
+
+test('recent report tool forwards available, empty, and unavailable provider statuses', async () => {
+  const { LearningAgent } = await loadAgent();
+  const cases = [
+    { status: 'available', reports: [{ dateKey: '2026-08-24' }] },
+    { status: 'empty', reports: [] },
+    { status: 'unavailable', reports: [] }
+  ];
+
+  for (const expected of cases) {
+    const agent = createAgent(LearningAgent, {
+      listRecent: async () => expected
+    });
+
+    assert.deepEqual(
+      await agent.execute('list_recent_learning_reports', { limit: 30 }),
+      { source: 'recent_learning_reports', ...expected }
+    );
+  }
 });
 
 test('chat tool path keeps only the bounded summary and daily artifact metadata', async () => {
