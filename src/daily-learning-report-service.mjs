@@ -76,22 +76,40 @@ function clip(value, limit) {
   return text(value).slice(0, limit);
 }
 
+function parseAnalysisObject(value) {
+  const raw = String(value ?? '').trim();
+  const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidate = (fenced ? fenced[1] : raw).trim();
+  try {
+    const parsed = JSON.parse(candidate);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeAnalysis(value) {
   if (!value) return null;
   let summary = '';
   let observations = [];
   let nextActions = [];
   if (typeof value === 'string') {
-    const lines = value.split(/\r?\n/).map(text).filter(Boolean);
-    const observationStart = lines.findIndex(line => /观察|发现|表现/.test(line));
-    const actionStart = lines.findIndex(line => /明日|建议|行动/.test(line));
-    summary = lines.find(line => !/^[-*\d.)、\s]/.test(line) && !/观察|发现|表现|明日|建议|行动/.test(line)) || lines[0] || '';
-    if (observationStart >= 0) {
-      const end = actionStart > observationStart ? actionStart : lines.length;
-      observations = lines.slice(observationStart + 1, end).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
+    const parsed = parseAnalysisObject(value);
+    if (parsed) {
+      value = parsed;
+    } else {
+      const lines = value.split(/\r?\n/).map(text).filter(Boolean);
+      const observationStart = lines.findIndex(line => /观察|发现|表现/.test(line));
+      const actionStart = lines.findIndex(line => /明日|建议|行动/.test(line));
+      summary = lines.find(line => !/^[-*\d.)、\s]/.test(line) && !/观察|发现|表现|明日|建议|行动/.test(line)) || lines[0] || '';
+      if (observationStart >= 0) {
+        const end = actionStart > observationStart ? actionStart : lines.length;
+        observations = lines.slice(observationStart + 1, end).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
+      }
+      if (actionStart >= 0) nextActions = lines.slice(actionStart + 1).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
     }
-    if (actionStart >= 0) nextActions = lines.slice(actionStart + 1).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
-  } else if (typeof value === 'object') {
+  }
+  if (typeof value === 'object' && value !== null) {
     summary = value.summary || value.overview || value.conclusion || '';
     observations = value.observations || value.observation || value.findings || [];
     nextActions = value.nextActions || value.actions || value.recommendations || [];

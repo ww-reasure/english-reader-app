@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ActivityType } from '../src/learning-activity.mjs';
-import { DailyLearningReportService } from '../src/daily-learning-report-service.mjs';
+import { DailyLearningReportService, normalizeAnalysis } from '../src/daily-learning-report-service.mjs';
 
 const DATE_KEY = '2026-08-24';
 const NOW = new Date(2026, 7, 24, 12).getTime();
@@ -59,6 +59,48 @@ const successfulAnalysis = async () => ({
   summary: '今天完成了稳定的学习。',
   observations: ['查词记录清晰。', '学习节奏稳定。'],
   nextActions: ['明天完成一次复习。', '继续记录阅读时长。']
+});
+
+const structuredAnalysis = {
+  summary: '今天完成了稳定的学习。',
+  observations: ['查词记录清晰。', '学习节奏稳定。'],
+  nextActions: ['明天完成一次复习。', '继续记录阅读时长。']
+};
+
+test('normalizeAnalysis accepts an already parsed object', () => {
+  assert.deepEqual(normalizeAnalysis(structuredAnalysis), structuredAnalysis);
+});
+
+test('normalizeAnalysis parses a standard JSON string', () => {
+  assert.deepEqual(normalizeAnalysis(JSON.stringify(structuredAnalysis)), structuredAnalysis);
+});
+
+test('normalizeAnalysis parses JSON inside a json code fence', () => {
+  const fenced = ['```json', JSON.stringify(structuredAnalysis, null, 2), '```'].join('\n');
+  assert.deepEqual(normalizeAnalysis(fenced), structuredAnalysis);
+});
+
+test('normalizeAnalysis falls back to the existing plain-text format after invalid JSON', () => {
+  const invalidJson = [
+    '{"summary":"今天学习节奏稳定。',
+    '观察',
+    '- 查词记录清晰。',
+    '- 阅读完成度不错。',
+    '明日建议',
+    '- 继续完成复习。',
+    '- 保持每日阅读。'
+  ].join('\n');
+
+  assert.doesNotThrow(() => normalizeAnalysis(invalidJson));
+  assert.deepEqual(normalizeAnalysis(invalidJson), {
+    summary: '{"summary":"今天学习节奏稳定。',
+    observations: ['查词记录清晰。', '阅读完成度不错。'],
+    nextActions: ['继续完成复习。', '保持每日阅读。']
+  });
+});
+
+test('normalizeAnalysis returns null for completely invalid content', () => {
+  assert.equal(normalizeAnalysis('This is not a structured analysis.'), null);
 });
 
 test('same fingerprint reuses the stored analysis without another AI request', async () => {
