@@ -9,7 +9,15 @@ export const ActivityType = Object.freeze({
   EXAM_ACTIVE_SLICE: 'exam_active_slice',
   AI_LEARNING_INTERACTION: 'ai_learning_interaction'
 });
-export const Completeness = Object.freeze({ COMPLETE: 'complete', PARTIAL: 'partial', UNAVAILABLE: 'unavailable' });
+export const Completeness = Object.freeze({
+  AVAILABLE: 'available',
+  EMPTY: 'empty',
+  PARTIAL: 'partial',
+  UNAVAILABLE: 'unavailable',
+  // Keep the old constant name for callers that still import it. Reports now
+  // emit the clearer `available` value instead of the ambiguous `complete`.
+  COMPLETE: 'available'
+});
 const TYPES = new Set(Object.values(ActivityType));
 const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
 export const normalizeLemma = value => clip(value, 100).toLocaleLowerCase('en-US');

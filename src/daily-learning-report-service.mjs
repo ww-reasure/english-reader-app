@@ -4,7 +4,7 @@ import {
   formatDailyLearningReportMarkdown,
   toDailyReportAgentSummary
 } from './daily-learning-report.mjs';
-import { ActivityType } from './learning-activity.mjs';
+import { ActivityType, Completeness } from './learning-activity.mjs';
 import { isDayRetained, localDayBounds, localDayKey } from './learning-day.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -181,6 +181,20 @@ async function callOptional(target, method, fallback, ...args) {
   }
 }
 
+async function readSource(target, method, fallback, ...args) {
+  if (typeof target?.[method] !== 'function') return { ok: false, value: fallback };
+  try {
+    return { ok: true, value: await target[method](...args) };
+  } catch {
+    return { ok: false, value: fallback };
+  }
+}
+
+function arraySourceStatus(source, rows) {
+  if (!source.ok) return Completeness.UNAVAILABLE;
+  return rows.length ? Completeness.AVAILABLE : Completeness.EMPTY;
+}
+
 export class DailyLearningReportService {
   constructor({ db, examProvider, analyze = null, now = () => Date.now() } = {}) {
     if (!db) throw new TypeError('日报服务需要 DB');
@@ -198,52 +212,84 @@ export class DailyLearningReportService {
 
   async loadReviewEvents(learnWords) {
     if (typeof this.db.getAllReviewEvents === 'function') {
-      return normalizeReviewEvents(await this.db.getAllReviewEvents());
+      const source = await readSource(this.db, 'getAllReviewEvents', []);
+      const events = normalizeReviewEvents(source.value);
+      return { events, status: arraySourceStatus(source, events) };
     }
     if (typeof this.db.listReviewEvents === 'function') {
-      return normalizeReviewEvents(await this.db.listReviewEvents());
+      const source = await readSource(this.db, 'listReviewEvents', []);
+      const events = normalizeReviewEvents(source.value);
+      return { events, status: arraySourceStatus(source, events) };
     }
-    if (typeof this.db.getReviewEventsForWord !== 'function') return [];
-    const groups = await Promise.all(asArray(learnWords).map(word => this.db.getReviewEventsForWord(word.id).catch(() => [])));
-    return normalizeReviewEvents(groups.flat());
+    if (typeof this.db.getReviewEventsForWord !== 'function') {
+      return { events: [], status: Completeness.UNAVAILABLE };
+    }
+    const sources = await Promise.all(asArray(learnWords).map(word => readSource(this.db, 'getReviewEventsForWord', [], word.id)));
+    const events = normalizeReviewEvents(sources.flatMap(source => asArray(source.value)));
+    return {
+      events,
+      status: sources.some(source => !source.ok)
+        ? Completeness.UNAVAILABLE
+        : arraySourceStatus({ ok: true }, events)
+    };
   }
 
   async loadExamFacts({ dateKey, from, to }) {
     const provider = this.examProvider;
     for (const method of ['getDailyFacts', 'getFacts', 'loadFacts']) {
       if (typeof provider?.[method] === 'function') {
-        const result = await provider[method]({ dateKey, from, to, now: this.nowMs() });
-        return result?.facts && typeof result.facts === 'object' ? result.facts : (result || {});
+        const source = await readSource(provider, method, {}, { dateKey, from, to, now: this.nowMs() });
+        const result = source.value;
+        const facts = result?.facts && typeof result.facts === 'object' ? result.facts : (result || {});
+        return { facts: facts && typeof facts === 'object' ? facts : {}, status: source.ok ? Completeness.AVAILABLE : Completeness.UNAVAILABLE };
       }
     }
-    if (typeof provider?.getOverview === 'function') return provider.getOverview({ dateKey, from, to });
-    return {};
+    if (typeof provider?.getOverview === 'function') {
+      const source = await readSource(provider, 'getOverview', {}, { dateKey, from, to });
+      const facts = source.value;
+      return { facts: facts && typeof facts === 'object' ? facts : {}, status: source.ok ? Completeness.AVAILABLE : Completeness.UNAVAILABLE };
+    }
+    return { facts: {}, status: Completeness.UNAVAILABLE };
   }
 
   async loadFacts(dateKey) {
     const { from, to } = dayRange(dateKey);
-    const [articles, readingStats, learnWords, activities, recentReports, examFacts] = await Promise.all([
-      callOptional(this.db, 'getAllArticles', []),
-      callOptional(this.db, 'getAllReadingStats', []),
-      callOptional(this.db, 'getAllLearnWords', [], { includeArchived: true }),
-      callOptional(this.db, 'listLearningActivities', [], { from, to }),
-      callOptional(this.db, 'listDailyLearningReports', [], { limit: MAX_REPORT_DAYS }),
+    const [articlesSource, readingStatsSource, learnWordsSource, activitiesSource, recentReportsSource, examSource] = await Promise.all([
+      readSource(this.db, 'getAllArticles', []),
+      readSource(this.db, 'getAllReadingStats', []),
+      readSource(this.db, 'getAllLearnWords', [], { includeArchived: true }),
+      readSource(this.db, 'listLearningActivities', [], { from, to }),
+      readSource(this.db, 'listDailyLearningReports', [], { limit: MAX_REPORT_DAYS }),
       this.loadExamFacts({ dateKey, from, to })
     ]);
-    const reviewEvents = await this.loadReviewEvents(learnWords);
+    const articles = asArray(articlesSource.value);
+    const readingStats = asArray(readingStatsSource.value);
+    const learnWords = asArray(learnWordsSource.value);
+    const activities = asArray(activitiesSource.value);
+    const recentReports = asArray(recentReportsSource.value);
+    const reviewSource = await this.loadReviewEvents(learnWords);
     return {
       dateKey,
       articles,
       readingStats,
       learnWords,
-      reviewEvents,
+      reviewEvents: reviewSource.events,
       activities,
-      papers: asArray(examFacts.papers),
-      attempts: asArray(examFacts.attempts),
-      responsesByAttempt: examFacts.responsesByAttempt || {},
-      wrongStates: asArray(examFacts.wrongStates),
-      translationReviews: asArray(examFacts.translationReviews),
-      recentReports: asArray(recentReports).map(item => item?.facts || item?.data || item).filter(Boolean),
+      papers: asArray(examSource.facts.papers),
+      attempts: asArray(examSource.facts.attempts),
+      responsesByAttempt: examSource.facts.responsesByAttempt || {},
+      wrongStates: asArray(examSource.facts.wrongStates),
+      translationReviews: asArray(examSource.facts.translationReviews),
+      recentReports: recentReports.map(item => item?.facts || item?.data || item).filter(Boolean),
+      sourceStatus: {
+        articles: arraySourceStatus(articlesSource, articles),
+        readingStats: arraySourceStatus(readingStatsSource, readingStats),
+        learnWords: arraySourceStatus(learnWordsSource, learnWords),
+        activities: arraySourceStatus(activitiesSource, activities),
+        reviewEvents: reviewSource.status,
+        examFacts: examSource.status,
+        recentReports: arraySourceStatus(recentReportsSource, recentReports)
+      },
       now: this.nowMs()
     };
   }
@@ -313,8 +359,8 @@ export class DailyLearningReportService {
     const types = categoryTypes(text(category));
     if (!types) throw new TypeError('日报详情类别无效');
     const { from, to } = dayRange(dateKey);
-    const rows = await callOptional(this.db, 'listLearningActivities', [], { from, to, types });
-    const items = asArray(rows)
+    const source = await readSource(this.db, 'listLearningActivities', [], { from, to, types });
+    const items = asArray(source.value)
       .filter(item => types.includes(item.type))
       .slice(0, Math.max(0, Math.min(MAX_DETAIL_LIMIT, Math.trunc(Number(limit) || 20))))
       .map(sanitizeActivity);
@@ -322,7 +368,9 @@ export class DailyLearningReportService {
       source: 'learning_activity_detail',
       dateKey,
       category: text(category),
-      completeness: rows ? 'complete' : 'unavailable',
+      completeness: !source.ok
+        ? Completeness.UNAVAILABLE
+        : items.length ? Completeness.AVAILABLE : Completeness.EMPTY,
       items,
       limit: Math.max(0, Math.min(MAX_DETAIL_LIMIT, Math.trunc(Number(limit) || 20)))
     };
