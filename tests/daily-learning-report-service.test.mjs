@@ -173,7 +173,8 @@ test('activity details are category bounded and recent reports are capped', asyn
   assert.equal(detail.items[0].payload, undefined);
 
   const recent = await service.listRecent(100);
-  assert.equal(recent.length <= 30, true);
+  assert.equal(recent.status, 'empty');
+  assert.equal(recent.reports.length <= 30, true);
 });
 
 test('daily report resolves an archived word referenced by a historical review event', async () => {

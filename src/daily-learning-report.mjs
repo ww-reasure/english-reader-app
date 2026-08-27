@@ -12,6 +12,12 @@ const asArray = value => Array.isArray(value) ? value : [];
 const numberOrZero = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const positiveNumber = value => Math.max(0, numberOrZero(value));
 const text = value => String(value ?? '').trim();
+const COMPLETENESS_VALUES = new Set([
+  Completeness.AVAILABLE,
+  Completeness.EMPTY,
+  Completeness.PARTIAL,
+  Completeness.UNAVAILABLE
+]);
 const compareText = (left, right) => {
   const a = text(left);
   const b = text(right);
@@ -131,6 +137,30 @@ function paperIdentity(value = {}) {
   return `${text(value.bankId)}:${text(value.paperKey)}`;
 }
 
+function explicitSourceStatus(input, key) {
+  const candidate = text(input?.sourceStatus?.[key]).toLowerCase();
+  if (candidate === 'complete') return Completeness.AVAILABLE;
+  return COMPLETENESS_VALUES.has(candidate) ? candidate : null;
+}
+
+function inferredSourceStatus(input, key, value) {
+  const explicit = explicitSourceStatus(input, key);
+  if (explicit) return explicit;
+  if (!Object.prototype.hasOwnProperty.call(input, key)) return Completeness.UNAVAILABLE;
+  return asArray(value).length ? Completeness.AVAILABLE : Completeness.EMPTY;
+}
+
+function completenessForSources(statuses, hasData) {
+  const values = statuses.filter(Boolean);
+  if (values.includes(Completeness.UNAVAILABLE)) {
+    return hasData ? Completeness.PARTIAL : Completeness.UNAVAILABLE;
+  }
+  if (values.includes(Completeness.PARTIAL)) {
+    return hasData ? Completeness.PARTIAL : Completeness.UNAVAILABLE;
+  }
+  return hasData ? Completeness.AVAILABLE : Completeness.EMPTY;
+}
+
 function typeKeyOf(unit = {}) {
   return `${text(unit.type) || 'unknown'}${unit.matchingVariant ? `:${text(unit.matchingVariant)}` : ''}`;
 }
@@ -184,7 +214,7 @@ function getPaperMaps(papers) {
   return { paperMap, unitMap };
 }
 
-function buildVocabulary({ dateKey, activities, learnWords, reviewEvents, hasActivities, hasLearnWords, hasReviewEvents }) {
+function buildVocabulary({ dateKey, activities, learnWords, reviewEvents, sourceStatus = {} }) {
   const dayActivities = asArray(activities).filter(item => belongsToDay(item, dateKey));
   const dayImports = dayActivities.filter(item => item.type === ActivityType.WORD_IMPORT_DAILY || item.type === ActivityType.WORD_IMPORT_BATCH);
   const daySaves = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_SAVED));
@@ -287,12 +317,22 @@ function buildVocabulary({ dateKey, activities, learnWords, reviewEvents, hasAct
     .sort((left, right) => compareText(left.lemma, right.lemma));
 
   const formalReviewEvents = asArray(reviewEvents).filter(event => belongsToDay(event, dateKey) && event.source !== 'external-import');
-  const complete = hasActivities && hasLearnWords && hasReviewEvents
-    ? Completeness.COMPLETE
-    : (dayActivities.length || asArray(learnWords).length || asArray(reviewEvents).length ? Completeness.PARTIAL : Completeness.UNAVAILABLE);
+  const hasData = Boolean(
+    newDetails.length
+    || externalDetails.length
+    || ignoredDetails.length
+    || lookups.length
+    || daySaves.length
+    || formalReviewEvents.length
+  );
+  const completeness = completenessForSources([
+    sourceStatus.activities,
+    sourceStatus.learnWords,
+    sourceStatus.reviewEvents
+  ], hasData);
 
   return {
-    completeness: complete,
+    completeness,
     newUnique: newDetails.length,
     newBySource,
     newWords: newDetails.map(item => item.lemma),
@@ -316,7 +356,7 @@ function buildVocabulary({ dateKey, activities, learnWords, reviewEvents, hasAct
   };
 }
 
-function buildReading({ dateKey, articles, readingStats, hasReadingStats, hasActivities, activities }) {
+function buildReading({ dateKey, articles, readingStats, sourceStatus = {}, activities }) {
   const articleMap = new Map(asArray(articles).map(article => [article.id, article]));
   const dayReadings = asArray(readingStats).filter(item => belongsToDay(item, dateKey));
   const effective = dayReadings.filter(item => Number(item.qualificationVersion) >= 2 && item.completed === true);
@@ -341,9 +381,11 @@ function buildReading({ dateKey, articles, readingStats, hasReadingStats, hasAct
   const dayActivities = asArray(activities).filter(item => belongsToDay(item, dateKey));
   const lookupCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_LOOKUP)).length;
   const savedWordCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_SAVED)).length;
-  const completeness = hasReadingStats && hasActivities
-    ? Completeness.COMPLETE
-    : (dayReadings.length || lookupCount || savedWordCount ? Completeness.PARTIAL : Completeness.UNAVAILABLE);
+  const hasData = Boolean(dayReadings.length || lookupCount || savedWordCount);
+  const completeness = completenessForSources([
+    sourceStatus.readingStats,
+    sourceStatus.activities
+  ], hasData);
   return {
     completeness,
     completedCount: effective.length,
@@ -359,7 +401,7 @@ function buildReading({ dateKey, articles, readingStats, hasReadingStats, hasAct
   };
 }
 
-function buildReview({ dateKey, activities, reviewEvents, hasActivities, hasReviewEvents }) {
+function buildReview({ dateKey, activities, reviewEvents, sourceStatus = {} }) {
   const summaries = latestByKey(
     asArray(activities).filter(item => belongsToDay(item, dateKey) && item.type === ActivityType.REVIEW_SESSION_SUMMARY),
     item => text(item.dedupeKey || item.sessionId || item.id)
@@ -386,9 +428,11 @@ function buildReview({ dateKey, activities, reviewEvents, hasActivities, hasRevi
       if (rating) result[rating] = (result[rating] || 0) + 1;
       return result;
     }, {});
-  const completeness = hasActivities && hasReviewEvents
-    ? Completeness.COMPLETE
-    : (summaries.length || ratings ? Completeness.PARTIAL : Completeness.UNAVAILABLE);
+  const hasData = Boolean(summaries.length || Object.keys(ratings).length);
+  const completeness = completenessForSources([
+    sourceStatus.activities,
+    sourceStatus.reviewEvents
+  ], hasData);
   return {
     completeness,
     sessionCount: summaries.length,
@@ -409,7 +453,7 @@ function buildReview({ dateKey, activities, reviewEvents, hasActivities, hasRevi
   };
 }
 
-function buildExam({ dateKey, papers, attempts, responsesByAttempt, wrongStates, translationReviews, activities, hasPapers, hasAttempts, hasResponses }) {
+function buildExam({ dateKey, papers, attempts, responsesByAttempt, wrongStates, translationReviews, activities, sourceStatus = {} }) {
   const { paperMap, unitMap } = getPaperMaps(papers);
   const daySlices = latestByKey(
     asArray(activities).filter(item => belongsToDay(item, dateKey) && item.type === ActivityType.EXAM_ACTIVE_SLICE),
@@ -561,9 +605,11 @@ function buildExam({ dateKey, papers, attempts, responsesByAttempt, wrongStates,
   const objectiveAnswered = paperRows.flatMap(paper => paper.types).reduce((sum, row) => sum + row.answered, 0);
   const objectiveCorrect = paperRows.flatMap(paper => paper.types).reduce((sum, row) => sum + row.correct, 0);
   const activeDurationMs = daySlices.reduce((sum, item) => sum + positiveNumber(activityPayload(item).durationMs), 0);
-  const completeness = hasPapers && hasAttempts && hasResponses
-    ? (paperRows.length ? Completeness.COMPLETE : Completeness.UNAVAILABLE)
-    : (paperRows.length || daySlices.length ? Completeness.PARTIAL : Completeness.UNAVAILABLE);
+  const hasData = Boolean(paperRows.length || daySlices.length);
+  const completeness = completenessForSources([
+    sourceStatus.examFacts,
+    sourceStatus.activities
+  ], hasData);
   return {
     completeness,
     objectiveAnswered,
@@ -638,11 +684,6 @@ export function buildDailyLearningTrends(reports = [], { todayKey } = {}) {
   };
 }
 
-function completenessForInput(input, key, hasData) {
-  if (Object.prototype.hasOwnProperty.call(input, key)) return hasData ? Completeness.COMPLETE : Completeness.COMPLETE;
-  return hasData ? Completeness.PARTIAL : Completeness.UNAVAILABLE;
-}
-
 export function buildDailyLearningReport(input = {}) {
   const dateKey = validDayKey(input.dateKey);
   if (!dateKey) throw new TypeError('日报日期必须为 YYYY-MM-DD');
@@ -651,29 +692,38 @@ export function buildDailyLearningReport(input = {}) {
   const learnWords = asArray(input.learnWords);
   const reviewEvents = asArray(input.reviewEvents);
   const readingStats = asArray(input.readingStats);
+  const sourceStatus = {
+    articles: inferredSourceStatus(input, 'articles', input.articles),
+    readingStats: inferredSourceStatus(input, 'readingStats', input.readingStats),
+    learnWords: inferredSourceStatus(input, 'learnWords', input.learnWords),
+    activities: inferredSourceStatus(input, 'activities', input.activities),
+    reviewEvents: inferredSourceStatus(input, 'reviewEvents', input.reviewEvents),
+    examFacts: explicitSourceStatus(input, 'examFacts')
+      || (['papers', 'attempts', 'responsesByAttempt', 'wrongStates', 'translationReviews']
+        .some(key => Object.prototype.hasOwnProperty.call(input, key))
+        ? Completeness.AVAILABLE
+        : Completeness.UNAVAILABLE),
+    recentReports: inferredSourceStatus(input, 'recentReports', input.recentReports)
+  };
   const vocabulary = buildVocabulary({
     dateKey,
     activities,
     learnWords,
     reviewEvents,
-    hasActivities: Object.prototype.hasOwnProperty.call(input, 'activities'),
-    hasLearnWords: Object.prototype.hasOwnProperty.call(input, 'learnWords'),
-    hasReviewEvents: Object.prototype.hasOwnProperty.call(input, 'reviewEvents')
+    sourceStatus
   });
   const reading = buildReading({
     dateKey,
     articles: input.articles,
     readingStats,
-    hasReadingStats: Object.prototype.hasOwnProperty.call(input, 'readingStats'),
-    hasActivities: Object.prototype.hasOwnProperty.call(input, 'activities'),
+    sourceStatus,
     activities
   });
   const wordReview = buildReview({
     dateKey,
     activities,
     reviewEvents,
-    hasActivities: Object.prototype.hasOwnProperty.call(input, 'activities'),
-    hasReviewEvents: Object.prototype.hasOwnProperty.call(input, 'reviewEvents')
+    sourceStatus
   });
   const exam = buildExam({
     dateKey,
@@ -683,9 +733,7 @@ export function buildDailyLearningReport(input = {}) {
     wrongStates: input.wrongStates,
     translationReviews: input.translationReviews,
     activities,
-    hasPapers: Object.prototype.hasOwnProperty.call(input, 'papers'),
-    hasAttempts: Object.prototype.hasOwnProperty.call(input, 'attempts'),
-    hasResponses: Object.prototype.hasOwnProperty.call(input, 'responsesByAttempt')
+    sourceStatus
   });
   const coreDurationBreakdown = {
     readingMs: reading.totalDurationMs,
@@ -704,12 +752,18 @@ export function buildDailyLearningReport(input = {}) {
       exam
     }
   ], { todayKey: dateKey });
+  const hasCurrentTrendData = [vocabulary, reading, wordReview, exam]
+    .some(item => item.completeness === Completeness.AVAILABLE || item.completeness === Completeness.PARTIAL);
+  const trendsCompleteness = completenessForSources(
+    [sourceStatus.recentReports],
+    Boolean(asArray(input.recentReports).length || hasCurrentTrendData)
+  );
   const completeness = {
     vocabulary: vocabulary.completeness,
     reading: reading.completeness,
     wordReview: wordReview.completeness,
     exam: exam.completeness,
-    trends: completenessForInput(input, 'recentReports', asArray(input.recentReports).length > 0 ? true : false)
+    trends: trendsCompleteness
   };
   return {
     dateKey,
@@ -740,9 +794,10 @@ function durationLabel(durationMs) {
 }
 
 function formatCompleteness(value) {
-  if (value === Completeness.COMPLETE) return '完整';
+  if (value === Completeness.AVAILABLE || value === 'complete') return '有记录';
+  if (value === Completeness.EMPTY) return '暂无记录';
   if (value === Completeness.PARTIAL) return '部分可用';
-  return '不可用';
+  return '数据不可用';
 }
 
 export function formatDailyLearningReportMarkdown(report = {}) {
