@@ -18,13 +18,24 @@ test('the daily report button delegates to the normal composer and guards duplic
   const handler = section('  async handleDailyReport()', '  async executeHomeTool');
   assert.match(handler, /_dailyReportRequestPending/);
   assert.match(handler, /if\s*\(this\._dailyReportRequestPending\)\s*return/);
-  assert.match(handler, /input\.value\s*=\s*'给我今日日报'/);
-  assert.match(handler, /this\.submitComposer\s*\(/);
+  assert.match(handler, /this\.submitComposer\s*\(\{[\s\S]*explicitText\s*:\s*'给我今日日报'[\s\S]*consumeComposer\s*:\s*false[\s\S]*\}\)/);
+  assert.doesNotMatch(handler, /input\.value\s*=|imageDraftGroupId\s*=|activeImageGroupId\s*=|clearChatFollowUp\(/);
   assert.doesNotMatch(handler, /getOrCreate|publishDailyReport|dailyReportAnalyzer|DailyReportAnalyzer/);
 });
 
+test('explicit daily report requests leave input, image, and quote state untouched', () => {
+  const submitter = section('  async submitComposer', '  async handleDailyReport');
+  assert.match(submitter, /async submitComposer\(\{\s*explicitText\s*=\s*null\s*,\s*consumeComposer\s*=\s*true\s*\}\s*=\s*\{\}\)/);
+  assert.match(submitter, /const value = explicitText == null/);
+  assert.match(submitter, /const draftGroupId = consumeComposer\s*\?\s*this\.imageDraftGroupId\s*:\s*null/);
+  assert.match(submitter, /const activeImageGroupId = consumeComposer\s*\?\s*this\.activeImageGroupId\s*:\s*null/);
+  assert.match(submitter, /const selectedExcerpt = consumeComposer\s*\?\s*normalizeSelectedExcerpt\(this\._chatFollowUpExcerpt\)\s*:\s*''/);
+  assert.match(submitter, /if\s*\(consumeComposer && input\)\s*input\.value\s*=\s*''/);
+  assert.match(submitter, /const guidedReplyTarget = consumeComposer/);
+});
+
 test('daily report submission uses the same Main Agent request and publish path', () => {
-  const submitter = section('  async submitComposer()', '  async handleDailyReport');
+  const submitter = section('  async submitComposer', '  async handleDailyReport');
   assert.match(submitter, /this\.appendConversation\s*\(/);
   assert.match(submitter, /chatService\.ask\s*\(/);
   assert.equal((submitter.match(/chatService\.ask\s*\(/g) || []).length, 1);
@@ -38,7 +49,7 @@ test('the daily report request stays on tool_choice auto instead of bypassing th
   assert.match(toolBranch, /learningAgent\.execute\(name, args\)/);
   assert.match(toolBranch, /toDailyReportToolResult\(report\)/);
   assert.match(toolBranch, /dailyReportArtifactOf\(report\)/);
-  const submitter = section('  async submitComposer()', '  async handleDailyReport');
+  const submitter = section('  async submitComposer', '  async handleDailyReport');
   assert.match(submitter, /tools:\s*HOME_LEARNING_TOOLS/);
   assert.match(submitter, /executeTool:/);
 });

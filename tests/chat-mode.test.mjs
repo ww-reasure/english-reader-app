@@ -21,7 +21,7 @@ test('chat view uses one composer for learning chat and article generation', asy
 
 test('chat only uses the legacy local generation classifier after tool support is unavailable', async () => {
   const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
-  const submitStart = source.indexOf('async submitComposer()');
+  const submitStart = source.indexOf('async submitComposer(');
   const submitEnd = source.indexOf('async executeHomeTool', submitStart);
   const submit = source.slice(submitStart, submitEnd);
 

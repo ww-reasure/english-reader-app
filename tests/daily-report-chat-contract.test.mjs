@@ -64,6 +64,9 @@ test('home exposes the daily report quick action through the main agent composer
   assert.ok(start >= 0 && end > start);
   const handler = source.slice(start, end);
   assert.match(handler, /submitComposer\s*\(/);
+  assert.match(handler, /explicitText\s*:\s*'给我今日日报'/);
+  assert.match(handler, /consumeComposer\s*:\s*false/);
+  assert.doesNotMatch(handler, /input\.value\s*=\s*'给我今日日报'/);
   assert.doesNotMatch(handler, /getOrCreate|publishDailyReport|dailyReportAnalyzer/);
 });
 
