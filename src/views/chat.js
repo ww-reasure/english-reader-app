@@ -37,7 +37,7 @@ import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportW
 import { createPdfImportService } from '../pdf-import.mjs';
 import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
 import { localDayKey } from '../learning-day.mjs';
-import { toDailyReportAgentSummary } from '../daily-learning-report.mjs';
+import { toDailyReportAgentSummary, toDailyReportToolResult } from '../daily-learning-report.mjs';
 import { renderDailyReportCard } from '../components/daily-report-card.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
@@ -2511,6 +2511,14 @@ export const ChatView = {
           ...toDailyReportAgentSummary(facts)
         },
         artifact
+      };
+    }
+    if (name === 'get_today_learning_report') {
+      const report = await learningAgent.execute(name, args);
+      const artifact = dailyReportArtifactOf(report);
+      return {
+        result: toDailyReportToolResult(report),
+        ...(artifact ? { artifact } : {})
       };
     }
     if (name === 'list_recent_learning_reports' || name === 'get_learning_activity_detail') {

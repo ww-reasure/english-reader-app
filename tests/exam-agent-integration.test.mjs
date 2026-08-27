@@ -14,6 +14,8 @@ test('agent prompt selects reading, exam or combined data and only filters expli
   assert.match(source, /问真题或做题情况/);
   assert.match(source, /整体学习情况/);
   assert.match(source, /明确提到年份/);
+  assert.match(source, /当天学习量.*get_today_learning_report/);
+  assert.match(source, /明确的历史日期.*get_daily_learning_report/);
 });
 
 test('capability catalog exposes exam training, review and history as click-only actions', async () => {

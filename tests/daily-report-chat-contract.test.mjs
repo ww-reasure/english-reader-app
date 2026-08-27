@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { readCopyText } from '../src/components/message-actions.mjs';
+import * as dailyReport from '../src/daily-learning-report.mjs';
 
 async function loadStore() {
   const source = await readFile(new URL('../src/components/conversation-store.js', import.meta.url), 'utf8');
@@ -60,4 +61,45 @@ test('home exposes the daily report quick action and service fallback contract',
   assert.match(source, /DailyLearningReportService/);
   assert.match(source, /getOrCreate\(localDayKey\(\)/);
   assert.match(source, /withAnalysis:\s*Config\.hasApiKey\(\)/);
+});
+
+test('today report tool result is bounded, structured, and keeps category data status', () => {
+  const result = dailyReport.toDailyReportToolResult({
+    dataFingerprint: 'sha256:test',
+    facts: {
+      dateKey: '2026-08-24',
+      completeness: {
+        vocabulary: 'available',
+        reading: 'empty',
+        wordReview: 'partial',
+        exam: 'unavailable',
+        trends: 'available'
+      },
+      vocabulary: { newUnique: 2, newWords: ['alpha', 'beta'] },
+      reading: { completedCount: 1 },
+      wordReview: { sessionCount: 1 },
+      exam: { objectiveAnswered: 3 },
+      trends7d: { availableDays: 2 }
+    }
+  });
+
+  assert.equal(result.source, 'daily_learning_report');
+  assert.equal(result.dateKey, '2026-08-24');
+  assert.equal(result.dataFingerprint, 'sha256:test');
+  assert.deepEqual(result.dataStatus, {
+    vocabulary: 'available',
+    reading: 'empty',
+    wordReview: 'partial',
+    exam: 'unavailable',
+    trends: 'available'
+  });
+  for (const key of ['reading', 'vocabulary', 'wordReview', 'exam', 'trends7d']) assert.ok(result[key]);
+  assert.equal(JSON.stringify(result).length < 8000, true);
+});
+
+test('home tool path handles today reports through the existing daily artifact flow', async () => {
+  const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
+  assert.match(source, /name === 'get_today_learning_report'/);
+  assert.match(source, /toDailyReportToolResult\(report\)/);
+  assert.match(source, /dailyReportArtifactOf\(report\)/);
 });
