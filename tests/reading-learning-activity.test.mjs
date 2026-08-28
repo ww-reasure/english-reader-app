@@ -19,6 +19,9 @@ test('reading activity records only successful lookups and preserves save proven
   assert.match(tooltip, /onWordSaved/);
   assert.match(reading, /ActivityType\.READING_WORD_LOOKUP/);
   assert.match(reading, /ActivityType\.READING_WORD_SAVED/);
+  assert.match(reading, /createReadingActivityTracker/);
+  assert.match(reading, /readingActivityTracker\?\.record/);
+  assert.match(reading, /_flushReadingActivity/);
   assert.match(reading, /lookup:\$\{sessionId\}/);
   assert.match(reading, /console\.warn/);
 });
@@ -32,4 +35,18 @@ test('reading save activity keeps the source article and distinguishes reencount
   assert.match(tooltip, /articleTitle: lookupContext\?\.articleTitle \|\| ''/);
   assert.match(reading, /createdLearnWord/);
   assert.match(reading, /articleTitle/);
+});
+
+test('reading activity keeps active time and completion facts in separate durable stages', async () => {
+  const [reading, activity] = await Promise.all([
+    readFile(new URL('../src/views/reading.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/reading-activity.mjs', import.meta.url), 'utf8')
+  ]);
+  assert.match(activity, /reading-active:/);
+  assert.match(activity, /lastAccountedTimerElapsed/);
+  assert.match(activity, /guideVisitedIndexes/);
+  assert.match(activity, /saveIntervalMs/);
+  assert.match(reading, /_flushReadingActivity\(\);[\s\S]*DB\.saveReadingStat/);
+  assert.match(reading, /activityAccountingVersion:\s*1/);
+  assert.match(reading, /_flushReadingActivity\(\{ markCompleted: true \}\)/);
 });

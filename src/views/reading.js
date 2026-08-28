@@ -36,6 +36,7 @@ import {
   formatReadingDuration,
   normalizeReadingProgress
 } from '../reading-progress.mjs';
+import { createReadingActivityTracker } from '../reading-activity.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -81,6 +82,9 @@ export const ReadingView = {
   readingProgressSaveStatus: null,
   readingProgressCompletion: null,
   readingCompletionSummary: null,
+  readingActivityTracker: null,
+  readingActivitySaveStatus: null,
+  readingActivityCompletionPending: false,
   incompleteReadingQualification: null,
   readingUserScrollProgress: 0,
   _guideWordLookupCleanup: null,
@@ -216,6 +220,9 @@ export const ReadingView = {
     this.readingProgressSaveStatus = null;
     this.readingProgressCompletion = null;
     this.readingCompletionSummary = null;
+    this.readingActivityTracker = null;
+    this.readingActivitySaveStatus = null;
+    this.readingActivityCompletionPending = false;
     this.incompleteReadingQualification = null;
     const bodyFingerprint = contentFingerprint(article?.content || '');
     let stored = null;
@@ -325,6 +332,29 @@ export const ReadingView = {
       })
     });
     this.cycleReviewRatings = this.readingProgressSession.getReviewRatings?.() || [];
+    const completionId = this.readingProgressSession.getCompletionId?.();
+    this.readingActivityTracker = createReadingActivityTracker({
+      db: DB,
+      articleId: article.id,
+      articleTitle: article.title || '',
+      completionId,
+      onError: error => diagnosticLogger()?.record('reading.activity_save_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: article.id, message: String(error?.message || error) }
+      })
+    });
+    try {
+      await this.readingActivityTracker.initialize();
+    } catch (error) {
+      // The tracker is best-effort during page setup.  An actual activity
+      // write is still attempted at the next checkpoint or explicit exit.
+      diagnosticLogger()?.record('reading.activity_initialize_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: article.id, message: String(error?.message || error) }
+      });
+    }
   },
 
   _renderResumeCard() {
@@ -391,7 +421,42 @@ export const ReadingView = {
     this.persistedGuideVisited = new Set(state.persistedGuideVisited || []);
     this.sessionGuideVisited = new Set(state.sessionGuideVisited || []);
     const sessionGuideVisitedCount = Number(state.sessionGuideVisitedCount ?? this.sessionGuideVisited.size);
+    const progressSnapshot = this.readingProgressSession.getSnapshot?.() || {};
+    this.readingActivityTracker?.record({
+      phase: state.phase,
+      active: state.phase === 'active',
+      elapsedSeconds: this.timer?.elapsed || 0,
+      nowMs: Date.now(),
+      maxContentProgress: Number(progressSnapshot.full?.maxProgress) || this.readingScrollDepth || 0,
+      guideVisitedIndexes: state.sessionGuideVisited || [],
+      totalSentences: this.guideSentences.length,
+      mode: this.readingMode
+    });
     if (state.phase === 'active' || sessionGuideVisitedCount >= 2) this._scheduleReadingProgressCheckpoint();
+  },
+
+  async _flushReadingActivity({ markCompleted = false } = {}) {
+    const tracker = this.readingActivityTracker;
+    if (!tracker) return { ok: true, skipped: true };
+    try {
+      if (markCompleted) await tracker.markCompleted({ nowMs: Date.now() });
+      const result = await tracker.flush();
+      this.readingActivitySaveStatus = 'saved';
+      if (markCompleted) this.readingActivityCompletionPending = false;
+      return { ok: true, ...(result || {}) };
+    } catch (error) {
+      this.readingActivitySaveStatus = 'failed';
+      diagnosticLogger()?.record('reading.activity_flush_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: {
+          articleId: this.articleData?.id,
+          completionId: this.readingProgressSession?.getCompletionId?.() || null,
+          message: String(error?.message || error)
+        }
+      });
+      return { ok: false, error };
+    }
   },
 
   _scheduleReadingProgressCheckpoint() {
@@ -584,6 +649,7 @@ export const ReadingView = {
   async cleanup({ skipProgressCheckpoint = false } = {}) {
     this.closeSentenceGuide({ restoreReading: false, checkpoint: false });
     let progressCheckpointFailed = false;
+    let activitySaveFailed = false;
     if (this.readingProgressSession && !this.readingProgressFinalizing) {
       if (this.readingProgressCompletion?.factsRecorded) {
         progressCheckpointFailed = !(await this._retryReadingProgressCleanup({ showFailure: false }));
@@ -594,6 +660,10 @@ export const ReadingView = {
         progressCheckpointFailed = !checkpointResult.ok;
       }
     }
+    const activityResult = await this._flushReadingActivity({
+      markCompleted: Boolean(this.readingActivityCompletionPending)
+    });
+    activitySaveFailed = !activityResult.ok;
     this._clearSentenceColors();
     this.sentenceColorsEnabled = false;
     this._wordLookupCleanup?.();
@@ -631,11 +701,17 @@ export const ReadingView = {
     }
     this._viewportResizeFrame = null;
     if (this.timer) { this.timer.stop(); this.timer = null; }
-    if (!this.readingProgressCompletion?.cleanupPending && !progressCheckpointFailed) this.readingProgressSession = null;
+    if (!this.readingProgressCompletion?.cleanupPending && !progressCheckpointFailed && !activitySaveFailed) {
+      this.readingProgressSession = null;
+    }
+    if (!this.readingProgressCompletion?.cleanupPending && !progressCheckpointFailed && !activitySaveFailed) {
+      this.readingActivityTracker = null;
+    }
     return {
-      progressSaved: !progressCheckpointFailed,
+      progressSaved: !progressCheckpointFailed && !activitySaveFailed,
+      activitySaved: !activitySaveFailed,
       cleanupPending: Boolean(this.readingProgressCompletion?.cleanupPending),
-      checkpointFailed: progressCheckpointFailed
+      checkpointFailed: progressCheckpointFailed || activitySaveFailed
     };
   },
 
@@ -674,6 +750,9 @@ export const ReadingView = {
     this.readingProgressSaveStatus = null;
     this.readingProgressCompletion = null;
     this.readingCompletionSummary = null;
+    this.readingActivityTracker = null;
+    this.readingActivitySaveStatus = null;
+    this.readingActivityCompletionPending = false;
     this.incompleteReadingQualification = null;
     this.sentenceSegmentsByParagraph = [];
     this.sentenceColorsEnabled = false;
@@ -1325,7 +1404,10 @@ export const ReadingView = {
       if (wpmEl) wpmEl.textContent = wpm + ' 词/分';
       if (statusEl) statusEl.textContent = this.timer.isPaused ? '⏸ 已暂停' : '';
       this._recordReadingProgressActivity({ activeSeconds: elapsed });
-      if (elapsed > 0 && elapsed % 15 === 0) void this._checkpointReadingProgress({ force: true });
+      if (elapsed > 0 && elapsed % 15 === 0) {
+        void this._checkpointReadingProgress({ force: true });
+        void this._flushReadingActivity();
+      }
     };
 
     this.timer.start();
@@ -1336,7 +1418,9 @@ export const ReadingView = {
     this._visibilityHandler = () => {
       if (!this.timer) return;
       if (document.hidden) {
+        this._recordReadingProgressActivity(this._readingProgressInput());
         void this._checkpointReadingProgress({ force: true });
+        void this._flushReadingActivity();
         this.timer.pauseForVisibility();
       }
       else this.timer.resume();
@@ -1346,7 +1430,11 @@ export const ReadingView = {
       this._updateReadingScrollDepth({ didUserScroll: true });
       this._resumeHandler();
     };
-    this._pagehideHandler = () => { void this._checkpointReadingProgress({ force: true }); };
+    this._pagehideHandler = () => {
+      this._recordReadingProgressActivity(this._readingProgressInput());
+      void this._checkpointReadingProgress({ force: true });
+      void this._flushReadingActivity();
+    };
     document.addEventListener('touchstart', this._resumeHandler, { passive: true });
     document.addEventListener('visibilitychange', this._visibilityHandler);
     window.addEventListener('pagehide', this._pagehideHandler, { passive: true });
@@ -1379,10 +1467,12 @@ export const ReadingView = {
     overlay.id = 'readingIncompletePrompt';
     overlay.className = 'modal-overlay';
     const phase = this.readingProgressSession?.getState?.().phase || 'preview';
-    const checkpointFailed = this.readingProgressSaveStatus === 'failed' && phase === 'active';
+    const checkpointFailed = phase === 'active'
+      && (this.readingProgressSaveStatus === 'failed' || this.readingActivitySaveStatus === 'failed');
     const hasDurableProgress = !checkpointFailed && (
-      this.readingProgressSaveStatus === 'saved'
-      || (phase !== 'active' && Boolean(this.readingProgress))
+      phase === 'active'
+        ? this.readingProgressSaveStatus === 'saved' && this.readingActivitySaveStatus === 'saved'
+        : this.readingProgressSaveStatus === 'saved' || Boolean(this.readingProgress)
     );
 
     const details = [];
@@ -1394,7 +1484,7 @@ export const ReadingView = {
     }
 
     const progressMessage = checkpointFailed
-      ? '阅读进度暂未保存成功，请重试后再退出。'
+      ? '阅读进度或阅读时长暂未保存成功，请重试后再退出。'
       : hasDurableProgress
         ? '本次阅读时间和进度已保存，但不会计入完成篇数和能力校准。'
         : '尚未形成有效阅读进度，本次不会记录，也不会计入完成篇数和能力校准。';
@@ -1414,6 +1504,26 @@ export const ReadingView = {
       </div>`;
     overlay.style.display = 'flex';
     if (!existing) document.body.appendChild(overlay);
+  },
+
+  _showReadingActivitySaveFailure() {
+    const overlay = document.getElementById('readingSummary');
+    if (!overlay) return;
+    overlay.innerHTML = `
+      <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="readingActivitySaveTitle">
+        <h2 id="readingActivitySaveTitle">阅读时长暂未保存</h2>
+        <p class="text-muted">本次阅读还没有生成完成记录，请重试保存后再完成阅读。</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" onclick="ReadingView.retryReadingActivitySave()">重试保存</button>
+          <button class="btn btn-outline" type="button" onclick="ReadingView.dismissReadingActivitySaveFailure()">继续阅读</button>
+        </div>
+      </div>`;
+    overlay.style.display = 'flex';
+  },
+
+  dismissReadingActivitySaveFailure() {
+    const overlay = document.getElementById('readingSummary');
+    if (overlay) overlay.style.display = 'none';
   },
 
   _showReadingProgressCleanupFailure() {
@@ -1441,11 +1551,35 @@ export const ReadingView = {
     if (this.readingProgressFinalizing) return;
     const result = await this._checkpointReadingProgress({ force: true });
     this.readingProgressSaveStatus = result.ok ? 'saved' : 'failed';
+    const activityResult = await this._flushReadingActivity();
+    this.readingActivitySaveStatus = activityResult.ok ? 'saved' : 'failed';
     this.showIncompleteReadingPrompt(this.incompleteReadingQualification || {});
   },
 
+  async retryReadingActivitySave() {
+    if (this.readingProgressFinalizing) return;
+    const result = await this._flushReadingActivity({
+      markCompleted: Boolean(this.readingActivityCompletionPending)
+    });
+    if (!result.ok) {
+      this._showReadingActivitySaveFailure();
+      return false;
+    }
+    this.readingActivityCompletionPending = false;
+    this.dismissReadingActivitySaveFailure();
+    if (this.readingCompletionSummary) {
+      const summary = this.readingCompletionSummary;
+      this.readingCompletionSummary = null;
+      await this.showSummary(summary.elapsed, summary.wpm, summary.readingQualification);
+    } else {
+      await this.finishReading();
+    }
+    return true;
+  },
+
   async exitWithoutCounting() {
-    if (this.readingProgressSaveStatus === 'failed' && this.readingProgressSession?.getState?.().phase === 'active') {
+    if ((this.readingProgressSaveStatus === 'failed' || this.readingActivitySaveStatus === 'failed')
+      && this.readingProgressSession?.getState?.().phase === 'active') {
       this.showIncompleteReadingPrompt(this.incompleteReadingQualification || {});
       return;
     }
@@ -1458,11 +1592,22 @@ export const ReadingView = {
         return false;
       }
       this.readingProgressSaveStatus = 'saved';
+      const activityResult = await this._flushReadingActivity();
+      if (!activityResult.ok) {
+        this.showIncompleteReadingPrompt(this.incompleteReadingQualification || {});
+        return false;
+      }
+      this.readingActivitySaveStatus = 'saved';
     }
     this.dismissIncompleteReadingPrompt();
     const cleanupResult = await this.cleanup({ skipProgressCheckpoint: true });
     if (cleanupResult?.progressSaved === false) {
       this.readingProgressSaveStatus = 'failed';
+      this.showIncompleteReadingPrompt(this.incompleteReadingQualification || {});
+      return false;
+    }
+    if (cleanupResult?.activitySaved === false) {
+      this.readingActivitySaveStatus = 'failed';
       this.showIncompleteReadingPrompt(this.incompleteReadingQualification || {});
       return false;
     }
@@ -1474,6 +1619,13 @@ export const ReadingView = {
   async finishReading() {
     if (this.readingProgressFinalizing) return;
     if (this.readingProgressCompletion?.factsRecorded) {
+      if (this.readingActivityCompletionPending) {
+        const activityResult = await this._flushReadingActivity({ markCompleted: true });
+        if (!activityResult.ok) {
+          this._showReadingActivitySaveFailure();
+          return;
+        }
+      }
       await this.retryReadingProgressCleanup();
       return;
     }
@@ -1481,7 +1633,7 @@ export const ReadingView = {
     const wordCount = this.articleData?.wordCount || 0;
     this._updateReadingScrollDepth();
     const finishActivity = this._readingProgressInput();
-    this.readingProgressSession?.recordActivity(finishActivity);
+    this._recordReadingProgressActivity(finishActivity);
     const progressSnapshot = this.readingProgressSession?.getSnapshot?.();
     const completionId = this.readingProgressSession?.getCompletionId?.()
       || progressSnapshot?.completionId
@@ -1509,6 +1661,8 @@ export const ReadingView = {
       if (this.readingProgressSession?.getState?.().phase === 'active') {
         const checkpointResult = await this._checkpointReadingProgress({ force: true });
         this.readingProgressSaveStatus = checkpointResult.ok ? 'saved' : 'failed';
+        const activityResult = await this._flushReadingActivity();
+        if (!activityResult.ok) this.readingActivitySaveStatus = 'failed';
       } else {
         this.readingProgressSaveStatus = this.readingProgress ? 'saved' : 'none';
       }
@@ -1528,7 +1682,39 @@ export const ReadingView = {
       this.readingProgressSession?.activate?.('completion');
     }
     this.readingProgressSaveStatus = null;
+    this.readingActivitySaveStatus = null;
     this.readingProgressFinalizing = true;
+
+    // Both resumable progress and the daily active-time fact must be durable
+    // before a new completion fact is recorded.  The finalization flag stops
+    // timer callbacks from racing this preflight, while a failure leaves the
+    // same session alive for an explicit retry.
+    let progressFlushError = null;
+    try {
+      await this.readingProgressSession?.flush(finishActivity);
+    } catch (error) {
+      progressFlushError = error;
+      diagnosticLogger()?.record('reading.progress_flush_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
+      });
+    }
+    if (progressFlushError) {
+      this.readingProgressFinalizing = false;
+      this.readingProgressSaveStatus = 'failed';
+      completeSpan?.end({ payload: { qualified: false, reason: 'progress_flush_failed' } });
+      this.showIncompleteReadingPrompt(readingQualification);
+      return;
+    }
+    const activityFlushResult = await this._flushReadingActivity();
+    if (!activityFlushResult.ok) {
+      this.readingProgressFinalizing = false;
+      completeSpan?.end({ payload: { qualified: false, reason: 'activity_flush_failed' } });
+      this._showReadingActivitySaveFailure();
+      return;
+    }
+
     this.timer?.stop();
 
     // Clean up listeners
@@ -1550,16 +1736,6 @@ export const ReadingView = {
       this._pagehideHandler = null;
     }
 
-    // Flush the latest in-progress snapshot before durable reading facts are
-    // recorded.  A failed checkpoint remains retryable inside the session.
-    await this.readingProgressSession?.flush(finishActivity).catch(error => {
-      diagnosticLogger()?.record('reading.progress_flush_failed', {
-        category: 'reading',
-        level: 'error',
-        payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
-      });
-    });
-
     // Save reading stat
     const wpm = activeSeconds > 0 ? Math.round(wordCount / (activeSeconds / 60)) : 0;
     const scrollDepth = contentProgressAtFinish;
@@ -1577,6 +1753,7 @@ export const ReadingView = {
       clickCount: this.clickedWords.length,
       clickedWords: this.clickedWords.map(w => w.word),
       qualificationVersion: 2,
+      activityAccountingVersion: 1,
       readingMode: this.guideModeUsed ? 'guide' : 'full',
       articleSnapshot: {
         title: this.articleData?.title || '',
@@ -1605,6 +1782,12 @@ export const ReadingView = {
       await this._updateReviewSRS(completionId);
     }
 
+    // The reading stat is the completion authority.  Marking the current day
+    // activity as completed is a separate, retryable latest-wins write so a
+    // failure here can never make us repeat the formal completion facts.
+    const completionActivityResult = await this._flushReadingActivity({ markCompleted: true });
+    this.readingActivityCompletionPending = !completionActivityResult.ok;
+
     // Durable completion facts are already written at this point.  Mark that
     // fact once so a retry after cleanup failure can only remove progress and
     // cannot repeat stats, evidence, or review SRS settlement.
@@ -1630,8 +1813,9 @@ export const ReadingView = {
       return;
     }
 
-    // Show summary popup
-    this.readingCompletionSummary = null;
+    // Show summary popup.  Keep the compact completion summary in memory so a
+    // failed completedToday activity write can be retried without repeating
+    // reading facts or review SRS settlement.
     await this.showSummary(cumulativeActiveSeconds, wpm, { qualifiesForCalibration: readingQualification.qualified });
     completeSpan?.end({ payload: { qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode, completionId } });
     diagnosticLogger()?.record('reading.completed', {
@@ -1714,6 +1898,12 @@ export const ReadingView = {
         <section class="reading-calibration-notice" aria-label="校准进度提示">
           <h3>本篇未计入校准进度</h3>
           <p>阅读记录已保存，但正文浏览未达到 70%，因此不会作为难度校正的有效阅读。完整浏览后完成阅读即可计入。</p>
+        </section>` : ''}
+        ${this.readingActivityCompletionPending ? `
+        <section class="reading-calibration-notice" aria-label="阅读时长保存状态">
+          <h3>阅读时长待同步</h3>
+          <p>完成记录已经保存，但今日日报中的阅读时长还未保存成功。</p>
+          <button class="btn btn-outline btn-sm" type="button" onclick="ReadingView.retryReadingActivitySave()">重试保存</button>
         </section>` : ''}
         ${feedbackCheckpoint?.shouldRequestFeedback ? `
         <section class="reading-ease-feedback" aria-label="阅读难度反馈">

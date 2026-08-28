@@ -5,6 +5,7 @@ export const ActivityType = Object.freeze({
   WORD_IMPORT_DAILY: 'word_import_daily',
   READING_WORD_LOOKUP: 'reading_word_lookup',
   READING_WORD_SAVED: 'reading_word_saved',
+  READING_ACTIVE_SLICE: 'reading_active_slice',
   REVIEW_SESSION_SUMMARY: 'review_session_summary',
   EXAM_ACTIVE_SLICE: 'exam_active_slice',
   AI_LEARNING_INTERACTION: 'ai_learning_interaction'

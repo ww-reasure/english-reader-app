@@ -7,8 +7,8 @@ const DATE_KEY = '2026-08-24';
 const NOW = new Date(2026, 7, 24, 12).getTime();
 const at = (hour, minute = 0) => new Date(2026, 7, 24, hour, minute).getTime();
 
-function createFixture({ analyze = null, learnWords = [], reviewEvents = [] } = {}) {
-  const activities = [{
+function createFixture({ analyze = null, learnWords = [], reviewEvents = [], activities: activityRecords = null } = {}) {
+  const activities = activityRecords || [{
     id: 'lookup-1',
     type: ActivityType.READING_WORD_LOOKUP,
     occurredAt: at(9),
@@ -194,6 +194,36 @@ test('activity details are category bounded and recent reports are capped', asyn
   const recent = await service.listRecent(100);
   assert.equal(recent.status, 'empty');
   assert.equal(recent.reports.length <= 30, true);
+});
+
+test('reading activity detail exposes bounded daily progress metadata without guide index arrays', async () => {
+  const { service } = createFixture({ activities: [{
+    id: 'reading-active-1',
+    type: ActivityType.READING_ACTIVE_SLICE,
+    occurredAt: at(10),
+    dayKey: DATE_KEY,
+    sessionId: 'reading:article-1:cycle-1',
+    dedupeKey: 'reading-active:2026-08-24:reading:article-1:cycle-1',
+    payload: {
+      articleId: 'article-1',
+      articleTitle: '长文章',
+      completionId: 'reading:article-1:cycle-1',
+      durationMs: 900_000,
+      maxContentProgress: 0.47,
+      guideVisitedIndexes: [1, 2, 3],
+      guideVisitedCount: 3,
+      lastMode: 'guide',
+      completedToday: false
+    }
+  }] });
+  const detail = await service.getActivityDetail({ dateKey: DATE_KEY, category: 'reading', limit: 20 });
+  assert.equal(detail.completeness, 'available');
+  assert.equal(detail.items[0].completionId, 'reading:article-1:cycle-1');
+  assert.equal(detail.items[0].guideVisitedCount, 3);
+  assert.equal(detail.items[0].maxContentProgress, 0.47);
+  assert.equal(detail.items[0].lastMode, 'guide');
+  assert.equal(detail.items[0].completedToday, false);
+  assert.equal(detail.items[0].guideVisitedIndexes, undefined);
 });
 
 test('daily report resolves an archived word referenced by a historical review event', async () => {
