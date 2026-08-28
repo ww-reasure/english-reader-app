@@ -46,6 +46,7 @@ import {
   ACTIVE_SESSION_KEY
 } from '../review-session.mjs';
 import { getReviewPersistence } from '../review-persistence.mjs';
+import { summarizeReviewPersistenceStatus } from '../review-persistence-status.mjs';
 import { settleSessionReview } from '../recovery-scheduler.mjs';
 import { ActivityType } from '../learning-activity.mjs';
 import { localDayKey } from '../learning-day.mjs';
@@ -159,6 +160,7 @@ export const FlashcardView = {
   _rootController: null,
   _definitionRequestToken: 0,
   _reviewPersistenceUnsubscribe: null,
+  _resultPersistenceRetrying: false,
 
   // Today's reviewed words (persisted across sessions)
   TODAY_KEY: 'todayReviewedWords',
@@ -233,7 +235,12 @@ export const FlashcardView = {
   bindReviewPersistenceStatus() {
     this._reviewPersistenceUnsubscribe?.();
     this._reviewPersistenceUnsubscribe = this.reviewPersistence?.subscribe?.(event => {
-      if (!event || !this.container || !['rating_failed', 'rating_completed'].includes(event.type)) return;
+      if (!event || !this.container) return;
+      this.updateResultPersistenceStatus();
+      // Result pages have their own global status indicator. Do not let a
+      // late completion/failure event replace the result with the old card.
+      if (this.container.querySelector?.('[data-review-persistence-status]')) return;
+      if (!['rating_failed', 'rating_completed'].includes(event.type)) return;
       const currentWord = this.words[this.currentIndex];
       if (!currentWord || Number(event.wordId) !== Number(currentWord.id)) return;
       if (event.type === 'rating_failed') {
@@ -245,6 +252,37 @@ export const FlashcardView = {
         if (this.reviewState.phase === REVIEW_PHASES.STUDY) this.renderStudy(this.container);
       }
     }) || null;
+  },
+
+  updateResultPersistenceStatus() {
+    const statusNode = this.container?.querySelector?.('[data-review-persistence-status]');
+    if (!statusNode) return;
+    if (this._resultPersistenceRetrying) {
+      statusNode.dataset.status = 'saving';
+      statusNode.innerHTML = '<span>正在重试保存…</span>';
+      return;
+    }
+    const summary = summarizeReviewPersistenceStatus(this.reviewPersistence?.getStatus?.());
+    statusNode.dataset.status = summary.state;
+    statusNode.innerHTML = `<span>${summary.message}</span>${summary.retryable ? ' <button class="review-persistence-retry" type="button">重试</button>' : ''}`;
+    const retryButton = statusNode.querySelector?.('.review-persistence-retry');
+    retryButton?.addEventListener('click', () => { void this.retryResultPersistence(); });
+  },
+
+  async retryResultPersistence() {
+    if (this._resultPersistenceRetrying || !this.reviewPersistence?.retryFailed) return;
+    this._resultPersistenceRetrying = true;
+    this.updateResultPersistenceStatus();
+    try {
+      await this.reviewPersistence.retryFailed();
+      await this.reviewPersistence.flush?.({ timeoutMs: 5000 });
+    } catch {
+      // The failed journal rows remain durable and the final status render
+      // exposes them as retryable instead of hiding the failure.
+    } finally {
+      this._resultPersistenceRetrying = false;
+      this.updateResultPersistenceStatus();
+    }
   },
 
   startReviewTimer({ practiceSession = null, persistedSession = null } = {}) {
@@ -711,17 +749,25 @@ export const FlashcardView = {
     this.renderRecall(this.container);
 
     try {
-      await this.recordRating(quality, { correlationId });
+      const ratingAcceptance = await this.recordRating(quality, { correlationId });
       saveSpan?.end({ payload: { ok: true } });
       logger?.record('review.ui_responded', {
         category: 'review',
         correlationId,
-        payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+        payload: {
+          quality,
+          mode: this.practiceScope ? 'practice' : 'scheduled',
+          persistence: ratingAcceptance?.persistence || 'unknown'
+        }
       });
-      logger?.record('review.rating_saved', {
+      logger?.record('review.rating_accepted', {
         category: 'review',
         correlationId,
-        payload: { quality, mode: this.practiceScope ? 'practice' : 'scheduled' }
+        payload: {
+          quality,
+          mode: this.practiceScope ? 'practice' : 'scheduled',
+          persistence: ratingAcceptance?.persistence || 'unknown'
+        }
       });
     } catch (error) {
       saveSpan?.end({
@@ -1206,6 +1252,7 @@ export const FlashcardView = {
   async recordRating(quality, { correlationId = this.ratingCorrelationId } = {}) {
     const logger = diagnosticLogger();
     const word = this.words[this.currentIndex];
+    let persistenceMode = this.practiceScope ? 'indexeddb-direct' : 'durable-journal';
     const meaningRevealed = Boolean(this.reviewState.meaningRevealed);
     const attempt = {
       id: `flashcard:${this.cardSession}:${word.id}:${Date.now()}`,
@@ -1283,6 +1330,7 @@ export const FlashcardView = {
         // If the durable journal cannot be written, fall back to the old
         // awaited transaction so a rating is never acknowledged without a
         // local recovery path.
+        persistenceMode = 'indexeddb-fallback';
         try {
           const updatedWord = await DB.settleSessionReview(word.id, srsData, { ...event }, {
             expectedRevision,
@@ -1308,7 +1356,7 @@ export const FlashcardView = {
           this.reviewState = finishRating(this.reviewState);
           this.renderStudy(this.container);
           this.loadStudyDetails(this.cardSession);
-          return;
+          return { persistence: persistenceMode };
         }
       }
     }
@@ -1334,6 +1382,7 @@ export const FlashcardView = {
 
     // Persist to today's words
     this.addTodayWord(wordData);
+    return { persistence: persistenceMode };
   },
 
   async correctMistakenKnown() {
@@ -1509,6 +1558,8 @@ export const FlashcardView = {
             ${accuracy >= 80 ? '💪 表现很好！继续保持。' : accuracy >= 50 ? '📖 还需要多复习，加油！' : '🔄 建议降低复习难度，循序渐进。'}
           </p>
 
+          ${!isPractice ? '<div class="review-persistence-status" data-review-persistence-status data-status="saving" role="status" aria-live="polite"></div>' : ''}
+
           ${todayTotal > this.reviewedWords.length ? `
           <div class="flashcard-result-today">
             📅 今日累计复习：<strong>${todayTotal}</strong> 个单词（本轮 ${this.reviewedWords.length} 个）
@@ -1537,6 +1588,19 @@ export const FlashcardView = {
         </section>
       </div>
       </main>`;
+
+    if (!isPractice) {
+      this._resultPersistenceRetrying = false;
+      this.updateResultPersistenceStatus();
+      try {
+        const pendingFlush = this.reviewPersistence?.flush?.({ timeoutMs: 5000 });
+        void Promise.resolve(pendingFlush)
+          .then(() => this.updateResultPersistenceStatus())
+          .catch(() => this.updateResultPersistenceStatus());
+      } catch {
+        this.updateResultPersistenceStatus();
+      }
+    }
   },
 
   invalidateCardRequests() {
