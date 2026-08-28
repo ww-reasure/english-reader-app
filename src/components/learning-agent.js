@@ -159,13 +159,13 @@ export class LearningAgent {
   async getDailyLearningReport(args = {}) {
     const dateKey = dateArg(args);
     if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
-    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: false });
+    return this.dailyReportProvider.getOrCreate(dateKey);
   }
 
   async getTodayLearningReport() {
     const dateKey = localDayKey(this.now());
     if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
-    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: false });
+    return this.dailyReportProvider.getOrCreate(dateKey);
   }
 
   async listRecentLearningReports(args = {}) {

@@ -114,20 +114,9 @@ const dailyExamProvider = {
     };
   }
 };
-const dailyReportAnalyzer = async (request, { signal } = {}) => {
-  const message = await API.chat([
-    {
-      role: 'system',
-      content: '你是英语学习日报分析器。只根据用户提供的结构化事实，用中文返回 JSON，包含 summary、observations、nextActions；不要复述文章、题干、答案或对话原文。'
-    },
-    { role: 'user', content: JSON.stringify(request) }
-  ], { signal, temperature: 0.2 });
-  return message?.content || '';
-};
 const dailyLearningReportService = new DailyLearningReportService({
   db: DB,
-  examProvider: dailyExamProvider,
-  analyze: dailyReportAnalyzer
+  examProvider: dailyExamProvider
 });
 const webResearch = createWebResearch({ config: Config });
 const learningAgent = new LearningAgent({

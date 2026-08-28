@@ -88,36 +88,36 @@ test('tools reject out-of-range dates, categories, and limits', async () => {
   assert.deepEqual(await agent.execute('list_recent_learning_reports', { limit: 999 }), { source: 'recent_learning_reports', status: 'empty', reports: [] });
 });
 
-test('today report ignores model date arguments and asks the service for the local day without analysis', async () => {
+test('today report ignores model date arguments and asks the service for only the local day', async () => {
   const { LearningAgent } = await loadAgent();
   const now = new Date(2026, 7, 24, 23, 30).getTime();
   const calls = [];
   const agent = createAgent(LearningAgent, {
-    getOrCreate: async (dateKey, options) => {
-      calls.push({ dateKey, options });
-      return { dateKey, facts: { dateKey } };
+    getOrCreate: async (...args) => {
+      calls.push(args);
+      return { dateKey: args[0], facts: { dateKey: args[0] } };
     }
   });
   agent.now = () => now;
 
   await agent.execute('get_today_learning_report', { date: '1999-01-01', withAnalysis: true });
 
-  assert.deepEqual(calls, [{ dateKey: '2026-08-24', options: { withAnalysis: false } }]);
+  assert.deepEqual(calls, [['2026-08-24']]);
 });
 
-test('historical daily report tool keeps the explicit date but never requests new analysis', async () => {
+test('historical daily report tool keeps the explicit date and asks the service for only that date', async () => {
   const { LearningAgent } = await loadAgent();
   const calls = [];
   const report = { dateKey: '2026-08-23', facts: { dateKey: '2026-08-23' } };
   const agent = createAgent(LearningAgent, {
-    getOrCreate: async (dateKey, options) => {
-      calls.push({ dateKey, options });
+    getOrCreate: async (...args) => {
+      calls.push(args);
       return report;
     }
   });
 
   assert.equal(await agent.execute('get_daily_learning_report', { date: '2026-08-23', withAnalysis: true }), report);
-  assert.deepEqual(calls, [{ dateKey: '2026-08-23', options: { withAnalysis: false } }]);
+  assert.deepEqual(calls, [['2026-08-23']]);
 });
 
 test('recent report tool forwards available, empty, and unavailable provider statuses', async () => {
