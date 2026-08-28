@@ -95,3 +95,11 @@ test('practice review events can be queried in one bounded batch for progress', 
   assert.equal(events[0].practiceScope, 'today_added');
   assert.equal(events[0].source, 'practice-flashcard');
 });
+
+test('practice progress queries the reviewedAt range index before filtering practice events', async () => {
+  const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
+
+  assert.match(source, /index\('reviewedAt'\)/);
+  assert.match(source, /getAll\(range\)/);
+  assert.doesNotMatch(source, /index\('source'\)\.getAll\('practice-flashcard'\)/);
+});

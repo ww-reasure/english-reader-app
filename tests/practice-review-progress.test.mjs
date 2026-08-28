@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getPracticeProgress } from '../src/review-practice.mjs';
+import { getPracticeProgress, RECENT_ADDED_DAYS } from '../src/review-practice.mjs';
 
 const NOW = new Date(2026, 7, 24, 12, 0, 0, 0).getTime();
 const DAY = 24 * 60 * 60 * 1000;
@@ -13,8 +13,11 @@ function startOfLocalDay(value) {
 }
 
 function createDb(events) {
+  const calls = [];
   return {
-    async getPracticeReviewEvents() {
+    calls,
+    async getPracticeReviewEvents(options) {
+      calls.push(options);
       return events;
     }
   };
@@ -63,6 +66,72 @@ test('practice progress survives leaving and reopening by rereading reviewEvents
   assert.equal(resumed.completedCount, 4);
   assert.equal(resumed.remainingCount, 0);
   assert.equal(resumed.done, true);
+});
+
+test('today_added progress resets when the local calendar day changes', async () => {
+  const dayStart = startOfLocalDay(NOW);
+  const db = createDb([{
+    wordId: 1,
+    source: 'practice-flashcard',
+    practiceScope: 'today_added',
+    reviewedAt: dayStart + 1_000
+  }]);
+  const today = await getPracticeProgress({
+    db,
+    scope: 'today_added',
+    wordIds: [1],
+    now: NOW
+  });
+  const tomorrow = new Date(NOW);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(12, 0, 0, 0);
+  const nextDay = await getPracticeProgress({
+    db,
+    scope: 'today_added',
+    wordIds: [1],
+    now: tomorrow.getTime()
+  });
+
+  assert.equal(today.completedCount, 1);
+  assert.equal(nextDay.completedCount, 0);
+  assert.equal(nextDay.dateKey, '2026-08-25');
+});
+
+test('recent_added progress keeps yesterday completion within the seven-day window', async () => {
+  const yesterdayStart = startOfLocalDay(NOW - DAY);
+  const db = createDb([
+    ...[1, 2, 3, 4].map((wordId, index) => ({
+      wordId,
+      source: 'practice-flashcard',
+      practiceScope: 'recent_added',
+      reviewedAt: yesterdayStart + index * 1_000 + 1
+    })),
+    {
+      wordId: 1,
+      source: 'practice-flashcard',
+      practiceScope: 'recent_added',
+      reviewedAt: yesterdayStart + 10_000
+    },
+    {
+      wordId: 5,
+      source: 'practice-flashcard',
+      practiceScope: 'recent_added',
+      reviewedAt: NOW - (RECENT_ADDED_DAYS + 1) * DAY
+    }
+  ]);
+
+  const progress = await getPracticeProgress({
+    db,
+    scope: 'recent_added',
+    wordIds: [1, 2, 3, 4, 5],
+    now: NOW
+  });
+
+  assert.deepEqual(progress.completedWordIds, [1, 2, 3, 4]);
+  assert.equal(progress.completedCount, 4);
+  assert.equal(progress.remainingCount, 1);
+  assert.equal(progress.done, false);
+  assert.equal(db.calls[0].from, NOW - RECENT_ADDED_DAYS * DAY);
 });
 
 test('practice progress reports full completion without changing the learn word record', async () => {

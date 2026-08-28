@@ -1467,9 +1467,9 @@ export const DB = {
     });
   },
 
-  // Read practice events in one source-bounded query so vocabulary progress
-  // does not open IndexedDB once per word. The caller still applies its local
-  // calendar-day boundary because timestamps are stored as absolute values.
+  // Read practice events through the reviewedAt index so progress queries do
+  // not load the entire practice-event history. The caller still applies its
+  // scope and word filters because those fields have no compound index.
   async getPracticeReviewEvents({ practiceScope = '', from, to, wordIds = [] } = {}) {
     const scope = String(practiceScope || '');
     const requestedIds = new Set((Array.isArray(wordIds) ? wordIds : [])
@@ -1480,7 +1480,9 @@ export const DB = {
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('reviewEvents', 'readonly');
-      const req = tx.objectStore('reviewEvents').index('source').getAll('practice-flashcard');
+      const range = keyRangeForBounds(lower, upper);
+      const reviewedAtIndex = tx.objectStore('reviewEvents').index('reviewedAt');
+      const req = range ? reviewedAtIndex.getAll(range) : reviewedAtIndex.getAll();
       req.onsuccess = () => {
         const events = (req.result || [])
           .filter(event => event?.source === 'practice-flashcard')

@@ -14,6 +14,7 @@ export const PRACTICE_SESSION_KEY = 'review-practice-session-v1';
 export const PRACTICE_DONE_PREFIX = 'review-practice-done-v2:';
 export const PRACTICE_DONE_LEGACY_PREFIX = 'review-practice-done-v1:';
 export const PRACTICE_DONE_VERSION = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function startOfDay(now) {
   const date = new Date(now);
@@ -213,9 +214,10 @@ export function getPracticeScopeStatus({
 }
 
 /**
- * 从 practice-flashcard reviewEvents 推导一个专项词集在本地日历日内的进度。
+ * 从 practice-flashcard reviewEvents 推导一个专项词集在其有效时间窗口内的进度。
  *
- * reviewEvents 是唯一事实源：同一个词当天同一专项写入多次也只计一次。
+ * today_added 只统计当前本地日，recent_added 统计与其范围定义一致的
+ * 最近 RECENT_ADDED_DAYS 天；同一个词在窗口内写入多次也只计一次。
  * legacyCompletedWordIds 仅用于兼容早期整组完成标记，不会替代事件读取。
  */
 export async function getPracticeProgress({
@@ -238,12 +240,18 @@ export async function getPracticeProgress({
   };
   if (!PRACTICE_SCOPES.includes(scope) || !current.length) return empty;
 
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY_MS;
+  const from = scope === 'recent_added'
+    ? Number(now) - RECENT_ADDED_DAYS * DAY_MS
+    : dayStart;
+
   let events = [];
   if (typeof db?.getPracticeReviewEvents === 'function') {
     events = await db.getPracticeReviewEvents({
       practiceScope: scope,
-      from: startOfDay(now),
-      to: startOfDay(now) + 24 * 60 * 60 * 1000,
+      from,
+      to: dayEnd,
       wordIds: current
     });
   }
@@ -252,8 +260,8 @@ export async function getPracticeProgress({
     if (event?.source !== 'practice-flashcard' || event.practiceScope !== scope) continue;
     const reviewedAt = Number(event.reviewedAt);
     if (!Number.isFinite(reviewedAt)
-      || reviewedAt < startOfDay(now)
-      || reviewedAt >= startOfDay(now) + 24 * 60 * 60 * 1000) continue;
+      || reviewedAt < from
+      || reviewedAt >= dayEnd) continue;
     const wordId = Number(event.wordId);
     if (Number.isFinite(wordId)) completed.add(wordId);
   }
