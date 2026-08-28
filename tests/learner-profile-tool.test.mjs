@@ -154,11 +154,21 @@ test('the knowledge-profile adapter exposes aggregate bands and feedback but nev
   assert.equal('evidence' in summary, false);
 });
 
-test('summarizes insufficient, provisional, and established evidence from bounded frequency bands', async () => {
+test('summarizes insufficient and provisional evidence without inferring an overall established state', async () => {
   const { buildLearnerProfile } = await loadProfileModule();
 
   const insufficient = buildLearnerProfile({ settings, knowledge: { status: 'available', bands: [] } });
   assert.equal(insufficient.abilityEvidence.status, 'insufficient');
+
+  const assistedOnly = buildLearnerProfile({
+    settings,
+    knowledge: {
+      status: 'available',
+      bands: [{ band: 'ngsl-1', successCount: 4, failureCount: 1, independentSuccessCount: 0, independentFailureCount: 0 }]
+    }
+  });
+  assert.equal(assistedOnly.abilityEvidence.status, 'insufficient');
+  assert.equal(assistedOnly.abilityEvidence.hasValidEvidence, false);
 
   const provisional = buildLearnerProfile({
     settings: { ...settings, calibrationStatus: 'calibrated' },
@@ -181,7 +191,7 @@ test('summarizes insufficient, provisional, and established evidence from bounde
   assert.equal(provisional.abilityEvidence.frequencyBands[0].masteryProbability, 0.6);
   assert.equal(provisional.abilityEvidence.recentDifficultyFeedback.value, 'too_hard');
 
-  const established = buildLearnerProfile({
+  const wellSupported = buildLearnerProfile({
     settings: { ...settings, calibrationStatus: 'calibrated' },
     knowledge: {
       status: 'available',
@@ -191,9 +201,28 @@ test('summarizes insufficient, provisional, and established evidence from bounde
       ]
     }
   });
-  assert.equal(established.abilityEvidence.status, 'established');
-  assert.equal(established.abilityEvidence.hasSufficientValidEvidence, true);
-  assert.equal(established.abilityEvidence.frequencyBands.length, 2);
+  assert.equal(wellSupported.abilityEvidence.status, 'provisional');
+  assert.equal(wellSupported.abilityEvidence.hasSufficientValidEvidence, false);
+  assert.equal(wellSupported.abilityEvidence.frequencyBands.length, 2);
+});
+
+test('keeps word-level established evidence separate from the learner-level provisional status', async () => {
+  const { buildLearnerProfile } = await loadProfileModule();
+  const result = buildLearnerProfile({
+    settings,
+    knowledge: {
+      status: 'available',
+      bands: [
+        { band: 'ngsl-1', successCount: 12, failureCount: 1, independentSuccessCount: 10, independentFailureCount: 1 },
+        { band: 'ngsl-2', successCount: 10, failureCount: 1, independentSuccessCount: 9, independentFailureCount: 1 },
+        { band: 'ngsl-3', successCount: 8, failureCount: 0, independentSuccessCount: 8, independentFailureCount: 0 }
+      ]
+    }
+  });
+
+  assert.equal(result.abilityEvidence.status, 'provisional');
+  assert.equal(result.abilityEvidence.hasSufficientValidEvidence, false);
+  assert.ok(result.abilityEvidence.frequencyBands.every(row => row.independentDirectEvidenceCount >= 2));
 });
 
 test('ignores saved-word counts and caps the profile without exposing raw evidence', async () => {
@@ -227,6 +256,8 @@ test('the home harness includes the profile tool and prompt guidance without a h
   assert.match(source, /HOME_LEARNING_TOOLS\s*=\s*\[\.\.\.LEARNING_TOOLS/);
   assert.match(source, /learnerProfileProvider/);
   assert.match(context, /get_learner_profile/);
+  assert.match(context, /整体状态.*insufficient.*provisional/s);
+  assert.match(context, /provisional.*不等于.*确定/s);
   assert.match(context, /tool_choice=auto|tool_choice auto|自动调用/s);
   assert.doesNotMatch(context, /硬编码.*get_learner_profile/);
 });

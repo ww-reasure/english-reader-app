@@ -101,23 +101,24 @@ function summarizeAbilityEvidence({ knowledge = {}, calibrationStatus, assessmen
   const frequencyBands = readStatus === 'available' ? normalizeBandRows(knowledge.bands) : [];
   const directEvidenceCount = frequencyBands.reduce((sum, row) => sum + row.directEvidenceCount, 0);
   const independentDirectEvidenceCount = frequencyBands.reduce((sum, row) => sum + row.independentDirectEvidenceCount, 0);
-  const establishedBandCount = frequencyBands.filter(row => row.independentDirectEvidenceCount >= 2).length;
-  const status = readStatus === 'unavailable' || directEvidenceCount === 0
+  const hasIndependentEvidence = independentDirectEvidenceCount > 0;
+  // The first learner-profile version deliberately does not promote an
+  // overall learner to `established`; that conclusion needs a separately
+  // agreed policy instead of a threshold invented by this projection.
+  const status = readStatus === 'unavailable' || !hasIndependentEvidence
     ? 'insufficient'
-    : independentDirectEvidenceCount >= 6 && establishedBandCount >= 2
-      ? 'established'
-      : 'provisional';
+    : 'provisional';
   const calibration = parseAssessmentProfile(assessmentProfile);
   const normalizedFeedback = normalizeDifficultyFeedback(knowledge.difficultyFeedback);
 
   return {
     status,
     knowledgeProfileReadStatus: readStatus,
-    hasValidEvidence: directEvidenceCount > 0,
-    hasSufficientValidEvidence: status === 'established',
+    hasValidEvidence: hasIndependentEvidence,
+    hasSufficientValidEvidence: false,
     knowledgeProfile: {
-      hasValidEvidence: directEvidenceCount > 0,
-      hasSufficientValidEvidence: status === 'established',
+      hasValidEvidence: hasIndependentEvidence,
+      hasSufficientValidEvidence: false,
       frequencyBandCount: frequencyBands.length,
       directEvidenceCount,
       independentDirectEvidenceCount
