@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ActivityType } from '../src/learning-activity.mjs';
-import { DailyLearningReportService, normalizeAnalysis } from '../src/daily-learning-report-service.mjs';
+import { DailyLearningReportService } from '../src/daily-learning-report-service.mjs';
 
 const DATE_KEY = '2026-08-24';
 const NOW = new Date(2026, 7, 24, 12).getTime();
@@ -55,53 +55,11 @@ function createFixture({ analyze = null, learnWords = [], reviewEvents = [] } = 
   return { service, activities, reports, pruneCalls, learnWordReadOptions };
 }
 
-const successfulAnalysis = async () => ({
-  summary: '今天完成了稳定的学习。',
-  observations: ['查词记录清晰。', '学习节奏稳定。'],
-  nextActions: ['明天完成一次复习。', '继续记录阅读时长。']
-});
-
-const structuredAnalysis = {
+const savedAnalysis = {
   summary: '今天完成了稳定的学习。',
   observations: ['查词记录清晰。', '学习节奏稳定。'],
   nextActions: ['明天完成一次复习。', '继续记录阅读时长。']
 };
-
-test('normalizeAnalysis accepts an already parsed object', () => {
-  assert.deepEqual(normalizeAnalysis(structuredAnalysis), structuredAnalysis);
-});
-
-test('normalizeAnalysis parses a standard JSON string', () => {
-  assert.deepEqual(normalizeAnalysis(JSON.stringify(structuredAnalysis)), structuredAnalysis);
-});
-
-test('normalizeAnalysis parses JSON inside a json code fence', () => {
-  const fenced = ['```json', JSON.stringify(structuredAnalysis, null, 2), '```'].join('\n');
-  assert.deepEqual(normalizeAnalysis(fenced), structuredAnalysis);
-});
-
-test('normalizeAnalysis falls back to the existing plain-text format after invalid JSON', () => {
-  const invalidJson = [
-    '{"summary":"今天学习节奏稳定。',
-    '观察',
-    '- 查词记录清晰。',
-    '- 阅读完成度不错。',
-    '明日建议',
-    '- 继续完成复习。',
-    '- 保持每日阅读。'
-  ].join('\n');
-
-  assert.doesNotThrow(() => normalizeAnalysis(invalidJson));
-  assert.deepEqual(normalizeAnalysis(invalidJson), {
-    summary: '{"summary":"今天学习节奏稳定。',
-    observations: ['查词记录清晰。', '阅读完成度不错。'],
-    nextActions: ['继续完成复习。', '保持每日阅读。']
-  });
-});
-
-test('normalizeAnalysis returns null for completely invalid content', () => {
-  assert.equal(normalizeAnalysis('This is not a structured analysis.'), null);
-});
 
 test('history tool result includes only a bounded saved analysis when present', async () => {
   const { toDailyReportHistoryToolResult } = await import('../src/daily-learning-report.mjs');
@@ -153,28 +111,53 @@ test('history tool result omits analysis when no saved analysis exists', async (
   assert.equal(result.aiAnalysisAvailable, false);
 });
 
-test('same fingerprint reuses the stored analysis without another AI request', async () => {
+test('same fingerprint reuses a saved analysis without calling an analyzer', async () => {
   let aiCalls = 0;
-  const { service } = createFixture({ analyze: async (...args) => {
+  const { service, reports } = createFixture({ analyze: async () => {
     aiCalls += 1;
-    return successfulAnalysis(...args);
+    return savedAnalysis;
   } });
 
-  await service.getOrCreate(DATE_KEY, { withAnalysis: true });
-  const second = await service.getOrCreate(DATE_KEY, { withAnalysis: true });
+  const first = await service.getOrCreate(DATE_KEY);
+  reports.set(DATE_KEY, {
+    ...first,
+    analysisStatus: 'available',
+    aiAnalysis: savedAnalysis
+  });
+  const second = await service.getOrCreate(DATE_KEY);
 
-  assert.equal(aiCalls, 1);
+  assert.equal(aiCalls, 0);
   assert.equal(second.analysisStatus, 'available');
+  assert.deepEqual(second.aiAnalysis, savedAnalysis);
 });
 
-test('changed facts update the same dateKey and request a new analysis', async () => {
+test('getOrCreate ignores the legacy analysis option and never calls an analyzer', async () => {
   let aiCalls = 0;
-  const { service, activities } = createFixture({ analyze: async () => {
+  const { service } = createFixture({ analyze: async () => {
     aiCalls += 1;
-    return successfulAnalysis();
+    return savedAnalysis;
   } });
 
-  const first = await service.getOrCreate(DATE_KEY, { withAnalysis: true });
+  const result = await service.getOrCreate(DATE_KEY, { withAnalysis: true });
+
+  assert.equal(aiCalls, 0);
+  assert.equal('analyze' in service, false);
+  assert.equal(result.analysisStatus, 'unavailable');
+});
+
+test('changed facts invalidate a saved analysis instead of reusing or regenerating it', async () => {
+  let aiCalls = 0;
+  const { service, activities, reports } = createFixture({ analyze: async () => {
+    aiCalls += 1;
+    return savedAnalysis;
+  } });
+
+  const first = await service.getOrCreate(DATE_KEY);
+  reports.set(DATE_KEY, {
+    ...first,
+    analysisStatus: 'available',
+    aiAnalysis: savedAnalysis
+  });
   activities.push({
     id: 'lookup-2',
     type: ActivityType.READING_WORD_LOOKUP,
@@ -186,23 +169,9 @@ test('changed facts update the same dateKey and request a new analysis', async (
 
   assert.equal(first.dateKey, second.dateKey);
   assert.notEqual(first.dataFingerprint, second.dataFingerprint);
-  assert.equal(aiCalls, 2);
-});
-
-test('AI failure preserves deterministic Markdown and is retryable', async () => {
-  let aiCalls = 0;
-  const { service } = createFixture({ analyze: async () => {
-    aiCalls += 1;
-    throw new Error('network down');
-  } });
-
-  const report = await service.getOrCreate(DATE_KEY, { withAnalysis: true });
-  const retry = await service.getOrCreate(DATE_KEY, { withAnalysis: true });
-
-  assert.equal(report.analysisStatus, 'unavailable');
-  assert.match(report.markdown, /本地学习记录/);
-  assert.equal(retry.analysisStatus, 'unavailable');
-  assert.equal(aiCalls, 2);
+  assert.equal(aiCalls, 0);
+  assert.equal(second.analysisStatus, 'unavailable');
+  assert.equal(second.aiAnalysis, null);
 });
 
 test('expired date is rejected and pruning touches only report telemetry', async () => {

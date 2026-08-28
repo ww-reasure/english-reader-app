@@ -1,8 +1,7 @@
 import {
   DAILY_REPORT_SCHEMA_VERSION,
   buildDailyLearningReport,
-  formatDailyLearningReportMarkdown,
-  toDailyReportAgentSummary
+  formatDailyLearningReportMarkdown
 } from './daily-learning-report.mjs';
 import { ActivityType, Completeness } from './learning-activity.mjs';
 import { isDayRetained, localDayBounds, localDayKey } from './learning-day.mjs';
@@ -10,9 +9,7 @@ import { isDayRetained, localDayBounds, localDayKey } from './learning-day.mjs';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORT_DAYS = 30;
 const MAX_ACTIVITY_DAYS = 35;
-const MAX_ANALYSIS_CHARS = 6000;
 const MAX_DETAIL_LIMIT = 100;
-const CHINESE = /[\u3400-\u9fff]/u;
 
 const text = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 const positive = value => Math.max(0, Number(value) || 0);
@@ -68,77 +65,8 @@ function normalizeReviewEvents(events) {
   return [...map.values()];
 }
 
-function hasChinese(value) {
-  return CHINESE.test(text(value));
-}
-
 function clip(value, limit) {
   return text(value).slice(0, limit);
-}
-
-function parseAnalysisObject(value) {
-  const raw = String(value ?? '').trim();
-  const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const candidate = (fenced ? fenced[1] : raw).trim();
-  try {
-    const parsed = JSON.parse(candidate);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeAnalysis(value) {
-  if (!value) return null;
-  let summary = '';
-  let observations = [];
-  let nextActions = [];
-  if (typeof value === 'string') {
-    const parsed = parseAnalysisObject(value);
-    if (parsed) {
-      value = parsed;
-    } else {
-      const lines = value.split(/\r?\n/).map(text).filter(Boolean);
-      const observationStart = lines.findIndex(line => /观察|发现|表现/.test(line));
-      const actionStart = lines.findIndex(line => /明日|建议|行动/.test(line));
-      summary = lines.find(line => !/^[-*\d.)、\s]/.test(line) && !/观察|发现|表现|明日|建议|行动/.test(line)) || lines[0] || '';
-      if (observationStart >= 0) {
-        const end = actionStart > observationStart ? actionStart : lines.length;
-        observations = lines.slice(observationStart + 1, end).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
-      }
-      if (actionStart >= 0) nextActions = lines.slice(actionStart + 1).map(line => line.replace(/^[-*\d.)、\s]+/, '')).filter(Boolean);
-    }
-  }
-  if (typeof value === 'object' && value !== null) {
-    summary = value.summary || value.overview || value.conclusion || '';
-    observations = value.observations || value.observation || value.findings || [];
-    nextActions = value.nextActions || value.actions || value.recommendations || [];
-  }
-  summary = clip(summary, 1200);
-  observations = asArray(observations).map(item => clip(item, 700)).filter(Boolean).slice(0, 4);
-  nextActions = asArray(nextActions).map(item => clip(item, 700)).filter(Boolean).slice(0, 4);
-  const combined = [summary, ...observations, ...nextActions].join('\n');
-  if (!summary || observations.length < 2 || nextActions.length < 2 || !hasChinese(combined)) return null;
-  const normalized = { summary, observations, nextActions };
-  if (text(JSON.stringify(normalized)).length > MAX_ANALYSIS_CHARS) {
-    normalized.summary = clip(normalized.summary, 800);
-    normalized.observations = normalized.observations.map(item => clip(item, 400));
-    normalized.nextActions = normalized.nextActions.map(item => clip(item, 400));
-  }
-  return text(JSON.stringify(normalized)).length <= MAX_ANALYSIS_CHARS ? normalized : null;
-}
-
-function analysisText(analysis) {
-  if (!analysis) return '';
-  return [
-    analysis.summary,
-    '',
-    '观察：',
-    ...analysis.observations.map(item => `- ${item}`),
-    '',
-    '明日建议：',
-    ...analysis.nextActions.map(item => `- ${item}`)
-  ].join('\n');
 }
 
 function sanitizeActivity(activity) {
@@ -196,12 +124,11 @@ function arraySourceStatus(source, rows) {
 }
 
 export class DailyLearningReportService {
-  constructor({ db, examProvider, analyze = null, now = () => Date.now() } = {}) {
+  constructor({ db, examProvider, now = () => Date.now() } = {}) {
     if (!db) throw new TypeError('日报服务需要 DB');
     if (!examProvider) throw new TypeError('日报服务需要真题事实 provider');
     this.db = db;
     this.examProvider = examProvider;
-    this.analyze = typeof analyze === 'function' ? analyze : null;
     this.now = typeof now === 'function' ? now : () => Date.now();
   }
 
@@ -299,20 +226,7 @@ export class DailyLearningReportService {
     return sha256Fingerprint({ schemaVersion: DAILY_REPORT_SCHEMA_VERSION, facts });
   }
 
-  async requestAnalysis(report, signal) {
-    if (!this.analyze) return null;
-    if (signal?.aborted) throw Object.assign(new Error('日报分析已取消'), { name: 'AbortError' });
-    const request = {
-      dateKey: report.dateKey,
-      facts: toDailyReportAgentSummary(report),
-      instructions: '请用中文返回 JSON：summary 为一段总结；observations 为 2-4 条观察；nextActions 为 2-4 条明日行动。不要复述文章、题干、答案或对话原文。'
-    };
-    const result = await this.analyze(request, { signal });
-    if (signal?.aborted) throw Object.assign(new Error('日报分析已取消'), { name: 'AbortError' });
-    return normalizeAnalysis(result);
-  }
-
-  async getOrCreate(dateKey, { withAnalysis = false, signal = null } = {}) {
+  async getOrCreate(dateKey) {
     const now = this.nowMs();
     assertDateInRetention(dateKey, now);
     const [facts, cached] = await Promise.all([
@@ -321,24 +235,8 @@ export class DailyLearningReportService {
     ]);
     const report = buildDailyLearningReport(facts);
     const dataFingerprint = await this.fingerprint(report);
-    const cachedAnalysis = cached?.analysisStatus === 'available'
-      && cached.dataFingerprint === dataFingerprint
-      && cached.aiAnalysis;
-    if (cached && cached.dataFingerprint === dataFingerprint && (!withAnalysis || cachedAnalysis)) return cached;
+    if (cached && cached.dataFingerprint === dataFingerprint) return cached;
 
-    let aiAnalysis = null;
-    let analysisStatus = 'unavailable';
-    if (withAnalysis && this.analyze) {
-      try {
-        aiAnalysis = await this.requestAnalysis(report, signal);
-        if (aiAnalysis) analysisStatus = 'available';
-      } catch {
-        aiAnalysis = null;
-      }
-    }
-    const markdownReport = aiAnalysis
-      ? { ...report, aiAnalysis: { text: analysisText(aiAnalysis), summary: aiAnalysis.summary } }
-      : report;
     const stored = {
       dateKey,
       schemaVersion: DAILY_REPORT_SCHEMA_VERSION,
@@ -346,9 +244,9 @@ export class DailyLearningReportService {
       expiresAt: localDayBounds(dateShift(dateKey, MAX_REPORT_DAYS)).end,
       dataFingerprint,
       facts: report,
-      markdown: formatDailyLearningReportMarkdown(markdownReport),
-      analysisStatus,
-      aiAnalysis
+      markdown: formatDailyLearningReportMarkdown(report),
+      analysisStatus: 'unavailable',
+      aiAnalysis: null
     };
     return this.db.saveDailyLearningReport(stored);
   }
@@ -406,4 +304,4 @@ export class DailyLearningReportService {
   }
 }
 
-export { normalizeAnalysis, stableStringify };
+export { stableStringify };
