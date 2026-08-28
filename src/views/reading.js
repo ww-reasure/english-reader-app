@@ -51,6 +51,7 @@ export const ReadingView = {
   timer: null,
   articleData: null,
   clickedWords: [],
+  cycleReviewRatings: [],
   reviewMode: false,
   reviewWordsMap: new Map(), // stem -> word data
   learningWordsMap: new Map(),
@@ -210,6 +211,7 @@ export const ReadingView = {
     this.readingProgress = null;
     this.persistedGuideVisited = new Set();
     this.sessionGuideVisited = new Set();
+    this.cycleReviewRatings = [];
     this.readingProgressFinalizing = false;
     this.readingProgressSaveStatus = null;
     this.readingProgressCompletion = null;
@@ -311,6 +313,7 @@ export const ReadingView = {
       articleId: article.id,
       content: article.content || '',
       persisted: progress,
+      reviewMode: this.reviewMode,
       save: snapshot => DB.saveReadingProgress(snapshot),
       remove: id => DB.deleteReadingProgress(id),
       markCompletionPending: snapshot => this._markReadingCompletionPending(snapshot),
@@ -321,6 +324,7 @@ export const ReadingView = {
         payload: { articleId: article.id, message: String(error?.message || error) }
       })
     });
+    this.cycleReviewRatings = this.readingProgressSession.getReviewRatings?.() || [];
   },
 
   _renderResumeCard() {
@@ -644,6 +648,7 @@ export const ReadingView = {
       payload: { articleId }
     });
     this.clickedWords = [];
+    this.cycleReviewRatings = [];
     this.readingScrollDepth = 0;
     this.reviewWordsMap = new Map();
     this.learningWordsMap = new Map();
@@ -963,11 +968,27 @@ export const ReadingView = {
 
     // Listen for review rating events from tooltip
     this._reviewRatedHandler = (e) => {
-      const { quality, stem } = e.detail;
+      const quality = Number(e.detail?.quality);
+      const stem = getStemForm(String(e.detail?.stem || '').toLowerCase());
       const existing = this.clickedWords.find(w => w.stem === stem);
       if (existing) {
         existing.quality = quality;
         existing.explicitRating = true;
+      }
+      if (!this.reviewMode || !this.readingProgressSession) return;
+      const reviewWord = this.reviewWordsMap.get(stem);
+      const phase = this.readingProgressSession.getState?.().phase;
+      if (phase === 'preview' || phase === 'resume') {
+        this.readingProgressSession.activate('review_rating');
+      }
+      const recorded = this.readingProgressSession.recordReviewRating?.({
+        wordId: reviewWord?.id || existing?.wordId || null,
+        stem,
+        quality
+      });
+      if (recorded) {
+        this.cycleReviewRatings = this.readingProgressSession.getReviewRatings?.() || [];
+        this._recordReadingProgressActivity({ mode: this.readingMode });
       }
     };
     document.addEventListener('review-rated', this._reviewRatedHandler);
@@ -1219,15 +1240,19 @@ export const ReadingView = {
     const contextualStems = new Set(
       [...document.querySelectorAll('#articleBody .review-word')].map(el => el.dataset.stem).filter(Boolean)
     );
-    const clickedByStem = new Map(
-      this.clickedWords.filter(word => word.isReviewWord && word.explicitRating).map(word => [word.stem, word])
-    );
+    const cycleRatings = new Map();
+    for (const rating of Array.isArray(this.cycleReviewRatings) ? this.cycleReviewRatings : []) {
+      const wordId = Number(rating?.wordId);
+      const stem = getStemForm(String(rating?.stem || '').toLowerCase());
+      if (Number.isInteger(wordId) && wordId > 0) cycleRatings.set(`id:${wordId}`, rating);
+      else if (stem) cycleRatings.set(`stem:${stem}`, rating);
+    }
 
     for (const word of learnWords) {
       const stem = getStemForm(word.word.toLowerCase());
       if (!contextualStems.has(stem)) continue;
 
-      const clicked = clickedByStem.get(stem);
+      const clicked = cycleRatings.get(`id:${word.id}`) || cycleRatings.get(`stem:${stem}`);
       const attemptId = `${stableCompletionId}:word:${word.id}`;
       if (!clicked) {
         await DB.addReviewEventOnce({

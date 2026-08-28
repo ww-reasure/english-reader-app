@@ -291,6 +291,117 @@ test('a new reading cycle gets a different completion id after progress is remov
   assert.notEqual(first.getCompletionId(), second.getCompletionId());
 });
 
+test('a fresh cycle stays unique even when two cycles start in the same millisecond', () => {
+  const first = createReadingProgressSession({
+    articleId: 19,
+    content: 'A fast reread.',
+    now: () => 16000
+  });
+  const second = createReadingProgressSession({
+    articleId: 19,
+    content: 'A fast reread.',
+    now: () => 16000
+  });
+
+  assert.notEqual(first.getCompletionId(), second.getCompletionId());
+});
+
+test('persists explicit review ratings and restores them in a resumed cycle', async () => {
+  let persistedSnapshot = null;
+  const content = 'A reviewable reading cycle.';
+  const session = createReadingProgressSession({
+    articleId: 15,
+    content,
+    reviewMode: true,
+    now: () => 10000,
+    save: async snapshot => { persistedSnapshot = snapshot; }
+  });
+
+  session.activate('explicit_resume');
+  assert.equal(session.recordReviewRating({ wordId: 101, stem: 'retain', quality: 1 }), true);
+  await session.checkpoint({ activeSeconds: 12, fullProgress: 0.2 });
+
+  assert.deepEqual(persistedSnapshot.review.ratings, [{ wordId: 101, stem: 'retain', quality: 1 }]);
+
+  const resumed = createReadingProgressSession({
+    articleId: 15,
+    content,
+    reviewMode: true,
+    persisted: persistedSnapshot,
+    now: () => 20000
+  });
+  assert.deepEqual(resumed.getReviewRatings(), [{ wordId: 101, stem: 'retain', quality: 1 }]);
+});
+
+test('keeps only the latest explicit review rating for each word', async () => {
+  let persistedSnapshot = null;
+  const session = createReadingProgressSession({
+    articleId: 16,
+    content: 'A review cycle with corrections.',
+    reviewMode: true,
+    now: () => 11000,
+    save: async snapshot => { persistedSnapshot = snapshot; }
+  });
+
+  session.activate('explicit_resume');
+  session.recordReviewRating({ wordId: 102, stem: 'correct', quality: 1 });
+  session.recordReviewRating({ wordId: 102, stem: 'correct', quality: 3 });
+  session.recordReviewRating({ wordId: 103, stem: 'correct', quality: 5 });
+  await session.checkpoint({ activeSeconds: 10 });
+
+  assert.deepEqual(
+    persistedSnapshot.review.ratings.sort((left, right) => left.wordId - right.wordId),
+    [
+      { wordId: 102, stem: 'correct', quality: 3 },
+      { wordId: 103, stem: 'correct', quality: 5 }
+    ]
+  );
+});
+
+test('review ratings are not written for a non-review reading session', async () => {
+  let persistedSnapshot = null;
+  const session = createReadingProgressSession({
+    articleId: 17,
+    content: 'An ordinary reading cycle.',
+    now: () => 12000,
+    save: async snapshot => { persistedSnapshot = snapshot; }
+  });
+
+  session.activate('explicit_resume');
+  assert.equal(session.recordReviewRating({ wordId: 103, stem: 'ordinary', quality: 5 }), false);
+  await session.checkpoint({ activeSeconds: 10 });
+
+  assert.equal('review' in persistedSnapshot, false);
+  assert.deepEqual(session.getReviewRatings(), []);
+});
+
+test('a new cycle does not inherit review ratings after the old progress is removed', () => {
+  const content = 'A cycle that can be reread.';
+  const old = createReadingProgressSession({
+    articleId: 18,
+    content,
+    reviewMode: true,
+    persisted: {
+      articleId: 18,
+      contentFingerprint: contentFingerprint(content),
+      completionId: 'reading:18:cycle-old',
+      startedAt: 13000,
+      review: { ratings: [{ wordId: 104, stem: 'old', quality: 1 }] }
+    },
+    now: () => 14000
+  });
+  assert.deepEqual(old.getReviewRatings(), [{ wordId: 104, stem: 'old', quality: 1 }]);
+
+  const fresh = createReadingProgressSession({
+    articleId: 18,
+    content,
+    reviewMode: true,
+    now: () => 15000
+  });
+  assert.deepEqual(fresh.getReviewRatings(), []);
+  assert.notEqual(fresh.getCompletionId(), old.getCompletionId());
+});
+
 test('reading duration is compact and handles sub-minute sessions', () => {
   assert.equal(formatReadingDuration(0), '<1 分钟');
   assert.equal(formatReadingDuration(45), '<1 分钟');

@@ -79,6 +79,60 @@ function buildCompletionId(articleId, fingerprint, startedAt) {
   return `reading:${String(articleId)}:${String(fingerprint)}:${String(startedAt)}`;
 }
 
+let fallbackCycleSequence = 0;
+
+function buildFreshCompletionId(articleId, fingerprint, startedAt) {
+  let token = '';
+  try {
+    token = typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : '';
+  } catch {}
+  if (!token) {
+    fallbackCycleSequence += 1;
+    token = `${Date.now().toString(36)}-${fallbackCycleSequence.toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  return `${buildCompletionId(articleId, fingerprint, startedAt)}:${token}`;
+}
+
+const REVIEW_QUALITIES = new Set([1, 3, 5]);
+
+function normalizeReviewRating(value = {}) {
+  const numericWordId = Number(value.wordId);
+  const wordId = Number.isInteger(numericWordId) && numericWordId > 0 ? numericWordId : null;
+  const stem = String(value.stem || '').trim().toLowerCase();
+  const quality = Number(value.quality);
+  if ((!wordId && !stem) || !REVIEW_QUALITIES.has(quality)) return null;
+  return { wordId, stem, quality };
+}
+
+function reviewRatingKey(rating) {
+  return rating.wordId ? `id:${rating.wordId}` : `stem:${rating.stem}`;
+}
+
+function isSameReviewWord(next, existing) {
+  if (next.wordId) {
+    return existing.wordId === next.wordId
+      || (!existing.wordId && next.stem && existing.stem === next.stem);
+  }
+  return Boolean(next.stem && existing.stem === next.stem);
+}
+
+function normalizeReviewRatings(values) {
+  const ratings = new Map();
+  for (const value of Array.isArray(values) ? values : []) {
+    const rating = normalizeReviewRating(value);
+    if (!rating) continue;
+    for (const [key, existing] of ratings) {
+      if (isSameReviewWord(rating, existing)) {
+        ratings.delete(key);
+      }
+    }
+    ratings.set(reviewRatingKey(rating), rating);
+  }
+  return [...ratings.values()];
+}
+
 /**
  * Normalize a stored snapshot and reject snapshots belonging to another
  * article/body.  Missing optional fields are tolerated for forward/backward
@@ -104,6 +158,7 @@ export function normalizeReadingProgress(raw, {
   const completionId = typeof raw.completionId === 'string' && raw.completionId.trim()
     ? raw.completionId.trim().slice(0, 256)
     : null;
+  const reviewRatings = normalizeReviewRatings(raw.review?.ratings);
 
   return {
     articleId: raw.articleId ?? articleId,
@@ -124,7 +179,8 @@ export function normalizeReadingProgress(raw, {
       lastIndex,
       visitedIndexes,
       totalSentences: total
-    }
+    },
+    ...(reviewRatings.length ? { review: { ratings: reviewRatings } } : {})
   };
 }
 
@@ -164,6 +220,7 @@ export function createReadingProgressSession({
   remove = async () => {},
   markCompletionPending = async () => {},
   clearCompletionPending = async () => {},
+  reviewMode = false,
   onError = null
 } = {}) {
   const fingerprint = contentFingerprint(content);
@@ -180,7 +237,13 @@ export function createReadingProgressSession({
       : null;
   const startedAt = persistedStartedAt ?? nonNegative(now(), Date.now());
   const completionId = normalizedPersisted?.completionId
-    || buildCompletionId(articleId, fingerprint, startedAt);
+    || (normalizedPersisted
+      ? buildCompletionId(articleId, fingerprint, startedAt)
+      : buildFreshCompletionId(articleId, fingerprint, startedAt));
+  const reviewRatings = new Map(
+    (reviewMode ? normalizeReviewRatings(normalizedPersisted?.review?.ratings) : [])
+      .map(rating => [reviewRatingKey(rating), rating])
+  );
   const persistedGuideVisited = new Set(normalizedPersisted?.guide?.visitedIndexes || []);
   const guideVisited = new Set(persistedGuideVisited);
   const sessionGuideVisited = new Set();
@@ -265,7 +328,7 @@ export function createReadingProgressSession({
 
   function buildSnapshot({ status = 'in_progress' } = {}) {
     const timestamp = nonNegative(now(), Date.now());
-    return {
+    const snapshot = {
       articleId,
       version: READING_PROGRESS_VERSION,
       contentFingerprint: fingerprint,
@@ -287,6 +350,30 @@ export function createReadingProgressSession({
         totalSentences: Math.max(0, integerOr(totalSentences, 0))
       }
     };
+    const persistedReviewRatings = reviewMode ? [...reviewRatings.values()] : [];
+    if (persistedReviewRatings.length) {
+      snapshot.review = {
+        ratings: persistedReviewRatings.map(rating => ({ ...rating }))
+      };
+    }
+    return snapshot;
+  }
+
+  function getReviewRatings() {
+    return [...reviewRatings.values()].map(rating => ({ ...rating }));
+  }
+
+  function recordReviewRating(value = {}) {
+    if (!reviewMode) return false;
+    const rating = normalizeReviewRating(value);
+    if (!rating) return false;
+    for (const [key, existing] of reviewRatings) {
+      if (isSameReviewWord(rating, existing)) {
+        reviewRatings.delete(key);
+      }
+    }
+    reviewRatings.set(reviewRatingKey(rating), rating);
+    return true;
   }
 
   async function runWriter() {
@@ -375,6 +462,7 @@ export function createReadingProgressSession({
       sessionGuideVisitedCount: sessionGuideVisited.size,
       guideVisited: [...guideVisited].sort((left, right) => left - right),
       bodyLookupCount,
+      reviewRatings: getReviewRatings(),
       lastError,
       durable: Boolean(lastPersistedSnapshot && lastPersistedSnapshot.status === 'in_progress' && !lastError),
       completion: {
@@ -479,6 +567,8 @@ export function createReadingProgressSession({
   return {
     activate,
     recordActivity,
+    recordReviewRating,
+    getReviewRatings,
     checkpoint,
     scheduleCheckpoint,
     flush,
