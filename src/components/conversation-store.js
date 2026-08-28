@@ -52,7 +52,18 @@ const validDateKey = value => {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 };
 
-const normalizeMessage = message => {
+const messageIdentityFor = (message, index = 0, key = 'session') => {
+  const explicit = safeId(message?.id);
+  if (explicit) return explicit;
+  if (message?.kind === 'daily_report') {
+    const reportId = safeId(message.reportId);
+    if (reportId) return `daily-report:${reportId}`;
+  }
+  const createdAt = safeId(message?.createdAt) || 'unknown';
+  return `${safeId(key) || 'session'}-message-${createdAt}-${Math.max(0, Number(index) || 0)}`;
+};
+
+const normalizeMessage = (message, index = 0, key = 'session') => {
   if (!message || typeof message !== 'object') return null;
   if (message.kind !== 'daily_report') {
     const safe = sanitizePersistedValue(message);
@@ -66,6 +77,7 @@ const normalizeMessage = message => {
         delete safe.imageGroup;
       }
     }
+    safe.id = safeId(safe.id) || messageIdentityFor(safe, index, key);
     return safe;
   }
   const dateKey = String(message.dateKey || '').trim();
@@ -118,7 +130,7 @@ const normalizeSession = (session, now, key) => {
   const nowFn = typeof now === 'function' ? now : () => now;
   const safe = sanitizePersistedValue(session && typeof session === 'object' ? session : {}) || {};
   const messages = (Array.isArray(safe.messages) ? safe.messages : [])
-    .map(normalizeMessage)
+    .map((message, index) => normalizeMessage(message, index, key))
     .filter(Boolean);
   const existingActivities = Array.isArray(safe.activities) ? safe.activities : null;
   const activities = existingActivities || (key === 'home'
@@ -185,6 +197,10 @@ export class ConversationStore {
   constructor(storage = localStorage, now = () => Date.now()) {
     this.storage = storage;
     this.now = now;
+  }
+
+  messageIdentity(message, index = 0, key = 'home') {
+    return messageIdentityFor(message, index, key);
   }
 
   readState() {
@@ -257,11 +273,16 @@ export class ConversationStore {
   append(key, message) {
     const session = this.getSession(key);
     const createdAt = this.now();
+    const nextMessage = { createdAt, ...message };
+    if (nextMessage.kind !== 'daily_report' && !safeId(nextMessage.id)) {
+      nextMessage.id = messageIdentityFor(nextMessage, session.messages.length, key);
+    }
     this.replaceSession(key, {
       ...session,
       updatedAt: createdAt,
-      messages: [...session.messages, { createdAt, ...message }]
+      messages: [...session.messages, nextMessage]
     });
+    return this.getSession(key).messages.at(-1) || null;
   }
 
   maintainHomeConversation({
@@ -270,6 +291,7 @@ export class ConversationStore {
     batchRounds = CONTEXT_BATCH_ROUNDS
   } = {}) {
     const session = this.getSession('home');
+    const previousMessageIds = session.messages.map((message, index) => messageIdentityFor(message, index, 'home'));
     let messages = [...session.messages];
     const userIndexes = messages.reduce((indexes, message, index) => {
       if (message.kind === 'text' && message.role === 'user') indexes.push(index);
@@ -301,7 +323,16 @@ export class ConversationStore {
       contextSummary,
       updatedAt: this.now()
     });
-    return this.getSession('home');
+    const nextSession = this.getSession('home');
+    const retainedMessageIds = nextSession.messages.map((message, index) => messageIdentityFor(message, index, 'home'));
+    const retainedSet = new Set(retainedMessageIds);
+    const removedMessageIds = previousMessageIds.filter(messageId => !retainedSet.has(messageId));
+    return {
+      ...nextSession,
+      trimmed: removedMessageIds.length > 0,
+      removedMessageIds,
+      retainedMessageIds
+    };
   }
 
   appendActivity(key, activity) {
