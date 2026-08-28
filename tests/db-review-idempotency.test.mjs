@@ -54,6 +54,66 @@ test('settleSessionReview replays the same attempt without a second revision or 
   assert.equal((await DB.getReviewEventsForWord(wordId)).length, 1);
 });
 
+test('reading completion attempt is safe to replay after a crash window', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({
+    word: 'reading-cycle',
+    reviewRevision: 0,
+    reviewCount: 2,
+    interval: 3,
+    state: 'review'
+  });
+  const completionId = 'reading:article-9:cycle-1';
+  const event = {
+    completionId,
+    attemptId: `${completionId}:word:${wordId}`,
+    expectedRevision: 0,
+    rating: 5,
+    source: 'reading'
+  };
+
+  await DB.settleSessionReview(wordId, {
+    reviewRevision: 1,
+    reviewCount: 3,
+    interval: 5,
+    state: 'review',
+    nextReview: 5000
+  }, event);
+  await DB.settleSessionReview(wordId, {
+    reviewRevision: 1,
+    reviewCount: 3,
+    interval: 5,
+    state: 'review',
+    nextReview: 5000
+  }, event);
+
+  const saved = await DB.findLearnWordById(wordId);
+  assert.equal(saved.reviewRevision, 1);
+  assert.equal(saved.reviewCount, 3);
+  assert.equal((await DB.getReviewEventsForWord(wordId)).length, 1);
+});
+
+test('addReviewEventOnce replays a context exposure without adding a duplicate event', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({ word: 'exposure', reviewRevision: 0 });
+  const attemptId = 'reading:article-1:cycle-1:word:1';
+
+  await DB.addReviewEventOnce({
+    wordId,
+    source: 'reading',
+    contextExposure: true,
+    attemptId
+  }, { attemptId });
+  await DB.addReviewEventOnce({
+    wordId,
+    source: 'reading',
+    contextExposure: true,
+    attemptId
+  }, { attemptId });
+
+  assert.equal((await DB.getReviewEventsForWord(wordId)).length, 1);
+});
+
 test('database version includes the additive attemptId index migration', async () => {
   const { DB } = await createDatabase();
   assert.ok(Number(DB.DB_VERSION) >= 21);
