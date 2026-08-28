@@ -35,12 +35,11 @@ export const LEARNING_TOOLS = [
     type: 'function',
     function: {
       name: 'get_daily_learning_report',
-      description: '只读查询指定本地日期的学习日报。数据来自本机学习记录，可能标记为部分可用或不可用；不包含完整文章、试卷或对话内容。',
+      description: '只读查询指定本地日期的学习日报。数据来自本机学习记录，可能标记为部分可用或不可用；若该日期已有保存的智能分析会一并返回，但不会因缺少分析主动发起 AI 请求；不包含完整文章、试卷或对话内容。',
       parameters: {
         type: 'object',
         properties: {
-          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '本地日期 YYYY-MM-DD' },
-          withAnalysis: { type: 'boolean', description: '是否请求有界的中文复盘；本地事实不依赖此项' }
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '本地日期 YYYY-MM-DD' }
         },
         required: ['date'],
         additionalProperties: false
@@ -160,7 +159,7 @@ export class LearningAgent {
   async getDailyLearningReport(args = {}) {
     const dateKey = dateArg(args);
     if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
-    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: Boolean(args.withAnalysis) });
+    return this.dailyReportProvider.getOrCreate(dateKey, { withAnalysis: false });
   }
 
   async getTodayLearningReport() {
