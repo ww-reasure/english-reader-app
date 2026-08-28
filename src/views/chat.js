@@ -36,7 +36,6 @@ import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learn
 import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportWords } from '../word-import-service.mjs';
 import { createPdfImportService } from '../pdf-import.mjs';
 import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
-import { localDayKey } from '../learning-day.mjs';
 import { toDailyReportAgentSummary, toDailyReportToolResult } from '../daily-learning-report.mjs';
 import { renderDailyReportCard } from '../components/daily-report-card.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
@@ -311,6 +310,7 @@ export const ChatView = {
   _guidedReplyTarget: null,
   _guidedActionCleanup: null,
   _guidedRequestController: null,
+  _dailyReportRequestPending: false,
   imageDraftGroupId: null,
   activeImageGroupId: null,
   imageDraftState: 'idle',
@@ -1468,7 +1468,7 @@ export const ChatView = {
       const action = e.target.closest('[data-action]');
       if (!action) return;
       const { action: name, topic } = action.dataset;
-      if (['random', 'review', 'daily-report'].includes(name)) {
+      if (['random', 'review'].includes(name)) {
         this.clearGuidedLearningReply();
         this.skipPendingLearningChoices();
         this.pauseActiveGuidedSessions();
@@ -2168,22 +2168,23 @@ export const ChatView = {
     }
   },
 
-  async submitComposer() {
+  async submitComposer({ explicitText = null, consumeComposer = true } = {}) {
     const input = document.getElementById('promptInput');
-    const value = input?.value.trim() || '';
-    const draftGroupId = this.imageDraftGroupId;
+    const value = explicitText == null ? input?.value.trim() || '' : String(explicitText).trim();
+    const draftGroupId = consumeComposer ? this.imageDraftGroupId : null;
     if (!value && !draftGroupId) return;
     if (!Config.hasApiKey()) {
       Modal.showApiSettings();
       return;
     }
 
-    const imageReference = this.activeImageGroupId
+    const activeImageGroupId = consumeComposer ? this.activeImageGroupId : null;
+    const imageReference = activeImageGroupId
       ? chatImagePolicy.inferImageReference(value)
       : { kind: 'none' };
-    const useActiveImage = Boolean(this.activeImageGroupId && imageReference.kind === 'current');
+    const useActiveImage = Boolean(activeImageGroupId && imageReference.kind === 'current');
     const hasImages = Boolean(draftGroupId || useActiveImage);
-    const guidedReplyTarget = hasImages ? null : this.resolveGuidedReplyTarget();
+    const guidedReplyTarget = consumeComposer && !hasImages ? this.resolveGuidedReplyTarget() : null;
     const learningPreference = normalizeHomeLearningResponseMode(Config.get('home_learning_response_mode'));
     const learningRequest = hasImages || guidedReplyTarget
       ? { route: 'normal', reason: hasImages ? 'image_request' : 'guided_reply' }
@@ -2202,7 +2203,7 @@ export const ChatView = {
       return;
     }
 
-    const selectedExcerpt = normalizeSelectedExcerpt(this._chatFollowUpExcerpt);
+    const selectedExcerpt = consumeComposer ? normalizeSelectedExcerpt(this._chatFollowUpExcerpt) : '';
     const epoch = this.homeEpoch;
     const requestVersion = this.beginHomeRequest();
     const isCurrentRequest = () => this.isHomeRequestActive(epoch, requestVersion);
@@ -2239,7 +2240,7 @@ export const ChatView = {
         };
       } else if (useActiveImage) {
         attachmentGroup = await this.getImageService().resolveContext({
-          groupId: this.activeImageGroupId,
+          groupId: activeImageGroupId,
           mode: 'image',
           userMessage: value,
           signal: imageRequestController.signal
@@ -2256,7 +2257,7 @@ export const ChatView = {
         }
       }
       const requestText = value || DEFAULT_IMAGE_LEARNING_PROMPT;
-      if (!guidedReplyTarget) {
+      if (consumeComposer && !guidedReplyTarget) {
         this.skipPendingLearningChoices();
         this.pauseActiveGuidedSessions();
       }
@@ -2268,7 +2269,7 @@ export const ChatView = {
         ...(selectedExcerpt ? { selectedExcerpt } : {}),
         ...(imageGroup ? { imageGroup } : {})
       });
-      if (input) input.value = '';
+      if (consumeComposer && input) input.value = '';
       if (guidedReplyTarget) {
         this.clearGuidedLearningReply();
         await this.requestGuidedAnswer({
@@ -2397,24 +2398,15 @@ export const ChatView = {
   },
 
   async handleDailyReport() {
-    const epoch = this.homeEpoch;
-    this.showThinking('正在整理今日日报…');
+    if (this._dailyReportRequestPending) return;
+    this._dailyReportRequestPending = true;
     try {
-      const report = await dailyLearningReportService.getOrCreate(localDayKey(), {
-        withAnalysis: Config.hasApiKey()
+      return await this.submitComposer({
+        explicitText: '给我今日日报',
+        consumeComposer: false
       });
-      if (epoch !== this.homeEpoch) return;
-      this.removeThinking();
-      this.publishDailyReport(report);
-    } catch (error) {
-      if (epoch !== this.homeEpoch) return;
-      this.removeThinking();
-      const reason = redactAgentSecrets(String(error?.message || '').trim()).slice(0, 180);
-      this.appendConversation({
-        role: 'assistant',
-        kind: 'error',
-        content: reason ? `日报暂时无法生成：${reason}` : '日报暂时无法生成，请稍后重试。'
-      });
+    } finally {
+      this._dailyReportRequestPending = false;
     }
   },
 
