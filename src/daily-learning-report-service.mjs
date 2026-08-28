@@ -82,7 +82,8 @@ function sanitizeActivity(activity) {
     'lemma', 'status', 'source', 'articleId', 'articleTitle', 'createdLearnWord',
     'durationMs', 'mode', 'scope', 'contextKey', 'attemptId', 'bankId',
     'paperKey', 'unitKey', 'type', 'matchingVariant', 'practiceKind', 'practiceOrigin',
-    'scheduleChanged', 'reason', 'counts', 'recovery'
+    'scheduleChanged', 'reason', 'counts', 'recovery', 'completionId',
+    'maxContentProgress', 'guideVisitedCount', 'lastMode', 'completedToday'
   ]) {
     if (payload[key] !== undefined) item[key] = key === 'articleTitle' ? clip(payload[key], 120) : payload[key];
   }
@@ -93,7 +94,7 @@ function categoryTypes(category) {
   const map = {
     vocabulary: [ActivityType.WORD_IMPORT_DAILY, ActivityType.WORD_IMPORT_BATCH, ActivityType.READING_WORD_SAVED],
     lookup: [ActivityType.READING_WORD_LOOKUP],
-    reading: [ActivityType.READING_WORD_LOOKUP, ActivityType.READING_WORD_SAVED],
+    reading: [ActivityType.READING_WORD_LOOKUP, ActivityType.READING_WORD_SAVED, ActivityType.READING_ACTIVE_SLICE],
     review: [ActivityType.REVIEW_SESSION_SUMMARY],
     exam: [ActivityType.EXAM_ACTIVE_SLICE]
   };

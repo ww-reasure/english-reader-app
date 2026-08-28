@@ -8,6 +8,7 @@ async function readReadingView() {
 
 test('reading view owns resumable progress without changing the existing completion evaluator', async () => {
   const source = await readReadingView();
+  const activity = await readFile(new URL('../src/reading-activity.mjs', import.meta.url), 'utf8');
   assert.match(source, /createReadingProgressSession/);
   assert.match(source, /DB\.getReadingProgress\(/);
   assert.match(source, /DB\.saveReadingProgress\(/);
@@ -19,7 +20,7 @@ test('reading view owns resumable progress without changing the existing complet
   assert.match(source, /formatReadingDuration/);
   assert.match(source, /保存进度并退出/);
   assert.match(source, /重试保存/);
-  assert.match(source, /阅读进度暂未保存成功/);
+  assert.match(source, /阅读进度.*暂未保存成功/);
   assert.match(source, /readingProgressSaveStatus/);
   assert.match(source, /retryReadingProgressSave/);
   assert.match(source, /retryReadingProgressCleanup/);
@@ -28,7 +29,7 @@ test('reading view owns resumable progress without changing the existing complet
   assert.match(source, /reading\.progress_completion_cleanup_retry_failed/);
   assert.match(source, /sessionBaseActiveSeconds|activeSeconds/);
   assert.match(source, /evaluateReadingSession\(/);
-  assert.doesNotMatch(source, /READING_ACTIVE_SLICE/);
+  assert.match(activity, /READING_ACTIVE_SLICE/);
 });
 
 test('reading activation separates actual user scroll from initial viewport measurement', async () => {

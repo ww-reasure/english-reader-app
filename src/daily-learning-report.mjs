@@ -361,27 +361,121 @@ function buildReading({ dateKey, articles, readingStats, sourceStatus = {}, acti
   const dayReadings = asArray(readingStats).filter(item => belongsToDay(item, dateKey));
   const effective = dayReadings.filter(item => Number(item.qualificationVersion) >= 2 && item.completed === true);
   const incomplete = dayReadings.filter(item => !effective.includes(item));
-  const readingRows = dayReadings.map(item => {
+  const legacyRows = dayReadings.map(item => {
     const article = articleMap.get(item.articleId);
     const snapshot = item.articleSnapshot || {};
     return {
       articleId: item.articleId ?? null,
+      completionId: item.completionId || null,
       title: text(snapshot.title || article?.title || '未命名文章'),
       difficulty: text(snapshot.targetTrack || snapshot.difficulty || article?.targetTrack || article?.difficulty),
       completed: effective.includes(item),
+      status: effective.includes(item) ? 'completed' : 'in_progress',
       seconds: Math.max(0, Math.round(numberOrZero(item.activeSeconds || item.elapsed))),
+      activeDurationMs: Math.max(0, Math.round(numberOrZero(item.activeSeconds || item.elapsed) * 1000)),
       wordCount: Math.max(0, Math.round(numberOrZero(item.wordCount || snapshot.wordCount))),
       wpm: Math.max(0, Math.round(numberOrZero(item.wpm))),
+      maxContentProgress: effective.includes(item)
+        ? Math.max(0, Math.min(1, numberOrZero(item.contentProgress || item.scrollDepth) || 1))
+        : Math.max(0, Math.min(1, numberOrZero(item.contentProgress || item.scrollDepth))),
       occurredAt: occurredAtOf(item)
     };
   }).sort(sortByTimeAndLemma);
-  const totalSeconds = effective.reduce((sum, item) => sum + Math.max(0, Math.round(numberOrZero(item.activeSeconds || item.elapsed))), 0);
+
+  const dayActivities = asArray(activities).filter(item => belongsToDay(item, dateKey));
+  const activeSlices = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_ACTIVE_SLICE));
+  const activeSliceByCompletion = new Map();
+  for (const slice of activeSlices) {
+    const payload = activityPayload(slice);
+    const completionId = text(payload.completionId || slice.sessionId || slice.dedupeKey);
+    if (!completionId) continue;
+    const current = activeSliceByCompletion.get(completionId);
+    const indexes = Array.isArray(payload.guideVisitedIndexes)
+      ? payload.guideVisitedIndexes
+      : [];
+    const guideVisitedCount = Math.max(
+      0,
+      Math.round(numberOrZero(payload.guideVisitedCount) || new Set(indexes).size)
+    );
+    const next = {
+      completionId,
+      articleId: payload.articleId ?? null,
+      title: text(payload.articleTitle || articleMap.get(payload.articleId)?.title || '未命名文章'),
+      activeDurationMs: positiveNumber(payload.durationMs),
+      maxContentProgress: Math.max(0, Math.min(1, numberOrZero(payload.maxContentProgress))),
+      guideVisitedCount,
+      lastMode: text(payload.lastMode || 'full') || 'full',
+      occurredAt: occurredAtOf(slice)
+    };
+    if (current) {
+      current.activeDurationMs += next.activeDurationMs;
+      current.maxContentProgress = Math.max(current.maxContentProgress, next.maxContentProgress);
+      current.guideVisitedCount = Math.max(current.guideVisitedCount, next.guideVisitedCount);
+      if (next.occurredAt >= current.occurredAt) {
+        current.title = next.title || current.title;
+        current.lastMode = next.lastMode;
+        current.occurredAt = next.occurredAt;
+      }
+    } else {
+      activeSliceByCompletion.set(completionId, next);
+    }
+  }
+
+  const effectiveAll = asArray(readingStats).filter(item => Number(item.qualificationVersion) >= 2 && item.completed === true);
+  const completedCompletionIds = new Set(effectiveAll.map(item => text(item.completionId)).filter(Boolean));
+  const activeDurationFromSlices = [...activeSliceByCompletion.values()]
+    .reduce((sum, item) => sum + positiveNumber(item.activeDurationMs), 0);
+  const legacyDurationMs = effective
+    .filter(item => Number(item.activityAccountingVersion) !== 1)
+    .reduce((sum, item) => sum + Math.max(0, Math.round(numberOrZero(item.activeSeconds || item.elapsed) * 1000)), 0);
+  const activeDurationMs = activeDurationFromSlices + legacyDurationMs;
   const totalWords = effective.reduce((sum, item) => sum + Math.max(0, Math.round(numberOrZero(item.wordCount || item.articleSnapshot?.wordCount))), 0);
   const totalWpm = effective.reduce((sum, item) => sum + Math.max(0, numberOrZero(item.wpm)), 0);
-  const dayActivities = asArray(activities).filter(item => belongsToDay(item, dateKey));
   const lookupCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_LOOKUP)).length;
   const savedWordCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_SAVED)).length;
-  const hasData = Boolean(dayReadings.length || lookupCount || savedWordCount);
+  const inProgress = [...activeSliceByCompletion.values()]
+    .filter(item => !completedCompletionIds.has(item.completionId));
+  const inProgressArticleIds = new Set(inProgress.map(item => text(item.articleId)).filter(Boolean));
+  const inProgressRows = inProgress.map(item => ({
+    ...item,
+    status: 'in_progress',
+    completed: false,
+    seconds: Math.round(item.activeDurationMs / 1000),
+    wordCount: 0,
+    wpm: 0
+  }));
+  const completedRows = effective.map(item => {
+    const snapshot = item.articleSnapshot || {};
+    const article = articleMap.get(item.articleId);
+    const completionId = text(item.completionId);
+    const activity = completionId ? activeSliceByCompletion.get(completionId) : null;
+    const activityAccountingVersion = Number(item.activityAccountingVersion);
+    const activeDurationForRow = activityAccountingVersion === 1
+      ? positiveNumber(activity?.activeDurationMs)
+      : Math.max(0, Math.round(numberOrZero(item.activeSeconds || item.elapsed) * 1000));
+    return {
+      completionId: completionId || null,
+      articleId: item.articleId ?? null,
+      title: text(snapshot.title || article?.title || '未命名文章'),
+      status: 'completed',
+      completed: true,
+      activeDurationMs: activeDurationForRow,
+      seconds: Math.round(activeDurationForRow / 1000),
+      wordCount: Math.max(0, Math.round(numberOrZero(item.wordCount || snapshot.wordCount))),
+      wpm: Math.max(0, Math.round(numberOrZero(item.wpm))),
+      maxContentProgress: activity
+        ? activity.maxContentProgress
+        : Math.max(0, Math.min(1, numberOrZero(item.contentProgress || item.scrollDepth) || 1)),
+      guideVisitedCount: activity?.guideVisitedCount ?? 0,
+      occurredAt: occurredAtOf(item)
+    };
+  });
+  const readingRows = [...completedRows, ...inProgressRows]
+    .sort(sortByTimeAndLemma)
+    .slice(0, 100);
+  const guideVisitedCount = [...activeSliceByCompletion.values()]
+    .reduce((sum, item) => sum + Math.max(0, Math.round(numberOrZero(item.guideVisitedCount))), 0);
+  const hasData = Boolean(dayReadings.length || activeSlices.length || lookupCount || savedWordCount);
   const completeness = completenessForSources([
     sourceStatus.readingStats,
     sourceStatus.activities
@@ -390,14 +484,17 @@ function buildReading({ dateKey, articles, readingStats, sourceStatus = {}, acti
     completeness,
     completedCount: effective.length,
     incompleteCount: incomplete.length,
-    totalSeconds,
-    totalDurationMs: totalSeconds * 1000,
+    inProgressCount: inProgressArticleIds.size || inProgress.length,
+    guideVisitedCount,
+    totalSeconds: Math.round(activeDurationMs / 1000),
+    totalDurationMs: activeDurationMs,
+    activeDurationMs,
     totalWords,
     averageWpm: effective.length ? Math.round(totalWpm / effective.length) : 0,
     lookupCount,
     savedWordCount,
     readings: readingRows,
-    incompleteReadings: readingRows.filter(item => !item.completed)
+    incompleteReadings: legacyRows.filter(item => !item.completed)
   };
 }
 
@@ -823,8 +920,8 @@ export function formatDailyLearningReportMarkdown(report = {}) {
     ...(remainder ? [`- 其余 ${remainder} 个词未展开`] : []),
     '',
     '## 阅读',
-    `- 有效完成：${numberOrZero(reading.completedCount)} 篇；未完成：${numberOrZero(reading.incompleteCount)} 篇`,
-    `- 有效阅读时长：${durationLabel(reading.totalDurationMs)}；总词数：${numberOrZero(reading.totalWords)}；平均 WPM：${numberOrZero(reading.averageWpm)}`,
+    `- 今日实际阅读：${durationLabel(reading.activeDurationMs ?? reading.totalDurationMs)}；有效完成：${numberOrZero(reading.completedCount)} 篇；进行中：${numberOrZero(reading.inProgressCount)} 篇`,
+    `- 逐句导读：${numberOrZero(reading.guideVisitedCount)} 句；完成阅读总词数：${numberOrZero(reading.totalWords)}；平均 WPM：${reading.completedCount ? numberOrZero(reading.averageWpm) : '—'}`,
     '',
     '## 单词复习',
     `- 会话：${numberOrZero(wordReview.sessionCount)} 次；完成词数：${numberOrZero(wordReview.completedWordCount)}；时长：${durationLabel(wordReview.durationMs)}`,
@@ -897,7 +994,10 @@ export function toDailyReportAgentSummary(report = {}) {
     reading: {
       completedCount: numberOrZero(reading.completedCount),
       incompleteCount: numberOrZero(reading.incompleteCount),
+      inProgressCount: numberOrZero(reading.inProgressCount),
+      guideVisitedCount: numberOrZero(reading.guideVisitedCount),
       totalSeconds: numberOrZero(reading.totalSeconds),
+      activeDurationMs: positiveNumber(reading.activeDurationMs ?? reading.totalDurationMs),
       totalWords: numberOrZero(reading.totalWords),
       averageWpm: numberOrZero(reading.averageWpm),
       savedWordCount: numberOrZero(reading.savedWordCount),
