@@ -15,6 +15,10 @@ test('vocabulary page exposes the three practice entries and manual word selecti
   assert.match(source, /resolvePracticeScope/);
   assert.match(source, /createPracticeSession/);
   assert.match(source, /getPracticeScopeStatus/);
+  assert.match(source, /getPracticeProgress/);
+  assert.match(source, /completedCount/);
+  assert.match(source, /this\.renderTodayPractice\(todayStatus, todayScope\.skipped, todayProgress\)/);
+  assert.match(source, /this\.renderRecentPractice\(recentStatus, recentScope\.skipped, recentProgress\)/);
   assert.match(source, /renderPracticeEntry/);
   assert.match(source, /新增 \$\{newCount\} 词/);
   assert.match(source, /已完成/);

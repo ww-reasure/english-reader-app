@@ -14,6 +14,7 @@ export const PRACTICE_SESSION_KEY = 'review-practice-session-v1';
 export const PRACTICE_DONE_PREFIX = 'review-practice-done-v2:';
 export const PRACTICE_DONE_LEGACY_PREFIX = 'review-practice-done-v1:';
 export const PRACTICE_DONE_VERSION = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function startOfDay(now) {
   const date = new Date(now);
@@ -213,6 +214,70 @@ export function getPracticeScopeStatus({
 }
 
 /**
+ * 从 practice-flashcard reviewEvents 推导一个专项词集在其有效时间窗口内的进度。
+ *
+ * today_added 只统计当前本地日，recent_added 统计与其范围定义一致的
+ * 最近 RECENT_ADDED_DAYS 天；同一个词在窗口内写入多次也只计一次。
+ * legacyCompletedWordIds 仅用于兼容早期整组完成标记，不会替代事件读取。
+ */
+export async function getPracticeProgress({
+  db,
+  scope,
+  wordIds = [],
+  now = Date.now(),
+  legacyCompletedWordIds = []
+} = {}) {
+  const current = normalizeIds(wordIds);
+  const dateKey = localDateKey(now);
+  const empty = {
+    scope,
+    dateKey,
+    completedWordIds: [],
+    completedCount: 0,
+    totalCount: current.length,
+    remainingCount: current.length,
+    done: false
+  };
+  if (!PRACTICE_SCOPES.includes(scope) || !current.length) return empty;
+
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY_MS;
+  const from = scope === 'recent_added'
+    ? Number(now) - RECENT_ADDED_DAYS * DAY_MS
+    : dayStart;
+
+  let events = [];
+  if (typeof db?.getPracticeReviewEvents === 'function') {
+    events = await db.getPracticeReviewEvents({
+      practiceScope: scope,
+      from,
+      to: dayEnd,
+      wordIds: current
+    });
+  }
+  const completed = new Set(normalizeIds(legacyCompletedWordIds));
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.source !== 'practice-flashcard' || event.practiceScope !== scope) continue;
+    const reviewedAt = Number(event.reviewedAt);
+    if (!Number.isFinite(reviewedAt)
+      || reviewedAt < from
+      || reviewedAt >= dayEnd) continue;
+    const wordId = Number(event.wordId);
+    if (Number.isFinite(wordId)) completed.add(wordId);
+  }
+  const completedWordIds = current.filter(id => completed.has(id));
+  return {
+    scope,
+    dateKey,
+    completedWordIds,
+    completedCount: completedWordIds.length,
+    totalCount: current.length,
+    remainingCount: current.length - completedWordIds.length,
+    done: current.length > 0 && completedWordIds.length === current.length
+  };
+}
+
+/**
  * 解析专项复习词集。
  *
  * @param {object} options
@@ -253,11 +318,15 @@ export async function resolvePracticeScope({ db, scope, wordIds = [], days = REC
   return { words: candidates.map(word => ({ ...word })), skipped: 0, scope };
 }
 
-export function createPracticeSession({ scope, wordIds = [], skipped = 0 }) {
+export function createPracticeSession({ scope, wordIds = [], expectedWordIds = wordIds, skipped = 0, reviewAll = false }) {
+  const selectedIds = normalizeIds(wordIds);
+  const expectedIds = normalizeIds(expectedWordIds);
   const session = {
     scope,
-    wordIds: normalizeIds(wordIds),
+    wordIds: selectedIds,
+    expectedWordIds: expectedIds.length ? expectedIds : selectedIds,
     skipped: Number(skipped) || 0,
+    reviewAll: Boolean(reviewAll),
     createdAt: Date.now()
   };
   try {
@@ -281,10 +350,15 @@ export function readPracticeSession() {
     if (!PRACTICE_SCOPES.includes(parsed?.scope)) return null;
     const wordIds = Array.isArray(parsed.wordIds) ? parsed.wordIds.map(id => Number(id)).filter(Number.isFinite) : [];
     if (!wordIds.length) return null;
+    const expectedWordIds = Array.isArray(parsed.expectedWordIds)
+      ? normalizeIds(parsed.expectedWordIds)
+      : wordIds;
     return {
       scope: parsed.scope,
       wordIds,
+      expectedWordIds: expectedWordIds.length ? expectedWordIds : wordIds,
       skipped: Number(parsed.skipped) || 0,
+      reviewAll: Boolean(parsed.reviewAll),
       createdAt: Number(parsed.createdAt) || 0
     };
   } catch {

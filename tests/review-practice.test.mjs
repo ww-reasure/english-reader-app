@@ -103,11 +103,13 @@ test('unknown scopes are rejected', async () => {
 
 test('practice session round-trips through sessionStorage and clears', () => {
   installSessionStorage();
-  createPracticeSession({ scope: 'manual', wordIds: [31, 32], skipped: 2 });
+  createPracticeSession({ scope: 'manual', wordIds: [31, 32], expectedWordIds: [30, 31, 32], skipped: 2 });
 
   const session = readPracticeSession();
   assert.equal(session.scope, 'manual');
   assert.deepEqual(session.wordIds, [31, 32]);
+  assert.deepEqual(session.expectedWordIds, [30, 31, 32]);
+  assert.equal(session.reviewAll, false);
   assert.equal(session.skipped, 2);
 
   clearPracticeSession();

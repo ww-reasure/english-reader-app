@@ -37,3 +37,11 @@ test('practice rating continues to use event-only persistence', async () => {
   assert.match(practiceBranch, /DB\.recordLearnWordPractice/);
   assert.doesNotMatch(practiceBranch, /settleSessionReview|recordLearnWordReview|SpacedRepetition\.calculateNext/);
 });
+
+test('practice flashcards restore word-level completion from reviewEvents', async () => {
+  const source = await read('../src/views/flashcard.js');
+
+  assert.match(source, /getPracticeProgress/);
+  assert.match(source, /practiceCompletedWordIds\s*=\s*new Set\(this\.practiceProgress\.completedWordIds/);
+  assert.match(source, /practiceCompletedWordIds\.size/);
+});
