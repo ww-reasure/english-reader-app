@@ -34,6 +34,14 @@ export const LEARNING_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_learner_profile',
+      description: '只读查询学习者基础档案和有界能力证据。用于回答当前水平、学习压力、难度依据以及适合巩固还是加压；配置中的目标覆盖率和新词比例只是材料目标，不代表实际掌握率。无参数。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_daily_learning_report',
       description: '只读查询指定本地日期的学习日报。数据来自本机学习记录，可能标记为部分可用或不可用；若该日期已有保存的智能分析会一并返回，但不会因缺少分析主动发起 AI 请求；不包含完整文章、试卷或对话内容。',
       parameters: {
@@ -128,12 +136,13 @@ function dateArg(args = {}) {
 }
 
 export class LearningAgent {
-  constructor({ db, srs, examCorpus = null, examLearningProvider = null, dailyReportProvider = null, targetTrack = () => '', now = () => Date.now() }) {
+  constructor({ db, srs, examCorpus = null, examLearningProvider = null, dailyReportProvider = null, learnerProfileProvider = null, targetTrack = () => '', now = () => Date.now() }) {
     this.db = db;
     this.srs = srs;
     this.examCorpus = examCorpus;
     this.examLearningProvider = examLearningProvider;
     this.dailyReportProvider = dailyReportProvider;
+    this.learnerProfileProvider = learnerProfileProvider;
     this.targetTrack = targetTrack;
     this.now = now;
   }
@@ -146,6 +155,7 @@ export class LearningAgent {
     if (name === 'get_review_queue') return this.getReviewQueue();
     if (name === 'get_exam_learning_priorities') return this.getExamLearningPriorities();
     if (name === 'get_today_learning_report') return this.getTodayLearningReport();
+    if (name === 'get_learner_profile') return this.getLearnerProfile();
     if (name === 'get_daily_learning_report') return this.getDailyLearningReport(args);
     if (name === 'list_recent_learning_reports') return this.listRecentLearningReports(args);
     if (name === 'get_learning_activity_detail') return this.getLearningActivityDetail(args);
@@ -166,6 +176,37 @@ export class LearningAgent {
     const dateKey = localDayKey(this.now());
     if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
     return this.dailyReportProvider.getOrCreate(dateKey);
+  }
+
+  unavailableLearnerProfile() {
+    return {
+      source: 'learner_profile',
+      status: 'unavailable',
+      learnerSettings: {
+        targetExam: { id: null, label: null },
+        readingPressure: { configuredMode: null, configuredLabel: null, effectiveStrategy: null, coverageRange: null },
+        calibration: { status: 'unknown', stage: 'unknown', completed: false, assessmentDate: null },
+        configuredTargets: { targetCoveragePercent: null, newWordPercent: null, meaning: '材料目标配置，不是实际掌握率或词汇量测量。' }
+      },
+      abilityEvidence: {
+        status: 'insufficient',
+        knowledgeProfileReadStatus: 'unavailable',
+        hasValidEvidence: false,
+        hasSufficientValidEvidence: false,
+        frequencyBands: [],
+        recentDifficultyFeedback: null
+      }
+    };
+  }
+
+  async getLearnerProfile() {
+    if (typeof this.learnerProfileProvider?.getProfile !== 'function') return this.unavailableLearnerProfile();
+    try {
+      const result = await this.learnerProfileProvider.getProfile();
+      return result && typeof result === 'object' ? result : this.unavailableLearnerProfile();
+    } catch {
+      return this.unavailableLearnerProfile();
+    }
   }
 
   async listRecentLearningReports(args = {}) {

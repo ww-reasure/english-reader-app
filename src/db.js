@@ -2087,6 +2087,16 @@ export const DB = {
     });
   },
 
+  async getAllKnowledgeBands() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('knowledgeBands', 'readonly');
+      const req = tx.objectStore('knowledgeBands').getAll();
+      req.onsuccess = () => resolve((req.result || []).sort((left, right) => String(left?.band || '').localeCompare(String(right?.band || ''))));
+      req.onerror = () => reject(req.error);
+    });
+  },
+
   async getKnowledgeProfileMeta(key) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
