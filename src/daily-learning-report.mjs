@@ -922,6 +922,24 @@ export function toDailyReportAgentSummary(report = {}) {
   };
 }
 
+const HISTORY_ANALYSIS_SUMMARY_LIMIT = 1200;
+const HISTORY_ANALYSIS_ITEM_LIMIT = 700;
+
+function normalizeSavedAnalysis(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const summary = text(value.summary || value.overview || value.conclusion).slice(0, HISTORY_ANALYSIS_SUMMARY_LIMIT);
+  const observations = asArray(value.observations || value.observation || value.findings)
+    .map(item => text(item).slice(0, HISTORY_ANALYSIS_ITEM_LIMIT))
+    .filter(Boolean)
+    .slice(0, 4);
+  const nextActions = asArray(value.nextActions || value.actions || value.recommendations)
+    .map(item => text(item).slice(0, HISTORY_ANALYSIS_ITEM_LIMIT))
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!summary || !observations.length || !nextActions.length) return null;
+  return { summary, observations, nextActions };
+}
+
 const DAILY_REPORT_STATUS_KEYS = ['vocabulary', 'reading', 'wordReview', 'exam', 'trends'];
 const DAILY_REPORT_STATUSES = new Set(['available', 'empty', 'partial', 'unavailable']);
 
@@ -970,5 +988,28 @@ export function toDailyReportToolResult(report = {}) {
     dateKey,
     dataStatus,
     aiAnalysisAvailable
+  };
+}
+
+/**
+ * Build the bounded payload exposed to the home Agent for a historical report.
+ * Historical reads never request new analysis; a saved, already-normalized
+ * analysis may be included without exposing Markdown or other report payloads.
+ */
+export function toDailyReportHistoryToolResult(report = {}) {
+  const source = report && typeof report === 'object' ? report : {};
+  const facts = source.facts && typeof source.facts === 'object'
+    ? source.facts
+    : source.data && typeof source.data === 'object'
+      ? source.data
+      : source;
+  const savedAnalysis = normalizeSavedAnalysis(source.aiAnalysis);
+  return {
+    source: 'daily_learning_report',
+    dataFingerprint: text(source.dataFingerprint).slice(0, 160),
+    ...toDailyReportAgentSummary(facts),
+    ...(savedAnalysis
+      ? { aiAnalysis: savedAnalysis, aiAnalysisAvailable: true }
+      : {})
   };
 }

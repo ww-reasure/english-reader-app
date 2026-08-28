@@ -36,7 +36,7 @@ import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learn
 import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportWords } from '../word-import-service.mjs';
 import { createPdfImportService } from '../pdf-import.mjs';
 import { DailyLearningReportService } from '../daily-learning-report-service.mjs';
-import { toDailyReportAgentSummary, toDailyReportToolResult } from '../daily-learning-report.mjs';
+import { toDailyReportHistoryToolResult, toDailyReportToolResult } from '../daily-learning-report.mjs';
 import { renderDailyReportCard } from '../components/daily-report-card.mjs';
 import { APP_CAPABILITY_TOOLS, AppCapabilityRegistry, createCapabilityActionArtifact } from '../components/app-capabilities.mjs';
 import { HomeAgentUsageTelemetry } from '../components/ai-usage-telemetry.mjs';
@@ -2493,15 +2493,10 @@ export const ChatView = {
     }
     if (name === 'get_daily_learning_report') {
       const report = await learningAgent.execute(name, args);
-      const facts = report?.facts || report?.data || report;
       const artifact = dailyReportArtifactOf(report);
       if (!artifact) return { result: report };
       return {
-        result: {
-          source: 'daily_learning_report',
-          dataFingerprint: report.dataFingerprint || '',
-          ...toDailyReportAgentSummary(facts)
-        },
+        result: toDailyReportHistoryToolResult(report),
         artifact
       };
     }

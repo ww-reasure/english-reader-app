@@ -56,6 +56,10 @@ test('declares bounded read-only daily learning tools', () => {
   const todayTool = LEARNING_TOOLS.find(tool => tool.function.name === 'get_today_learning_report');
   assert.ok(todayTool);
   assert.deepEqual(todayTool.function.parameters, { type: 'object', properties: {}, additionalProperties: false });
+  const historicalTool = LEARNING_TOOLS.find(tool => tool.function.name === 'get_daily_learning_report');
+  assert.ok(historicalTool);
+  assert.deepEqual(Object.keys(historicalTool.function.parameters.properties), ['date']);
+  assert.equal(historicalTool.function.parameters.properties.withAnalysis, undefined);
   });
 });
 
@@ -101,7 +105,7 @@ test('today report ignores model date arguments and asks the service for the loc
   assert.deepEqual(calls, [{ dateKey: '2026-08-24', options: { withAnalysis: false } }]);
 });
 
-test('historical daily report tool keeps the explicit date and analysis option', async () => {
+test('historical daily report tool keeps the explicit date but never requests new analysis', async () => {
   const { LearningAgent } = await loadAgent();
   const calls = [];
   const report = { dateKey: '2026-08-23', facts: { dateKey: '2026-08-23' } };
@@ -113,7 +117,7 @@ test('historical daily report tool keeps the explicit date and analysis option',
   });
 
   assert.equal(await agent.execute('get_daily_learning_report', { date: '2026-08-23', withAnalysis: true }), report);
-  assert.deepEqual(calls, [{ dateKey: '2026-08-23', options: { withAnalysis: true } }]);
+  assert.deepEqual(calls, [{ dateKey: '2026-08-23', options: { withAnalysis: false } }]);
 });
 
 test('recent report tool forwards available, empty, and unavailable provider statuses', async () => {
@@ -138,8 +142,8 @@ test('recent report tool forwards available, empty, and unavailable provider sta
 
 test('chat tool path keeps only the bounded summary and daily artifact metadata', async () => {
   const source = await readFile(new URL('../src/views/chat.js', import.meta.url), 'utf8');
-  assert.match(source, /source:\s*'daily_learning_report'/);
+  assert.match(source, /if \(name === 'get_daily_learning_report'\)/);
   assert.match(source, /reportId:\s*`daily:\$\{dateKey\}`/);
-  assert.match(source, /toDailyReportAgentSummary\(facts\)/);
+  assert.match(source, /toDailyReportHistoryToolResult\(report\)/);
   assert.doesNotMatch(source, /result:\s*report\s*,\s*artifact:\s*report/);
 });

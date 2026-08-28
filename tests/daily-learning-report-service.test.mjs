@@ -103,6 +103,56 @@ test('normalizeAnalysis returns null for completely invalid content', () => {
   assert.equal(normalizeAnalysis('This is not a structured analysis.'), null);
 });
 
+test('history tool result includes only a bounded saved analysis when present', async () => {
+  const { toDailyReportHistoryToolResult } = await import('../src/daily-learning-report.mjs');
+  const result = toDailyReportHistoryToolResult({
+    dateKey: DATE_KEY,
+    dataFingerprint: 'sha256:history',
+    facts: {
+      dateKey: DATE_KEY,
+      completeness: { vocabulary: 'available' },
+      vocabulary: {},
+      reading: {},
+      wordReview: {},
+      exam: {},
+      trends7d: {}
+    },
+    aiAnalysis: {
+      summary: '今天完成了稳定的学习。',
+      observations: ['查词记录清晰。', '学习节奏稳定。', '第三条观察。', '第四条观察。', '不应返回第五条。'],
+      nextActions: ['明天完成一次复习。', '继续记录阅读时长。', '第三条建议。', '第四条建议。', '不应返回第五条。'],
+      text: '不应把完整 Markdown 文本返回给模型。'
+    }
+  });
+
+  assert.deepEqual(result.aiAnalysis, {
+    summary: '今天完成了稳定的学习。',
+    observations: ['查词记录清晰。', '学习节奏稳定。', '第三条观察。', '第四条观察。'],
+    nextActions: ['明天完成一次复习。', '继续记录阅读时长。', '第三条建议。', '第四条建议。']
+  });
+  assert.equal(result.aiAnalysisAvailable, true);
+  assert.equal(result.markdown, undefined);
+});
+
+test('history tool result omits analysis when no saved analysis exists', async () => {
+  const { toDailyReportHistoryToolResult } = await import('../src/daily-learning-report.mjs');
+  const result = toDailyReportHistoryToolResult({
+    dateKey: DATE_KEY,
+    facts: {
+      dateKey: DATE_KEY,
+      completeness: { vocabulary: 'empty' },
+      vocabulary: {},
+      reading: {},
+      wordReview: {},
+      exam: {},
+      trends7d: {}
+    }
+  });
+
+  assert.equal(result.aiAnalysis, undefined);
+  assert.equal(result.aiAnalysisAvailable, false);
+});
+
 test('same fingerprint reuses the stored analysis without another AI request', async () => {
   let aiCalls = 0;
   const { service } = createFixture({ analyze: async (...args) => {
