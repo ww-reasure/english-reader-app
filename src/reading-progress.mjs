@@ -49,6 +49,16 @@ export function contentFingerprint(content) {
   return `reading-v${READING_PROGRESS_VERSION}-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
+export function formatReadingDuration(seconds) {
+  const totalSeconds = Math.max(0, Math.floor(numberOr(seconds, 0)));
+  if (totalSeconds < 60) return '<1 分钟';
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} 小时 ${remainder} 分钟` : `${hours} 小时`;
+}
+
 function normalizeVisitedIndexes(indexes, totalSentences) {
   const total = Math.max(0, integerOr(totalSentences, 0));
   const values = Array.isArray(indexes) ? indexes : [];
@@ -144,6 +154,8 @@ export function createReadingProgressSession({
   now = () => Date.now(),
   save = async () => {},
   remove = async () => {},
+  markCompletionPending = async () => {},
+  clearCompletionPending = async () => {},
   onError = null
 } = {}) {
   const fingerprint = contentFingerprint(content);
@@ -165,11 +177,15 @@ export function createReadingProgressSession({
   let guideLastIndex = normalizedPersisted?.guide?.lastIndex || 0;
   let totalSentences = normalizedPersisted?.guide?.totalSentences || 0;
   let bodyLookupCount = 0;
-  let explicitActivation = false;
   let finalized = false;
+  let completionSnapshot = null;
+  let completionPersisted = false;
+  let cleanupCompleted = false;
   let finalSnapshot = null;
+  let lastPersistedSnapshot = normalizedPersisted ? clone(normalizedPersisted) : null;
   let lastError = null;
   let pendingSnapshot = null;
+  let nextSnapshotSequence = 0;
   let writer = null;
   let writerKickScheduled = false;
   let checkpointTimer = null;
@@ -230,16 +246,15 @@ export function createReadingProgressSession({
         fullAnchorProgress = progress;
       }
     }
-    if (explicitResume) explicitActivation = true;
   }
 
-  function buildSnapshot() {
+  function buildSnapshot({ status = 'in_progress' } = {}) {
     const timestamp = nonNegative(now(), Date.now());
     return {
       articleId,
       version: READING_PROGRESS_VERSION,
       contentFingerprint: fingerprint,
-      status: 'in_progress',
+      status,
       startedAt,
       updatedAt: timestamp,
       lastReadAt: timestamp,
@@ -263,15 +278,21 @@ export function createReadingProgressSession({
     writer = (async () => {
       let failure = null;
       while (pendingSnapshot) {
-        const snapshot = pendingSnapshot;
+        const entry = pendingSnapshot;
         pendingSnapshot = null;
         try {
-          await save(clone(snapshot));
-          finalSnapshot = clone(snapshot);
+          await save(clone(entry.snapshot));
+          finalSnapshot = clone(entry.snapshot);
+          lastPersistedSnapshot = clone(entry.snapshot);
+          if (entry.snapshot.status === 'completed_pending_cleanup' && entry.snapshot.articleId === articleId) {
+            completionPersisted = true;
+          }
           lastError = null;
         } catch (error) {
           lastError = error;
-          pendingSnapshot = snapshot;
+          // A completion snapshot is newer than any checkpoint that may have
+          // been in flight.  Never restore the failed older entry over it.
+          if (!pendingSnapshot || pendingSnapshot.sequence < entry.sequence) pendingSnapshot = entry;
           failure = error;
           break;
         }
@@ -285,7 +306,8 @@ export function createReadingProgressSession({
   }
 
   function enqueueSnapshot(snapshot) {
-    pendingSnapshot = clone(snapshot);
+    const entry = { snapshot: clone(snapshot), sequence: ++nextSnapshotSequence };
+    if (!pendingSnapshot || pendingSnapshot.sequence < entry.sequence) pendingSnapshot = entry;
     const promise = new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     if (!writer && !writerKickScheduled) {
       writerKickScheduled = true;
@@ -304,7 +326,7 @@ export function createReadingProgressSession({
   function activate(reason = 'signal') {
     if (finalized) return false;
     if (phase !== 'active') phase = 'active';
-    if (reason === 'explicit_resume') explicitActivation = true;
+    void reason;
     return true;
   }
 
@@ -336,7 +358,15 @@ export function createReadingProgressSession({
       sessionGuideVisitedCount: sessionGuideVisited.size,
       guideVisited: [...guideVisited].sort((left, right) => left - right),
       bodyLookupCount,
-      lastError
+      lastError,
+      durable: Boolean(lastPersistedSnapshot && lastPersistedSnapshot.status === 'in_progress' && !lastError),
+      completion: {
+        finalized,
+        snapshotPersisted: completionPersisted,
+        cleanupPending: finalized && !cleanupCompleted,
+        cleanupCompleted,
+        lastError
+      }
     };
   }
 
@@ -372,30 +402,56 @@ export function createReadingProgressSession({
   }
 
   async function complete(data = {}) {
-    if (finalized) return finalSnapshot;
-    clearTimeout(checkpointTimer);
-    checkpointTimer = null;
-    applyActivity(data);
-    if (phase !== 'active' && shouldPromoteReading({
-      activeSeconds: sessionActiveSeconds,
-      actualScrollProgress: data.actualScrollProgress,
-      didUserScroll: data.didUserScroll,
-      sessionGuideVisitedCount: sessionGuideVisited.size,
-      bodyLookupCount,
-      explicitResume: data.explicitResume
-    })) {
-      activate(data.explicitResume ? 'explicit_resume' : 'completion');
+    if (!finalized) {
+      clearTimeout(checkpointTimer);
+      checkpointTimer = null;
+      applyActivity(data);
+      if (phase !== 'active' && shouldPromoteReading({
+        activeSeconds: sessionActiveSeconds,
+        actualScrollProgress: data.actualScrollProgress,
+        didUserScroll: data.didUserScroll,
+        sessionGuideVisitedCount: sessionGuideVisited.size,
+        bodyLookupCount,
+        explicitResume: data.explicitResume
+      })) {
+        activate(data.explicitResume ? 'explicit_resume' : 'completion');
+      }
+      if (phase !== 'active') return finalSnapshot || null;
+      finalized = true;
+      phase = 'completed';
+      completionSnapshot = clone(buildSnapshot({ status: 'completed_pending_cleanup' }));
+      try {
+        const markerResult = markCompletionPending(clone(completionSnapshot));
+        if (markerResult && typeof markerResult.catch === 'function') {
+          void markerResult.catch(error => { try { onError?.(error); } catch {} });
+        }
+      } catch (error) {
+        try { onError?.(error); } catch {}
+      }
+      const queued = enqueueSnapshot(completionSnapshot);
+      // The completion path owns the writer promise below.  Attach a handler
+      // here so the waiter itself can never become an unhandled rejection when
+      // an earlier checkpoint is the operation that fails first.
+      void queued.catch(() => {});
     }
-    if (phase !== 'active') return finalSnapshot || null;
-    finalized = true;
-    phase = 'completed';
-    pendingSnapshot = clone(buildSnapshot());
-    const writePromise = runWriter();
+
+    if (cleanupCompleted) return completionSnapshot || finalSnapshot || null;
+
     try {
-      await writePromise;
+      if (!completionPersisted) {
+        if (writer) await writer.catch(() => {});
+        if (pendingSnapshot) await runWriter().catch(() => {});
+        if (!completionPersisted) throw lastError || new Error('阅读完成进度尚未保存');
+      }
       await remove(articleId);
+      cleanupCompleted = true;
       lastError = null;
-      return finalSnapshot;
+      try {
+        await clearCompletionPending(clone(completionSnapshot));
+      } catch (error) {
+        try { onError?.(error); } catch {}
+      }
+      return completionSnapshot || finalSnapshot;
     } catch (error) {
       lastError = error;
       try { onError?.(error); } catch {}
@@ -413,7 +469,14 @@ export function createReadingProgressSession({
     getState,
     getResume,
     getCumulativeActiveSeconds: ({ activeSeconds } = {}) => persistedBase + Math.max(sessionActiveSeconds, nonNegative(activeSeconds, 0)),
-    getSnapshot: () => buildSnapshot(),
+    getSnapshot: () => clone(completionSnapshot || buildSnapshot()),
+    getCompletionState: () => ({
+      finalized,
+      snapshotPersisted: completionPersisted,
+      cleanupPending: finalized && !cleanupCompleted,
+      cleanupCompleted,
+      lastError
+    }),
     cancelScheduledCheckpoint: () => { clearTimeout(checkpointTimer); checkpointTimer = null; },
     hasPersistedProgress: Boolean(normalizedPersisted)
   };

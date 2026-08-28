@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   contentFingerprint,
   createReadingProgressSession,
+  formatReadingDuration,
   normalizeReadingProgress,
   shouldPromoteReading
 } from '../src/reading-progress.mjs';
@@ -36,6 +37,16 @@ test('content fingerprint is stable for the reading body and incompatible conten
     contentFingerprint: contentFingerprint('old'),
     activeSeconds: 300
   }, { articleId: 1, contentFingerprint: contentFingerprint('new'), totalSentences: 1 });
+  assert.equal(progress, null);
+});
+
+test('a completion-pending snapshot is never normalized into a resumable progress card', () => {
+  const progress = normalizeReadingProgress({
+    articleId: 9,
+    contentFingerprint: fingerprint,
+    status: 'completed_pending_cleanup',
+    activeSeconds: 900
+  }, { articleId: 9, contentFingerprint: fingerprint, totalSentences: 1 });
   assert.equal(progress, null);
 });
 
@@ -155,4 +166,75 @@ test('latest checkpoint wins and completion prevents a late save from reviving d
   assert.equal(session.getState().phase, 'completed');
   await session.checkpoint({ activeSeconds: 60, fullProgress: 1 });
   assert.equal(saved.at(-1).full.maxProgress, 1);
+});
+
+test('completion cleanup can be retried without repeating the final progress save', async () => {
+  let removeAttempts = 0;
+  let saveCalls = 0;
+  let storedSnapshot = null;
+  const session = createReadingProgressSession({
+    articleId: 7,
+    content: 'A completed article.',
+    now: () => 7000,
+    save: async snapshot => {
+      saveCalls += 1;
+      assert.equal(snapshot.status, 'completed_pending_cleanup');
+      storedSnapshot = snapshot;
+    },
+    remove: async () => {
+      removeAttempts += 1;
+      if (removeAttempts === 1) throw new Error('delete temporarily unavailable');
+      storedSnapshot = null;
+    }
+  });
+
+  session.activate('explicit_resume');
+  await assert.rejects(session.complete({ activeSeconds: 45, fullProgress: 1 }));
+  assert.equal(session.getState().completion.cleanupPending, true);
+  await session.complete();
+
+  assert.equal(saveCalls, 1);
+  assert.equal(removeAttempts, 2);
+  assert.equal(session.getState().completion.cleanupPending, false);
+  assert.equal(session.getState().completion.cleanupCompleted, true);
+  assert.equal(storedSnapshot, null);
+});
+
+test('a failing old writer cannot replace the newer completion snapshot', async () => {
+  let rejectFirst;
+  let firstStarted;
+  const saves = [];
+  const session = createReadingProgressSession({
+    articleId: 8,
+    content: 'Another completed article.',
+    now: () => 8000,
+    save: async snapshot => {
+      saves.push(snapshot);
+      if (saves.length === 1) {
+        await new Promise((resolve, reject) => { firstStarted = resolve; rejectFirst = reject; });
+      }
+    },
+    remove: async () => {}
+  });
+
+  session.activate('explicit_resume');
+  const oldCheckpoint = session.checkpoint({ activeSeconds: 39, fullProgress: 0.39 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(rejectFirst);
+  const completion = session.complete({ activeSeconds: 45, fullProgress: 1 });
+  rejectFirst(new Error('old checkpoint failed'));
+  await assert.rejects(oldCheckpoint);
+  await completion;
+
+  await session.complete();
+  assert.equal(saves.at(-1).status, 'completed_pending_cleanup');
+  assert.equal(saves.at(-1).full.maxProgress, 1);
+  void firstStarted;
+});
+
+test('reading duration is compact and handles sub-minute sessions', () => {
+  assert.equal(formatReadingDuration(0), '<1 分钟');
+  assert.equal(formatReadingDuration(45), '<1 分钟');
+  assert.equal(formatReadingDuration(24 * 60), '24 分钟');
+  assert.equal(formatReadingDuration(65 * 60), '1 小时 5 分钟');
 });

@@ -29,6 +29,8 @@ test('an incomplete reading uses the shared qualification gate and offers contin
   assert.match(finishReading, /contentProgress:\s*scrollDepth/);
   assert.match(finishReading, /readingMode:/);
   assert.match(finishReading, /articleSnapshot:/);
+  assert.match(finishReading, /checkpointResult = await this\._checkpointReadingProgress\(\{ force: true \}\)[\s\S]*showIncompleteReadingPrompt/);
+  assert.match(finishReading, /readingProgressSaveStatus = checkpointResult\.ok \? 'saved' : 'failed'/);
 });
 
 test('only a qualified finished reading is recorded as article-level calibration evidence without asserting word mastery', async () => {
