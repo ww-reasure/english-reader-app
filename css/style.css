@@ -805,6 +805,11 @@ body.flashcard-study-info-open { overflow:hidden; }
 .flashcard-result-stats { display:grid; grid-template-columns:repeat(2,1fr); gap:0; border-top:1px solid var(--rule); }
 .flashcard-result-stat { padding:14px 0; border-bottom:1px solid var(--rule); }
 .flashcard-result-num { display:block; color:var(--signal); font-family:Georgia,serif; font-size:32px; }
+.review-persistence-status { display:flex; align-items:center; justify-content:center; gap:8px; min-height:38px; margin:16px 0 4px; padding:8px 12px; border:1px solid var(--rule); border-radius:10px; color:var(--muted); font-size:12px; line-height:1.5; text-align:center; }
+.review-persistence-status[data-status="failed"] { border-color:color-mix(in srgb,var(--danger) 42%,var(--rule)); color:var(--danger); }
+.review-persistence-status[data-status="saved"] { color:var(--moss); }
+.review-persistence-retry { min-height:28px; padding:3px 10px; border:1px solid currentColor; border-radius:999px; background:transparent; color:inherit; font-size:12px; font-weight:750; }
+.review-persistence-retry:focus-visible { outline:2px solid var(--signal); outline-offset:2px; }
 
 /* Statistics, report, settings, assessment */
 .stats-grid,.report-stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:0; margin-bottom:26px; border-top:1px solid var(--rule); }
@@ -1397,6 +1402,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .context-review-result-grid div { display:grid; gap:4px; padding:20px 8px; text-align:center; }
 .context-review-result-grid strong { color:var(--pine); font:700 32px/1 var(--font-serif); }
 .context-review-result-grid span { color:var(--muted); font-size:12px; }
+.context-review-result-persistence { margin:0 0 18px; }
 .context-review-result-actions { display:flex; gap:10px; justify-content:center; }
 
 @media (max-width:520px) {

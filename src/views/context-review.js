@@ -17,6 +17,7 @@ import { ActivityType } from '../learning-activity.mjs';
 import { localDayKey } from '../learning-day.mjs';
 import { StudySessionTimer } from '../study-session-timer.mjs';
 import { getReviewPersistence, readEmergencySessionCheckpoint } from '../review-persistence.mjs';
+import { summarizeReviewPersistenceStatus } from '../review-persistence-status.mjs';
 
 const ACTIVE_SESSION_ID = 'context-review-active';
 const TODAY_KEY = 'todayReviewedWords';
@@ -136,11 +137,17 @@ export const ContextReviewView = {
   completedWordIds: new Set(),
   reviewPersistence: null,
   _reviewPersistenceUnsubscribe: null,
+  _resultPersistenceRetrying: false,
 
   bindReviewPersistenceStatus() {
     this._reviewPersistenceUnsubscribe?.();
     this._reviewPersistenceUnsubscribe = this.reviewPersistence?.subscribe?.(event => {
-      if (!event || !this.container || !['rating_failed', 'rating_completed'].includes(event.type)) return;
+      if (!event || !this.container) return;
+      this.updateResultPersistenceStatus();
+      // Keep the result page stable while late background writes report their
+      // final state; its status node is updated independently below.
+      if (this.container.querySelector?.('[data-review-persistence-status]')) return;
+      if (!['rating_failed', 'rating_completed'].includes(event.type)) return;
       const current = this.session?.items?.[this.currentIndex];
       if (!current || Number(event.wordId) !== Number(current.wordId)) return;
       if (event.type === 'rating_failed') {
@@ -151,6 +158,37 @@ export const ContextReviewView = {
         if (this.answered) this.renderCard();
       }
     }) || null;
+  },
+
+  updateResultPersistenceStatus() {
+    const statusNode = this.container?.querySelector?.('[data-review-persistence-status]');
+    if (!statusNode) return;
+    if (this._resultPersistenceRetrying) {
+      statusNode.dataset.status = 'saving';
+      statusNode.innerHTML = '<span>正在重试保存…</span>';
+      return;
+    }
+    const summary = summarizeReviewPersistenceStatus(this.reviewPersistence?.getStatus?.());
+    statusNode.dataset.status = summary.state;
+    statusNode.innerHTML = `<span>${summary.message}</span>${summary.retryable ? ' <button class="review-persistence-retry" type="button">重试</button>' : ''}`;
+    const retryButton = statusNode.querySelector?.('.review-persistence-retry');
+    retryButton?.addEventListener('click', () => { void this.retryResultPersistence(); });
+  },
+
+  async retryResultPersistence() {
+    if (this._resultPersistenceRetrying || !this.reviewPersistence?.retryFailed) return;
+    this._resultPersistenceRetrying = true;
+    this.updateResultPersistenceStatus();
+    try {
+      await this.reviewPersistence.retryFailed();
+      await this.reviewPersistence.flush?.({ timeoutMs: 5000 });
+    } catch {
+      // Keep the journal as the source of truth; the final status update
+      // leaves a visible retry action when the write still fails.
+    } finally {
+      this._resultPersistenceRetrying = false;
+      this.updateResultPersistenceStatus();
+    }
   },
 
   startReviewTimer() {
@@ -631,9 +669,21 @@ export const ContextReviewView = {
             <div><strong>${this.counts.uncertain}</strong><span>模糊</span></div>
             <div><strong>${this.counts.unknown}</strong><span>不认识</span></div>
           </div>
+          <div class="review-persistence-status context-review-result-persistence" data-review-persistence-status data-status="saving" role="status" aria-live="polite"></div>
           <div class="context-review-result-actions"><a class="btn btn-primary" href="#/flashcard">选择其他方式</a><a class="btn btn-outline" href="#/vocab">查看我的词汇</a></div>
         </section>
       </main>`;
+
+    this._resultPersistenceRetrying = false;
+    this.updateResultPersistenceStatus();
+    try {
+      const pendingFlush = this.reviewPersistence?.flush?.({ timeoutMs: 5000 });
+      void Promise.resolve(pendingFlush)
+        .then(() => this.updateResultPersistenceStatus())
+        .catch(() => this.updateResultPersistenceStatus());
+    } catch {
+      this.updateResultPersistenceStatus();
+    }
   },
 
   renderPrepareError() {
