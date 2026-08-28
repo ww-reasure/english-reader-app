@@ -32,6 +32,8 @@ import { HomeGenerationCoordinator } from '../components/home-generation-coordin
 import { getSharedArticleQualityService } from '../components/article-quality-service.mjs';
 import { planReviewBatches } from '../components/review-generation-plan.mjs';
 import { buildArticleGenerationPolicy } from '../reading-personalization.mjs';
+import { createKnowledgeProfileRepository } from '../knowledge-profile.mjs';
+import { createLearnerProfileProvider } from '../learner-profile.mjs';
 import { normalizeSelectableTrack, requiresTargetTrackSelection } from '../learning-track.mjs';
 import { MAX_PDF_WORDS, MAX_WORDS_PER_BATCH, WordImportService, normalizeImportWords } from '../word-import-service.mjs';
 import { createPdfImportService } from '../pdf-import.mjs';
@@ -118,6 +120,11 @@ const dailyLearningReportService = new DailyLearningReportService({
   db: DB,
   examProvider: dailyExamProvider
 });
+const knowledgeProfile = createKnowledgeProfileRepository(DB);
+const learnerProfileProvider = createLearnerProfileProvider({
+  config: Config,
+  knowledgeProfile
+});
 const webResearch = createWebResearch({ config: Config });
 const learningAgent = new LearningAgent({
   db: DB,
@@ -125,6 +132,7 @@ const learningAgent = new LearningAgent({
   examCorpus: ExamCorpus,
   examLearningProvider,
   dailyReportProvider: dailyLearningReportService,
+  learnerProfileProvider,
   targetTrack: () => Config.get('exam_level') || ''
 });
 const contextBuilder = new ContextBuilder({ capabilityIndex: AppCapabilityRegistry.compactIndex() });

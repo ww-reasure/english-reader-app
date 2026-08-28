@@ -723,6 +723,47 @@ export function createKnowledgeProfileRepository(storage, { now = () => Date.now
     return result;
   }
 
+  /**
+   * Return only the bounded, aggregate inputs needed by learner-facing
+   * projections. Raw word evidence and individual lemmas stay inside this
+   * repository and are never exposed to an Agent tool.
+   */
+  async function getSummary() {
+    const [storedBands, feedback, qualifiedReadings] = await Promise.all([
+      typeof persistence.getAllKnowledgeBands === 'function'
+        ? persistence.getAllKnowledgeBands()
+        : [],
+      persistence.getKnowledgeProfileMeta(feedbackKey),
+      persistence.getKnowledgeProfileMeta(qualifiedReadingsKey)
+    ]);
+    const bands = (Array.isArray(storedBands) ? storedBands : [])
+      .map(value => {
+        try {
+          return normalizeBandProfile(value, normalizeBand(value?.band), now());
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .slice(0, 12);
+    const qualifiedReadingCount = Math.min(100, new Set([
+      ...(Array.isArray(qualifiedReadings?.articleIds) ? qualifiedReadings.articleIds : []),
+      ...(Array.isArray(feedback?.qualifiedArticleIds) ? feedback.qualifiedArticleIds : [])
+    ].map(normalizeIdentifier).filter(Boolean)).size);
+
+    return {
+      status: 'available',
+      bands,
+      difficultyFeedback: feedback && normalizeDifficultyFeedbackOption(feedback.value)
+        ? {
+          value: normalizeDifficultyFeedbackOption(feedback.value),
+          qualifiedReadingCount,
+          submittedAt: asFiniteTimestamp(feedback.submittedAt, null)
+        }
+        : null
+    };
+  }
+
   function saveDifficultyFeedback(readings, value, occurredAt = now()) {
     return serializeMutation(async () => {
       const checkpoint = await getReadingFeedbackCheckpoint(readings);
@@ -752,6 +793,7 @@ export function createKnowledgeProfileRepository(storage, { now = () => Date.now
     recordReadingEvidence,
     getBandProfile,
     getBandProfiles,
+    getSummary,
     getReadingFeedbackCheckpoint,
     recordQualifiedReadingObservation,
     getQualifiedReadingObservationCheckpoint,
