@@ -17,6 +17,7 @@ import { selectUnifiedVocabulary } from '../vocabulary-library.mjs';
 import {
   clearPracticeScopeDone,
   createPracticeSession,
+  getPracticeProgress,
   getPracticeScopeStatus,
   resolvePracticeScope
 } from '../review-practice.mjs';
@@ -111,6 +112,22 @@ export const VocabularyView = {
       currentWordIds: recentScope.words.map(word => word.id),
       now
     });
+    const [todayProgress, recentProgress] = await Promise.all([
+      getPracticeProgress({
+        db: DB,
+        scope: 'today_added',
+        wordIds: todayScope.words.map(word => word.id),
+        now,
+        legacyCompletedWordIds: todayStatus.reviewedIds
+      }),
+      getPracticeProgress({
+        db: DB,
+        scope: 'recent_added',
+        wordIds: recentScope.words.map(word => word.id),
+        now,
+        legacyCompletedWordIds: recentStatus.reviewedIds
+      })
+    ]);
     const dueCount = SpacedRepetition.getDueCount(this.rows);
     const totalCount = this.rows.length;
     const hasFilters = this.sourceFilter !== 'all' || this.statusFilter !== 'all' || this.sortMode !== 'recent';
@@ -167,13 +184,13 @@ export const VocabularyView = {
         </section>
 
         <section class="vocab-unified-today-card" aria-label="词汇复习入口">
-          ${this.renderTodayPractice(todayStatus, todayScope.skipped)}
+          ${this.renderTodayPractice(todayStatus, todayScope.skipped, todayProgress)}
           <div class="vocab-unified-review-row">
             <div><span>计划复习</span><strong>${dueCount} 词</strong></div>
             <a class="vocab-unified-review-link" href="#/flashcard">开始计划复习<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a>
           </div>
           <div class="vocab-unified-review-row vocab-unified-review-row--secondary">
-            ${this.renderRecentPractice(recentStatus, recentScope.skipped)}
+            ${this.renderRecentPractice(recentStatus, recentScope.skipped, recentProgress)}
             <button type="button" class="vocab-unified-review-link" onclick="VocabularyView.toggleSelection()"><i class="fa-regular fa-bookmark" aria-hidden="true"></i>自选单词<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
           </div>
         </section>
@@ -203,37 +220,38 @@ export const VocabularyView = {
     return SORT_MODES.map(value => `<button type="button" class="vocab-unified-filter-chip ${this.sortMode === value ? 'is-active' : ''}" aria-pressed="${this.sortMode === value}" onclick="VocabularyView.setSortMode('${value}')">${labels[value]}</button>`).join('');
   },
 
-  renderTodayPractice(status, skipped = 0) {
+  renderTodayPractice(status, skipped = 0, progress = null) {
     const reviewedCount = status.reviewedIds.length;
     const newCount = status.newIds.length;
-    const totalCount = reviewedCount + newCount;
-    const remainingCount = status.hasCompletion ? newCount : totalCount;
-    const count = status.done ? reviewedCount : remainingCount;
-    const buttonLabel = status.done ? '再练今日' : '只练今日';
-    const action = status.done
+    const totalCount = Number(progress?.totalCount) || reviewedCount + newCount;
+    const completedCount = Math.min(totalCount, Math.max(0, Number(progress?.completedCount) || (status.done ? totalCount : 0)));
+    const done = Boolean(status.done || progress?.done);
+    const buttonLabel = completedCount > 0 && completedCount < totalCount ? '继续今日' : (done ? '再练今日' : '只练今日');
+    const action = done
       ? "VocabularyView.startPractice('today_added', { reviewAll: true })"
       : "VocabularyView.startPractice('today_added')";
     return `<div class="vocab-unified-today-primary">
       <div class="vocab-unified-today-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
       <div class="vocab-unified-today-copy">
         <span>今日新增</span>
-        <strong>${count} 词</strong>
-        <small>${status.done ? '今天这组已经完成' : '新词优先，记得更牢'}${skipped ? ` · ${skipped} 个不可用` : ''}</small>
+        <strong>${completedCount}/${totalCount} 词</strong>
+        <small>${done || (completedCount >= totalCount && totalCount > 0) ? '今天这组已经完成' : (completedCount > 0 ? `已完成 ${completedCount} 个，继续保持` : '新词优先，记得更牢')}${skipped ? ` · ${skipped} 个不可用` : ''}</small>
       </div>
       <button type="button" class="vocab-unified-today-button" onclick="${action}" ${totalCount ? '' : 'disabled'}>${buttonLabel}</button>
     </div>`;
   },
 
-  renderRecentPractice(status, skipped = 0) {
+  renderRecentPractice(status, skipped = 0, progress = null) {
     const reviewedCount = status.reviewedIds.length;
     const newCount = status.newIds.length;
-    const totalCount = reviewedCount + newCount;
-    const count = status.done ? reviewedCount : (status.hasCompletion ? newCount : totalCount);
-    const action = status.done
+    const totalCount = Number(progress?.totalCount) || reviewedCount + newCount;
+    const completedCount = Math.min(totalCount, Math.max(0, Number(progress?.completedCount) || (status.done ? totalCount : 0)));
+    const done = Boolean(status.done || progress?.done);
+    const action = done
       ? "VocabularyView.startPractice('recent_added', { reviewAll: true })"
       : "VocabularyView.startPractice('recent_added')";
     return `<button type="button" class="vocab-unified-recent-link" onclick="${action}" ${totalCount ? '' : 'disabled'}>
-      <i class="fa-regular fa-calendar" aria-hidden="true"></i><span>最近 7 天</span><strong>${count} 词</strong>${skipped ? `<small>${skipped} 个不可用</small>` : ''}<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+      <i class="fa-regular fa-calendar" aria-hidden="true"></i><span>最近 7 天</span><strong>${completedCount}/${totalCount} 词</strong>${skipped ? `<small>${skipped} 个不可用</small>` : ''}<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
     </button>`;
   },
 
@@ -446,14 +464,21 @@ export const VocabularyView = {
     }
     const allWordIds = result.words.map(word => word.id);
     const status = getPracticeScopeStatus({ scope, currentWordIds: allWordIds, now });
+    const progress = await getPracticeProgress({
+      db: DB,
+      scope,
+      wordIds: allWordIds,
+      now,
+      legacyCompletedWordIds: status.reviewedIds
+    });
     let wordIds = allWordIds;
     if (reviewAll) clearPracticeScopeDone(scope);
-    else if (status.hasCompletion) wordIds = status.newIds;
+    else wordIds = allWordIds.filter(id => !progress.completedWordIds.includes(Number(id)));
     if (!wordIds.length) {
       alert('这一组已经完成。需要重复练习时，请点击“再练一轮”。');
       return;
     }
-    createPracticeSession({ scope, wordIds, skipped: result.skipped });
+    createPracticeSession({ scope, wordIds, expectedWordIds: allWordIds, skipped: result.skipped, reviewAll });
     location.hash = `#/flashcard/practice/${scope}`;
   },
 
@@ -467,7 +492,12 @@ export const VocabularyView = {
       alert('所选单词已不可用，无法开始专项复习。');
       return;
     }
-    createPracticeSession({ scope: 'manual', wordIds: result.words.map(word => word.id), skipped: result.skipped });
+    createPracticeSession({
+      scope: 'manual',
+      wordIds: result.words.map(word => word.id),
+      expectedWordIds: result.words.map(word => word.id),
+      skipped: result.skipped
+    });
     this.selectionMode = false;
     this.selectedWordIds.clear();
     location.hash = '#/flashcard/practice/manual';

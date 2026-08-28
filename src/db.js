@@ -1467,6 +1467,42 @@ export const DB = {
     });
   },
 
+  // Read practice events in one source-bounded query so vocabulary progress
+  // does not open IndexedDB once per word. The caller still applies its local
+  // calendar-day boundary because timestamps are stored as absolute values.
+  async getPracticeReviewEvents({ practiceScope = '', from, to, wordIds = [] } = {}) {
+    const scope = String(practiceScope || '');
+    const requestedIds = new Set((Array.isArray(wordIds) ? wordIds : [])
+      .map(id => Number(id))
+      .filter(Number.isFinite));
+    const lower = Number.isFinite(Number(from)) ? Number(from) : null;
+    const upper = Number.isFinite(Number(to)) ? Number(to) : null;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('reviewEvents', 'readonly');
+      const req = tx.objectStore('reviewEvents').index('source').getAll('practice-flashcard');
+      req.onsuccess = () => {
+        const events = (req.result || [])
+          .filter(event => event?.source === 'practice-flashcard')
+          .filter(event => event?.practiceScope === scope)
+          .filter(event => {
+            const reviewedAt = Number(event?.reviewedAt);
+            return Number.isFinite(reviewedAt)
+              && (lower === null || reviewedAt >= lower)
+              && (upper === null || reviewedAt < upper);
+          })
+          .filter(event => !requestedIds.size || requestedIds.has(Number(event.wordId)))
+          .sort((left, right) => (Number(left.reviewedAt) - Number(right.reviewedAt))
+            || (Number(left.id) - Number(right.id)))
+          .map(clonePlain);
+        resolve(events);
+      };
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error || req.error);
+      tx.onabort = () => reject(tx.error || new Error('专项复习记录读取失败'));
+    });
+  },
+
   // Contextual exposure is useful analytics, but never changes an SRS schedule.
   async addReviewEvent(event) {
     const db = await this.open();

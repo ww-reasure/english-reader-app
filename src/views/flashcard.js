@@ -34,6 +34,7 @@ import { ReviewQueue } from '../review-queue.js';
 import {
   clearPracticeSession,
   finalizePracticeSession,
+  getPracticeProgress,
   readPracticeSession
 } from '../review-practice.mjs';
 import {
@@ -135,6 +136,7 @@ export const FlashcardView = {
   practiceScope: '',
   practiceWordIds: [],
   practiceCompletedWordIds: new Set(),
+  practiceProgress: null,
   practiceMissingCount: 0,
   sessionQueue: null,
   reviewPersistence: null,
@@ -209,6 +211,23 @@ export const FlashcardView = {
     this.reviewTimer = null;
     this.reviewSummarySaved = false;
     this.ratingCorrelationId = '';
+  },
+
+  updatePracticeProgress() {
+    if (!this.practiceScope) return;
+    const completedWordIds = [...this.practiceCompletedWordIds]
+      .map(id => Number(id))
+      .filter(Number.isFinite);
+    const totalCount = this.practiceWordIds.length;
+    this.practiceProgress = {
+      ...(this.practiceProgress || {}),
+      scope: this.practiceScope,
+      completedWordIds,
+      completedCount: Math.min(totalCount, completedWordIds.length),
+      totalCount,
+      remainingCount: Math.max(0, totalCount - completedWordIds.length),
+      done: totalCount > 0 && completedWordIds.length >= totalCount
+    };
   },
 
   bindReviewPersistenceStatus() {
@@ -310,6 +329,7 @@ export const FlashcardView = {
     this.practiceScope = '';
     this.practiceWordIds = [];
     this.practiceCompletedWordIds = new Set();
+    this.practiceProgress = null;
     this.practiceMissingCount = 0;
     const session = requestedScope ? readPracticeSession() : null;
     if (requestedScope && (!session || session.scope !== requestedScope)) {
@@ -319,20 +339,51 @@ export const FlashcardView = {
 
     let practiceWords = null;
     if (requestedScope) {
-      practiceWords = [];
-      const uniqueWordIds = [...new Set(session.wordIds.map(id => Number(id)).filter(Number.isFinite))];
-      for (const wordId of uniqueWordIds) {
+      const currentWordIds = [...new Set(session.wordIds.map(id => Number(id)).filter(Number.isFinite))];
+      const expectedWordIds = [...new Set((session.expectedWordIds?.length ? session.expectedWordIds : currentWordIds)
+        .map(id => Number(id)).filter(Number.isFinite))];
+      const currentSet = new Set(currentWordIds);
+      const loadedWords = [];
+      for (const wordId of expectedWordIds) {
         const word = await DB.findLearnWordById(wordId);
-        if (word) practiceWords.push({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) });
+        if (word) loadedWords.push({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) });
       }
-      this.practiceMissingCount = uniqueWordIds.length - practiceWords.length;
-      this.practiceWordIds = practiceWords.map(word => Number(word.id));
-      if (!practiceWords.length) {
+      this.practiceMissingCount = expectedWordIds.length - loadedWords.length;
+      this.practiceWordIds = expectedWordIds.filter(id => loadedWords.some(word => Number(word.id) === id));
+      if (!loadedWords.length) {
         clearPracticeSession();
         this.renderInvalidPracticeSession(container, '这组单词已不在我的词汇中，未产生完成记录。请返回我的词汇重新选择。');
         return;
       }
       this.practiceScope = requestedScope;
+      try {
+        this.practiceProgress = await getPracticeProgress({
+          db: DB,
+          scope: requestedScope,
+          wordIds: this.practiceWordIds,
+          now: Date.now()
+        });
+        this.practiceCompletedWordIds = new Set(this.practiceProgress.completedWordIds);
+      } catch {
+        // Progress is auxiliary UI state. A temporary read failure must not
+        // make the practice card itself unavailable.
+        this.practiceProgress = {
+          scope: requestedScope,
+          completedWordIds: [],
+          completedCount: 0,
+          totalCount: this.practiceWordIds.length,
+          remainingCount: this.practiceWordIds.length,
+          done: false
+        };
+      }
+      practiceWords = loadedWords.filter(word => currentSet.has(Number(word.id)));
+      if (!session.reviewAll) {
+        practiceWords = practiceWords.filter(word => !this.practiceCompletedWordIds.has(Number(word.id)));
+      }
+      if (!practiceWords.length) {
+        this.renderResult(container);
+        return;
+      }
     }
     const allWords = practiceWords ?? await DB.getAllLearnWords();
     const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
@@ -561,12 +612,20 @@ export const FlashcardView = {
   renderProgress(phase) {
     const word = this.words[this.currentIndex];
     const statusInfo = SpacedRepetition.getStatusDisplay(word);
-    const progress = Math.round((this.currentIndex / this.words.length) * 100);
+    const isPractice = Boolean(this.practiceScope);
+    const total = isPractice ? this.practiceWordIds.length : this.words.length;
+    const completed = isPractice
+      ? Math.min(total, this.practiceCompletedWordIds.size)
+      : this.currentIndex;
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const countLabel = isPractice
+      ? `${completed} / ${total}`
+      : `${this.currentIndex + 1} / ${this.words.length}`;
     return `
       <div class="flashcard-progress-block">
       <div class="flashcard-progress">
         <span class="page-eyebrow">03 / ${phase}</span>
-        <span class="flashcard-progress-count">${this.currentIndex + 1} / ${this.words.length}</span>
+        <span class="flashcard-progress-count">${countLabel}</span>
         <span class="flashcard-status-badge" style="--status-color:${statusInfo.color}">${statusInfo.icon} ${statusInfo.label}</span>
       </div>
       <div class="flashcard-progress-bar" aria-hidden="true">
@@ -1174,6 +1233,7 @@ export const FlashcardView = {
         throw error;
       }
       this.practiceCompletedWordIds.add(Number(word.id));
+      this.updatePracticeProgress();
     } else {
       const expectedRevision = Math.max(0, Number(word.expectedRevision ?? word.reviewRevision) || 0);
       const outcome = this.sessionQueue?.rate(word.id, quality, {
@@ -1296,6 +1356,7 @@ export const FlashcardView = {
           practiceScope: this.practiceScope
         });
         this.practiceCompletedWordIds.add(Number(word.id));
+        this.updatePracticeProgress();
       } else {
         const sessionDebt = (this.sessionQueue?.getDebt(word.id) || 0) + sessionDebtValue(1);
         const correctedSrs = settleSessionReview(attempt.baseline, 1, sessionDebt);
@@ -1565,6 +1626,7 @@ export const FlashcardView = {
     this.practiceScope = '';
     this.practiceWordIds = [];
     this.practiceCompletedWordIds = new Set();
+    this.practiceProgress = null;
     this.practiceMissingCount = 0;
     if (this._studyExampleKeyHandler) {
       document.removeEventListener('keydown', this._studyExampleKeyHandler);

@@ -75,3 +75,23 @@ test('practice rating rejects invalid ratings and missing words gracefully', asy
   const events = await DB.getReviewEventsForWord(1);
   assert.equal(events.length, 0);
 });
+
+test('practice review events can be queried in one bounded batch for progress', async () => {
+  const { DB } = await createDatabase();
+  const startedAt = Date.now() - 1_000;
+
+  await DB.recordLearnWordPractice(11, { rating: 5, practiceScope: 'today_added' });
+  await DB.recordLearnWordPractice(12, { rating: 3, practiceScope: 'recent_added' });
+
+  const events = await DB.getPracticeReviewEvents({
+    practiceScope: 'today_added',
+    from: startedAt,
+    to: Date.now() + 1_000,
+    wordIds: [11, 99]
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].wordId, 11);
+  assert.equal(events[0].practiceScope, 'today_added');
+  assert.equal(events[0].source, 'practice-flashcard');
+});

@@ -42,6 +42,11 @@ test('manage mode distinguishes cancel save from archive', () => {
   assert.match(source, /移出词库/);
 });
 
+test('practice entry renders event-derived partial progress instead of a binary total', async () => {
+  const viewSource = await read('../src/views/vocabulary.js');
+  assert.match(viewSource, /<strong>\$\{completedCount\}\/\$\{totalCount\} 词<\/strong>/);
+});
+
 function createDocument() {
   const listeners = new Map();
   return {
@@ -154,4 +159,14 @@ test('cancel saved on a dual-source word keeps the row while archive removes it'
   assert.ok(rowById(container, 3));
   await view.archiveWords([3]);
   assert.equal(rowById(container, 3), null);
+});
+
+test('rendered practice entry shows one completed word out of four', () => {
+  const html = view.renderTodayPractice({ done: false, reviewedIds: [], newIds: [1, 2, 3, 4] }, 0, {
+    completedCount: 1,
+    totalCount: 4,
+    remainingCount: 3,
+    done: false
+  });
+  assert.match(html, /1\/4 词/);
 });
