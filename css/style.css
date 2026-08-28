@@ -475,6 +475,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .reading-action-state { display:block; max-width:0; overflow:hidden; opacity:0; font-size:0; transition:max-width var(--duration-fast) var(--ease),opacity var(--duration-fast) var(--ease); }
 .reading-action-btn.is-active .reading-action-state { max-width:42px; margin-left:4px; opacity:.86; font-size:10px; }
 .reading-hint { color:var(--muted); font-size:12px; margin-top:14px; }
+.reading-resume-card { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:0 auto 20px; padding:17px 19px; border:1px solid var(--rule-strong); border-left:3px solid var(--signal); border-radius:12px; background:var(--surface-soft); }
+.reading-resume-copy { min-width:0; }
+.reading-resume-copy .page-eyebrow { margin:0 0 5px; }
+.reading-resume-copy h2 { margin:0; color:var(--ink); font-family:Georgia,"Noto Serif SC",serif; font-size:20px; line-height:1.25; }
+.reading-resume-copy p:last-child { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.55; }
+.reading-resume-actions { display:flex; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.reading-resume-actions .btn { min-height:40px; }
 .reading-timer-bar { display:flex; gap:8px; align-items:center; padding:9px 0; border-bottom:1px solid var(--rule); color:var(--ink-soft); cursor:pointer; }
 .timer-display { color:var(--signal); font-family:ui-monospace,monospace; font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; }
 .timer-progress { flex:1; max-width:180px; height:2px; background:var(--rule); overflow:hidden; }
@@ -1663,6 +1670,12 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
   .stats-detail-grid,
   .result-detail-grid { grid-template-columns:repeat(3,minmax(0,1fr)); column-gap:30px; }
   .report-achievements { grid-template-columns:repeat(3,minmax(0,1fr)); column-gap:30px; }
+}
+
+@media (max-width: 600px) {
+  .reading-resume-card { align-items:stretch; flex-direction:column; gap:12px; }
+  .reading-resume-actions { justify-content:flex-start; }
+  .reading-resume-actions .btn { flex:1 1 150px; }
 }
 
 /* Wide tablet learning surfaces keep the article single-column. AI opens as a

@@ -30,6 +30,11 @@ import { exportArticlePdf } from '../components/article-pdf.mjs';
 import { splitSentences } from '../components/sentence-selection.mjs';
 import { localDayKey } from '../learning-day.mjs';
 import { ActivityType } from '../learning-activity.mjs';
+import {
+  contentFingerprint,
+  createReadingProgressSession,
+  normalizeReadingProgress
+} from '../reading-progress.mjs';
 
 const knowledgeEvidenceBridge = createKnowledgeEvidenceBridge({
   lexiconLoader: createLexiconLoader(),
@@ -65,10 +70,18 @@ export const ReadingView = {
   guideModeUsed: false,
   sentenceSegmentsByParagraph: [],
   sentenceColorsEnabled: false,
+  readingMode: 'full',
+  readingProgress: null,
+  readingProgressSession: null,
+  persistedGuideVisited: new Set(),
+  sessionGuideVisited: new Set(),
+  readingProgressFinalizing: false,
+  readingUserScrollProgress: 0,
   _guideWordLookupCleanup: null,
   _viewportResizeHandler: null,
   _viewportResizeFrame: null,
   _learningActivitySequence: 0,
+  _pagehideHandler: null,
 
   goBack() {
     if (window.Router?.back?.()) return;
@@ -146,6 +159,191 @@ export const ReadingView = {
     return Math.min(1, this.guideVisited.size / this.guideSentences.length);
   },
 
+  async _loadReadingProgress(article) {
+    this.readingProgress = null;
+    this.persistedGuideVisited = new Set();
+    this.sessionGuideVisited = new Set();
+    this.readingProgressFinalizing = false;
+    const bodyFingerprint = contentFingerprint(article?.content || '');
+    let stored = null;
+    try {
+      stored = await DB.getReadingProgress(article.id);
+    } catch (error) {
+      diagnosticLogger()?.record('reading.progress_read_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: article.id, message: String(error?.message || error) }
+      });
+    }
+
+    const progress = normalizeReadingProgress(stored, {
+      articleId: article.id,
+      contentFingerprint: bodyFingerprint,
+      totalSentences: this.guideSentences.length
+    });
+    if (stored && !progress && stored.contentFingerprint && stored.contentFingerprint !== bodyFingerprint) {
+      try {
+        await DB.deleteReadingProgress(article.id);
+      } catch (error) {
+        diagnosticLogger()?.record('reading.progress_delete_failed', {
+          category: 'reading',
+          level: 'error',
+          payload: { articleId: article.id, message: String(error?.message || error) }
+        });
+      }
+    }
+
+    this.readingProgress = progress;
+    this.persistedGuideVisited = new Set(progress?.guide?.visitedIndexes || []);
+    this.sessionGuideVisited = new Set();
+    this.guideVisited = new Set(this.persistedGuideVisited);
+    this.readingProgressSession = createReadingProgressSession({
+      articleId: article.id,
+      content: article.content || '',
+      persisted: progress,
+      save: snapshot => DB.saveReadingProgress(snapshot),
+      remove: id => DB.deleteReadingProgress(id),
+      onError: error => diagnosticLogger()?.record('reading.progress_save_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: article.id, message: String(error?.message || error) }
+      })
+    });
+  },
+
+  _renderResumeCard() {
+    const progress = this.readingProgress;
+    if (!progress) return '';
+    const fullPercent = Math.round((Number(progress.full?.maxProgress) || 0) * 100);
+    const guideCount = progress.guide?.visitedIndexes?.length || 0;
+    const guideTotal = progress.guide?.totalSentences || this.guideSentences.length || 0;
+    const modeLabel = progress.lastMode === 'guide' ? '逐句导读' : '全文阅读';
+    const resumeLabel = progress.lastMode === 'guide' ? '继续逐句导读' : '继续上次阅读';
+    return `
+      <section class="reading-resume-card" id="readingResumeCard" aria-label="继续上次阅读">
+        <div class="reading-resume-copy">
+          <p class="page-eyebrow">CONTINUE READING</p>
+          <h2>继续上次阅读</h2>
+          <p>上次停在 ${modeLabel} · 正文约 ${fullPercent}%${guideTotal ? ` · 已导读 ${guideCount}/${guideTotal} 句` : ''}</p>
+        </div>
+        <div class="reading-resume-actions">
+          <button class="btn btn-primary" type="button" onclick="ReadingView.continueReading()">${resumeLabel}</button>
+          <button class="btn btn-outline" type="button" onclick="ReadingView.startFromBeginning()">从头查看</button>
+        </div>
+      </section>`;
+  },
+
+  _getReadingAnchor() {
+    const scroller = this._readingScrollTarget || document.scrollingElement || document.documentElement;
+    const pairs = [...(this.container?.querySelectorAll?.('#articleBody .paragraph-pair') || [])];
+    if (!pairs.length) return { paragraphIndex: 0, sentenceIndex: 0 };
+    const scrollerRect = scroller?.getBoundingClientRect?.();
+    const top = (scrollerRect?.top || 0) + (Number(scroller?.clientHeight) || window.innerHeight || 0) * 0.3;
+    let selected = null;
+    pairs.forEach((pair, paragraphIndex) => {
+      const sentences = [...(pair.querySelectorAll?.('.reading-sentence') || [])];
+      sentences.forEach((sentence, sentenceIndex) => {
+        const rect = sentence.getBoundingClientRect?.();
+        if (rect && rect.top <= top) selected = { paragraphIndex, sentenceIndex };
+      });
+    });
+    return selected || { paragraphIndex: 0, sentenceIndex: 0 };
+  },
+
+  _readingProgressInput() {
+    const mode = this.readingMode === 'guide' ? 'guide' : 'full';
+    return {
+      activeSeconds: this.timer?.elapsed || 0,
+      mode,
+      fullProgress: this.readingScrollDepth || 0,
+      fullAnchor: this._getReadingAnchor(),
+      guideIndex: mode === 'guide' ? this.guideIndex : undefined,
+      totalSentenceCount: this.guideSentences.length
+    };
+  },
+
+  _recordReadingProgressActivity(activity = {}) {
+    if (!this.readingProgressSession || this.readingProgressFinalizing) return;
+    const state = this.readingProgressSession.recordActivity({
+      ...activity,
+      mode: activity.mode || (this.readingMode === 'guide' ? 'guide' : 'full'),
+      activeSeconds: activity.activeSeconds ?? this.timer?.elapsed ?? 0,
+      fullProgress: activity.fullProgress ?? this.readingScrollDepth,
+      fullAnchor: activity.fullAnchor || this._getReadingAnchor(),
+      totalSentenceCount: this.guideSentences.length
+    });
+    this.persistedGuideVisited = new Set(state.persistedGuideVisited || []);
+    this.sessionGuideVisited = new Set(state.sessionGuideVisited || []);
+    const sessionGuideVisitedCount = Number(state.sessionGuideVisitedCount ?? this.sessionGuideVisited.size);
+    if (state.phase === 'active' || sessionGuideVisitedCount >= 2) this._scheduleReadingProgressCheckpoint();
+  },
+
+  _scheduleReadingProgressCheckpoint() {
+    if (!this.readingProgressSession || this.readingProgressFinalizing) return;
+    this.readingProgressSession.scheduleCheckpoint(this._readingProgressInput(), 3000);
+  },
+
+  _checkpointReadingProgress({ force = false } = {}) {
+    if (!this.readingProgressSession || this.readingProgressFinalizing) return Promise.resolve(null);
+    const input = this._readingProgressInput();
+    if (force) {
+      this.readingProgressSession.cancelScheduledCheckpoint?.();
+      return this.readingProgressSession.checkpoint(input).catch(error => {
+        diagnosticLogger()?.record('reading.progress_checkpoint_failed', {
+          category: 'reading',
+          level: 'error',
+          payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
+        });
+        return null;
+      });
+    }
+    this.readingProgressSession.scheduleCheckpoint(input, 3000);
+    return Promise.resolve(null);
+  },
+
+  _hideResumeCard() {
+    const card = document.getElementById('readingResumeCard');
+    if (card) card.style.display = 'none';
+  },
+
+  _scrollToReadingResume(progress) {
+    const paragraphIndex = Math.max(0, Number(progress?.paragraphIndex) || 0);
+    const sentenceIndex = Math.max(0, Number(progress?.sentenceIndex) || 0);
+    const target = this.container?.querySelector?.(
+      `.paragraph-pair[data-paragraph-index="${paragraphIndex}"] .reading-sentence[data-sentence-index="${sentenceIndex}"]`
+    ) || this.container?.querySelector?.(`.paragraph-pair[data-paragraph-index="${paragraphIndex}"]`);
+    if (target?.scrollIntoView) target.scrollIntoView({ block: 'start' });
+    else {
+      const scroller = this._readingScrollTarget || document.scrollingElement || document.documentElement;
+      const maxScroll = Math.max(0, (Number(scroller?.scrollHeight) || 0) - (Number(scroller?.clientHeight) || 0));
+      scroller.scrollTop = maxScroll * Math.min(1, Math.max(0, Number(this.readingProgress?.full?.maxProgress) || 0));
+    }
+  },
+
+  continueReading() {
+    const progress = this.readingProgressSession?.getResume?.();
+    this._hideResumeCard();
+    this.readingProgressSession?.activate('explicit_resume');
+    if (progress?.lastMode === 'guide' && this.guideSentences.length) {
+      this.guideModeUsed = true;
+      this.readingMode = 'guide';
+      this.guideIndex = Math.max(0, Math.min(this.guideSentences.length - 1, Number(progress.guide?.lastIndex) || 0));
+      void this.openSentenceGuide();
+    } else {
+      this.readingMode = 'full';
+      this._scrollToReadingResume(progress?.full);
+    }
+    this._recordReadingProgressActivity({ explicitResume: true });
+    void this._checkpointReadingProgress({ force: true });
+  },
+
+  startFromBeginning() {
+    this._hideResumeCard();
+    this.readingMode = 'full';
+    const scroller = this._readingScrollTarget || document.scrollingElement || document.documentElement;
+    if (scroller) scroller.scrollTop = 0;
+  },
+
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
     const favorite = Boolean(article.favorite);
@@ -194,8 +392,13 @@ export const ReadingView = {
     }
   },
 
-  cleanup() {
-    this.closeSentenceGuide({ restoreReading: false });
+  async cleanup() {
+    this.closeSentenceGuide({ restoreReading: false, checkpoint: false });
+    if (this.readingProgressSession && !this.readingProgressFinalizing) {
+      this._recordReadingProgressActivity(this._readingProgressInput());
+      this.timer?.stop();
+      await this._checkpointReadingProgress({ force: true });
+    }
     this._clearSentenceColors();
     this.sentenceColorsEnabled = false;
     this._wordLookupCleanup?.();
@@ -219,6 +422,10 @@ export const ReadingView = {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
     }
+    if (this._pagehideHandler && typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', this._pagehideHandler);
+      this._pagehideHandler = null;
+    }
     if (this._viewportResizeHandler && typeof window !== 'undefined') {
       window.removeEventListener('resize', this._viewportResizeHandler);
       window.removeEventListener('orientationchange', this._viewportResizeHandler);
@@ -229,10 +436,11 @@ export const ReadingView = {
     }
     this._viewportResizeFrame = null;
     if (this.timer) { this.timer.stop(); this.timer = null; }
+    this.readingProgressSession = null;
   },
 
   async render(container, articleId) {
-    this.cleanup();
+    await this.cleanup();
     this.container = container;
     const renderSpan = diagnosticLogger()?.beginSpan('reading.render', {
       category: 'reading',
@@ -255,6 +463,13 @@ export const ReadingView = {
     this.guidePayload = null;
     this.guideError = '';
     this.guideModeUsed = false;
+    this.readingMode = 'full';
+    this.readingProgress = null;
+    this.readingProgressSession = null;
+    this.persistedGuideVisited = new Set();
+    this.sessionGuideVisited = new Set();
+    this.readingUserScrollProgress = 0;
+    this.readingProgressFinalizing = false;
     this.sentenceSegmentsByParagraph = [];
     this.sentenceColorsEnabled = false;
     const article = await DB.getArticle(articleId);
@@ -335,6 +550,7 @@ export const ReadingView = {
         sourceStart: segment.start,
         sourceEnd: segment.end
       })));
+    await this._loadReadingProgress(article);
     const articleTrack = resolveArticleTrack(article);
 
     let parasHTML = '';
@@ -381,6 +597,7 @@ export const ReadingView = {
           </div>
           <div class="reading-hint">${this.reviewMode ? '复习标记词：点击后记录你的掌握程度' : '点击单词查释义；选中句子可以请求 AI 分析'}</div>
         </header>
+        ${this._renderResumeCard()}
         <div class="reading-layout" data-reading-layout="article">
           <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
             <div id="articleBody" class="article-body">${parasHTML}</div>
@@ -531,6 +748,9 @@ export const ReadingView = {
         sessionId: this._readingLookupContext('reading').sessionId
       }),
       onShown: ({ event, word, data, reviewWord, lookupId }) => {
+        if (event?.target?.closest?.('#articleBody')) {
+          this._recordReadingProgressActivity({ bodyLookup: true });
+        }
         this._recordReadingLookup({
           word,
           data,
@@ -566,12 +786,13 @@ export const ReadingView = {
     }
     this.guideModeUsed = true;
     this.readingMode = 'guide';
+    this._recordReadingProgressActivity({ mode: 'guide' });
     const overlay = document.getElementById('sentenceGuideModal');
     if (overlay) overlay.style.display = 'flex';
     await this.showSentenceGuide(this.guideIndex || 0);
   },
 
-  closeSentenceGuide({ restoreReading = true } = {}) {
+  closeSentenceGuide({ restoreReading = true, checkpoint = true } = {}) {
     this._guideWordLookupCleanup?.();
     this._guideWordLookupCleanup = null;
     if (this.guideAbortController) {
@@ -584,13 +805,15 @@ export const ReadingView = {
       overlay.style.display = 'none';
       overlay.innerHTML = '';
     }
-    if (restoreReading) this.readingMode = this.guideModeUsed ? 'guide' : 'full';
+    if (restoreReading) this.readingMode = 'full';
+    if (checkpoint) void this._checkpointReadingProgress({ force: true });
   },
 
   async showSentenceGuide(index) {
     const nextIndex = Math.max(0, Math.min(this.guideSentences.length - 1, Number(index) || 0));
     this.guideIndex = nextIndex;
     this.guideVisited.add(nextIndex);
+    this._recordReadingProgressActivity({ mode: 'guide', guideIndex: nextIndex });
     await this.loadSentenceGuide();
   },
 
@@ -659,14 +882,17 @@ export const ReadingView = {
           ...provenance,
           sessionId: this._readingLookupContext('reading-guide').sessionId
         }),
-        onShown: ({ word, data, reviewWord, lookupId }) => this._recordReadingLookup({
-          word,
-          data,
-          reviewWord,
-          lookupId,
-          source: 'reading-guide-word-lookup',
-          collect: true
-        })
+        onShown: ({ word, data, reviewWord, lookupId }) => {
+          this._recordReadingProgressActivity({ mode: 'guide', bodyLookup: true });
+          this._recordReadingLookup({
+            word,
+            data,
+            reviewWord,
+            lookupId,
+            source: 'reading-guide-word-lookup',
+            collect: true
+          });
+        }
       });
     }
   },
@@ -858,6 +1084,8 @@ export const ReadingView = {
       if (display) display.textContent = this.timer.getDisplay();
       if (wpmEl) wpmEl.textContent = wpm + ' 词/分';
       if (statusEl) statusEl.textContent = this.timer.isPaused ? '⏸ 已暂停' : '';
+      this._recordReadingProgressActivity({ activeSeconds: elapsed });
+      if (elapsed > 0 && elapsed % 15 === 0) void this._checkpointReadingProgress({ force: true });
     };
 
     this.timer.start();
@@ -867,30 +1095,41 @@ export const ReadingView = {
     this._resumeHandler = () => { if (this.timer?.isPaused) this.timer.resume(); };
     this._visibilityHandler = () => {
       if (!this.timer) return;
-      if (document.hidden) this.timer.pauseForVisibility();
+      if (document.hidden) {
+        void this._checkpointReadingProgress({ force: true });
+        this.timer.pauseForVisibility();
+      }
       else this.timer.resume();
     };
     this._readingScrollTarget = document.querySelector('.app-page-outlet') || document.scrollingElement || document.documentElement;
     this._scrollProgressHandler = () => {
-      this._updateReadingScrollDepth();
+      this._updateReadingScrollDepth({ didUserScroll: true });
       this._resumeHandler();
     };
+    this._pagehideHandler = () => { void this._checkpointReadingProgress({ force: true }); };
     document.addEventListener('touchstart', this._resumeHandler, { passive: true });
     document.addEventListener('visibilitychange', this._visibilityHandler);
+    window.addEventListener('pagehide', this._pagehideHandler, { passive: true });
     this._readingScrollTarget?.addEventListener('scroll', this._scrollProgressHandler, { passive: true });
     this._updateReadingScrollDepth();
   },
 
-  _updateReadingScrollDepth() {
+  _updateReadingScrollDepth({ didUserScroll = false } = {}) {
     const scroller = this._readingScrollTarget || document.scrollingElement || document.documentElement;
     const scrollHeight = Number(scroller?.scrollHeight) || 0;
     const clientHeight = Number(scroller?.clientHeight) || 0;
     const scrollTop = Number(scroller?.scrollTop) || 0;
+    const actualScrollProgress = Math.min(1, Math.max(0, scrollTop / Math.max(1, scrollHeight - clientHeight)));
     if (scrollHeight <= clientHeight) {
       this.readingScrollDepth = 1;
+      if (didUserScroll) this._recordReadingProgressActivity({ actualScrollProgress, didUserScroll: true, fullProgress: 1 });
       return this.readingScrollDepth;
     }
     this.readingScrollDepth = Math.max(this.readingScrollDepth || 0, Math.min(1, (scrollTop + clientHeight) / scrollHeight));
+    if (didUserScroll) {
+      this.readingUserScrollProgress = Math.max(this.readingUserScrollProgress || 0, actualScrollProgress);
+      this._recordReadingProgressActivity({ actualScrollProgress, didUserScroll: true, fullProgress: this.readingScrollDepth });
+    }
     return this.readingScrollDepth;
   },
 
@@ -899,6 +1138,7 @@ export const ReadingView = {
     const overlay = existing || document.createElement('div');
     overlay.id = 'readingIncompletePrompt';
     overlay.className = 'modal-overlay';
+    const hasDurableProgress = Boolean(this.readingProgress || this.readingProgressSession?.getState?.().phase === 'active');
 
     const details = [];
     if (qualification.missingProgress > 0) {
@@ -910,11 +1150,11 @@ export const ReadingView = {
 
     overlay.innerHTML = `
       <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="incompleteReadingTitle">
-        <h2 id="incompleteReadingTitle">还不能计入有效阅读</h2>
+        <h2 id="incompleteReadingTitle">尚未达到阅读完成条件</h2>
         <p class="text-muted">${details.join('；') || '请继续阅读后再完成。'}</p>
-        <p class="text-muted">达到正文 70% 与有效阅读时长后，才会计入学习档案和难度校准。</p>
+        <p class="text-muted">${hasDurableProgress ? '本次阅读时间和进度已保存，但不会计入完成篇数和能力校准。' : '尚未形成有效阅读进度，本次不会记录，也不会计入完成篇数和能力校准。'}</p>
         <div class="modal-actions">
-          <button class="btn btn-outline" type="button" onclick="ReadingView.exitWithoutCounting()">退出但不计入</button>
+          <button class="btn btn-outline" type="button" onclick="ReadingView.exitWithoutCounting()">${hasDurableProgress ? '保存进度并退出' : '退出阅读'}</button>
           <button class="btn btn-primary" type="button" onclick="ReadingView.dismissIncompleteReadingPrompt()">继续阅读</button>
         </div>
       </div>`;
@@ -927,21 +1167,32 @@ export const ReadingView = {
     if (overlay) overlay.style.display = 'none';
   },
 
-  exitWithoutCounting() {
+  async exitWithoutCounting() {
     this.dismissIncompleteReadingPrompt();
-    this.cleanup();
+    await this.cleanup();
     this.goBack();
   },
 
   // Finish reading
   async finishReading() {
+    if (this.readingProgressFinalizing) return;
     const elapsed = this.timer?.elapsed || 0;
     const wordCount = this.articleData?.wordCount || 0;
-    const contentProgressAtFinish = Math.max(this._updateReadingScrollDepth(), this.getSentenceGuideProgress());
+    this._updateReadingScrollDepth();
+    const finishActivity = this._readingProgressInput();
+    this.readingProgressSession?.recordActivity(finishActivity);
+    const progressSnapshot = this.readingProgressSession?.getSnapshot?.();
+    const cumulativeActiveSeconds = this.readingProgressSession?.getCumulativeActiveSeconds?.({ activeSeconds: elapsed }) || elapsed;
+    const activeSeconds = cumulativeActiveSeconds;
+    const contentProgressAtFinish = Math.max(
+      this.readingScrollDepth || 0,
+      this.getSentenceGuideProgress(),
+      Number(progressSnapshot?.full?.maxProgress) || 0
+    );
     const readingQualification = evaluateReadingSession({
       completed: true,
       contentProgress: contentProgressAtFinish,
-      activeSeconds: elapsed,
+      activeSeconds,
       wordCount
     });
     const completeSpan = diagnosticLogger()?.beginSpan('reading.complete', {
@@ -950,6 +1201,15 @@ export const ReadingView = {
       payload: { articleId: this.articleData?.id, wordCount }
     });
     if (!readingQualification.qualified) {
+      if (this.readingProgressSession?.getState?.().phase === 'active') {
+        await this.readingProgressSession.checkpoint(finishActivity).catch(error => {
+          diagnosticLogger()?.record('reading.progress_checkpoint_failed', {
+            category: 'reading',
+            level: 'error',
+            payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
+          });
+        });
+      }
       completeSpan?.end({ payload: { qualified: false, reason: readingQualification.reason || 'qualification' } });
       diagnosticLogger()?.record('reading.completed', {
         category: 'reading',
@@ -959,6 +1219,13 @@ export const ReadingView = {
       return;
     }
 
+    // Pressing the completion action is itself an explicit user signal.  It
+    // lets an already-saved snapshot complete without manufacturing time or
+    // requiring the learner to press the resume button first.
+    if (this.readingProgressSession?.getState?.().phase !== 'active') {
+      this.readingProgressSession?.activate?.('completion');
+    }
+    this.readingProgressFinalizing = true;
     this.timer?.stop();
 
     // Clean up listeners
@@ -975,16 +1242,30 @@ export const ReadingView = {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
     }
+    if (this._pagehideHandler && typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', this._pagehideHandler);
+      this._pagehideHandler = null;
+    }
+
+    // Flush the latest in-progress snapshot before durable reading facts are
+    // recorded.  A failed checkpoint remains retryable inside the session.
+    await this.readingProgressSession?.flush(finishActivity).catch(error => {
+      diagnosticLogger()?.record('reading.progress_flush_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
+      });
+    });
 
     // Save reading stat
-    const wpm = this.timer?.getWPM() || 0;
+    const wpm = activeSeconds > 0 ? Math.round(wordCount / (activeSeconds / 60)) : 0;
     const scrollDepth = contentProgressAtFinish;
     const articleTrack = resolveArticleTrack(this.articleData || {});
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
       wordCount,
-      elapsed,
-      activeSeconds: elapsed,
+      elapsed: activeSeconds,
+      activeSeconds,
       scrollDepth,
       contentProgress: scrollDepth,
       completed: true,
@@ -1011,7 +1292,7 @@ export const ReadingView = {
       wordCount,
       completed: true,
       scrollDepth,
-      activeSeconds: elapsed,
+      activeSeconds: cumulativeActiveSeconds,
       occurredAt: Date.now()
     });
 
@@ -1020,12 +1301,26 @@ export const ReadingView = {
       await this._updateReviewSRS();
     }
 
+    // Completion is the only path that removes the resumable snapshot.  The
+    // session is finalized before its last write, so a late checkpoint cannot
+    // resurrect a completed article.
+    await this.readingProgressSession?.complete(finishActivity).catch(error => {
+      diagnosticLogger()?.record('reading.progress_complete_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId: this.articleData?.id, message: String(error?.message || error) }
+      });
+    });
+    this.readingProgress = null;
+    this.readingProgressSession = null;
+    this.readingProgressFinalizing = false;
+
     // Show summary popup
-    await this.showSummary(elapsed, wpm, { qualifiesForCalibration: readingQualification.qualified });
-    completeSpan?.end({ payload: { qualified: true, elapsedMs: elapsed, wordCount, reviewMode: this.reviewMode } });
+    await this.showSummary(cumulativeActiveSeconds, wpm, { qualifiesForCalibration: readingQualification.qualified });
+    completeSpan?.end({ payload: { qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode } });
     diagnosticLogger()?.record('reading.completed', {
       category: 'reading',
-      payload: { articleId: this.articleData?.id, qualified: true, elapsedMs: elapsed, wordCount, reviewMode: this.reviewMode }
+      payload: { articleId: this.articleData?.id, qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode }
     });
   },
 

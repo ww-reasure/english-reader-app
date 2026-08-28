@@ -31,7 +31,7 @@ test('guided sentences contribute to the same qualified-reading progress calcula
   const finishReading = source.slice(finishStart, finishEnd);
 
   assert.match(source, /getSentenceGuideProgress\(\)/);
-  assert.match(source, /Math\.max\(this\._updateReadingScrollDepth\(\), this\.getSentenceGuideProgress\(\)\)/);
+  assert.match(source, /Math\.max\([\s\S]*this\.getSentenceGuideProgress\(\)[\s\S]*contentProgressAtFinish/);
   assert.match(finishReading, /contentProgress:\s*contentProgressAtFinish/);
   assert.match(finishReading, /const scrollDepth = contentProgressAtFinish/);
   assert.match(finishReading, /scrollDepth,/);

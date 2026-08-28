@@ -165,7 +165,7 @@ function attachConnectionLifecycle(connection, key) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 21, // v21: idempotent formal review attempts
+  DB_VERSION: 22, // v22: additive resumable reading progress
 
   // Open database connection with retry
   open(retries = 3, { diagnostics = true, correlationId = undefined } = {}) {
@@ -495,6 +495,14 @@ export const DB = {
           if (!store.indexNames.contains('attemptId')) {
             store.createIndex('attemptId', 'attemptId', { unique: false });
           }
+        }
+
+        // v22: one content-bound reading snapshot per article.  This is an
+        // additive store; readingStats and every existing learning record stay
+        // untouched during the upgrade.
+        if (!db.objectStoreNames.contains('readingProgress')) {
+          const store = db.createObjectStore('readingProgress', { keyPath: 'articleId' });
+          store.createIndex('updatedAt', 'updatedAt');
         }
       };
 
@@ -2242,6 +2250,45 @@ export const DB = {
     const stats = await this.getAllReadingStats();
     if (stats.length === 0) return 0;
     return Math.round(stats.reduce((sum, s) => sum + s.wpm, 0) / stats.length);
+  },
+
+  // ===== Resumable Reading Progress =====
+
+  async getReadingProgress(articleId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('readingProgress', 'readonly');
+      const req = tx.objectStore('readingProgress').get(articleId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async saveReadingProgress(progress) {
+    if (!progress || progress.articleId === undefined || progress.articleId === null) {
+      throw new TypeError('阅读进度需要文章标识');
+    }
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('readingProgress', 'readwrite');
+      const req = tx.objectStore('readingProgress').put(progress);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => resolve(progress);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('阅读进度保存失败'));
+    });
+  },
+
+  async deleteReadingProgress(articleId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('readingProgress', 'readwrite');
+      tx.objectStore('readingProgress').delete(articleId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('阅读进度删除失败'));
+    });
   }
 };
 
