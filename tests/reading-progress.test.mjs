@@ -232,6 +232,65 @@ test('a failing old writer cannot replace the newer completion snapshot', async 
   void firstStarted;
 });
 
+test('keeps one completion id for a persisted reading cycle', () => {
+  const content = 'A stable reading cycle.';
+  const completionId = 'reading:12:reading-v1-test:1000';
+  const session = createReadingProgressSession({
+    articleId: 12,
+    content,
+    persisted: {
+      articleId: 12,
+      contentFingerprint: contentFingerprint(content),
+      completionId,
+      startedAt: 1000,
+      updatedAt: 1100,
+      activeSeconds: 45
+    },
+    now: () => 2000
+  });
+
+  assert.equal(session.getCompletionId(), completionId);
+  assert.equal(session.getSnapshot().completionId, completionId);
+});
+
+test('a generated completion id survives the first checkpoint and a simulated restart', async () => {
+  let persistedSnapshot = null;
+  const content = 'A checkpointed reading cycle.';
+  const first = createReadingProgressSession({
+    articleId: 14,
+    content,
+    now: () => 4000,
+    save: async snapshot => { persistedSnapshot = snapshot; }
+  });
+  first.activate('explicit_resume');
+  await first.checkpoint({ activeSeconds: 45, fullProgress: 0.5 });
+
+  const reopened = createReadingProgressSession({
+    articleId: 14,
+    content,
+    persisted: persistedSnapshot,
+    now: () => 9000
+  });
+
+  assert.ok(persistedSnapshot.completionId);
+  assert.equal(reopened.getCompletionId(), first.getCompletionId());
+});
+
+test('a new reading cycle gets a different completion id after progress is removed', () => {
+  const first = createReadingProgressSession({
+    articleId: 13,
+    content: 'A rereadable article.',
+    now: () => 3000
+  });
+  const second = createReadingProgressSession({
+    articleId: 13,
+    content: 'A rereadable article.',
+    now: () => 3001
+  });
+
+  assert.notEqual(first.getCompletionId(), second.getCompletionId());
+});
+
 test('reading duration is compact and handles sub-minute sessions', () => {
   assert.equal(formatReadingDuration(0), '<1 分钟');
   assert.equal(formatReadingDuration(45), '<1 分钟');

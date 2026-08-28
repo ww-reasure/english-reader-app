@@ -182,6 +182,7 @@ export const ReadingView = {
       globalThis.localStorage?.setItem(this._readingCompletionMarkerKey(snapshot.articleId), JSON.stringify({
         articleId: snapshot.articleId,
         contentFingerprint: snapshot.contentFingerprint,
+        completionId: snapshot.completionId || null,
         updatedAt: snapshot.updatedAt
       }));
     } catch (error) {
@@ -1206,8 +1207,14 @@ export const ReadingView = {
     });
   },
 
-  // Update SRS ratings after review reading
-  async _updateReviewSRS() {
+  // Update SRS ratings after review reading.  The completion id is stable for
+  // the whole reading cycle, so a retry after a crash replays each word's
+  // attempt instead of advancing it a second time.
+  async _updateReviewSRS(completionId) {
+    const stableCompletionId = String(
+      completionId || this.readingProgressSession?.getCompletionId?.() || ''
+    ).trim();
+    if (!stableCompletionId) throw new Error('阅读复习缺少稳定 completionId');
     const learnWords = await DB.getAllLearnWords();
     const contextualStems = new Set(
       [...document.querySelectorAll('#articleBody .review-word')].map(el => el.dataset.stem).filter(Boolean)
@@ -1221,8 +1228,15 @@ export const ReadingView = {
       if (!contextualStems.has(stem)) continue;
 
       const clicked = clickedByStem.get(stem);
+      const attemptId = `${stableCompletionId}:word:${word.id}`;
       if (!clicked) {
-        await DB.addReviewEvent({ wordId: word.id, source: 'reading', contextExposure: true });
+        await DB.addReviewEventOnce({
+          wordId: word.id,
+          source: 'reading',
+          contextExposure: true,
+          completionId: stableCompletionId,
+          attemptId
+        }, { attemptId });
         continue;
       }
 
@@ -1234,7 +1248,9 @@ export const ReadingView = {
         source: 'reading',
         sawAnswer: true,
         contextExposure: false,
-        sessionDebt
+        sessionDebt,
+        completionId: stableCompletionId,
+        attemptId
       });
     }
   },
@@ -1442,6 +1458,9 @@ export const ReadingView = {
     const finishActivity = this._readingProgressInput();
     this.readingProgressSession?.recordActivity(finishActivity);
     const progressSnapshot = this.readingProgressSession?.getSnapshot?.();
+    const completionId = this.readingProgressSession?.getCompletionId?.()
+      || progressSnapshot?.completionId
+      || null;
     const cumulativeActiveSeconds = this.readingProgressSession?.getCumulativeActiveSeconds?.({ activeSeconds: elapsed }) || elapsed;
     const activeSeconds = cumulativeActiveSeconds;
     const contentProgressAtFinish = Math.max(
@@ -1458,7 +1477,7 @@ export const ReadingView = {
     const completeSpan = diagnosticLogger()?.beginSpan('reading.complete', {
       category: 'reading',
       correlationId: `reading-complete:${this.articleData?.id || 'unknown'}:${Date.now()}`,
-      payload: { articleId: this.articleData?.id, wordCount }
+      payload: { articleId: this.articleData?.id, wordCount, completionId }
     });
     if (!readingQualification.qualified) {
       this.incompleteReadingQualification = readingQualification;
@@ -1522,6 +1541,7 @@ export const ReadingView = {
     const articleTrack = resolveArticleTrack(this.articleData || {});
     await DB.saveReadingStat({
       articleId: this.articleData?.id,
+      completionId,
       wordCount,
       elapsed: activeSeconds,
       activeSeconds,
@@ -1557,13 +1577,17 @@ export const ReadingView = {
 
     // Update SRS for review mode
     if (this.reviewMode) {
-      await this._updateReviewSRS();
+      await this._updateReviewSRS(completionId);
     }
 
     // Durable completion facts are already written at this point.  Mark that
     // fact once so a retry after cleanup failure can only remove progress and
     // cannot repeat stats, evidence, or review SRS settlement.
-    this.readingProgressCompletion = { factsRecorded: true, cleanupPending: true };
+    this.readingProgressCompletion = {
+      factsRecorded: true,
+      cleanupPending: true,
+      completionId
+    };
     this.readingCompletionSummary = {
       elapsed: cumulativeActiveSeconds,
       wpm,
@@ -1571,11 +1595,11 @@ export const ReadingView = {
     };
     const cleanupSucceeded = await this._retryReadingProgressCleanup({ showFailure: false });
     if (!cleanupSucceeded) {
-      completeSpan?.end({ payload: { qualified: true, cleanupPending: true, elapsedMs: cumulativeActiveSeconds, wordCount } });
+      completeSpan?.end({ payload: { qualified: true, cleanupPending: true, elapsedMs: cumulativeActiveSeconds, wordCount, completionId } });
       diagnosticLogger()?.record('reading.completed_cleanup_pending', {
         category: 'reading',
         level: 'error',
-        payload: { articleId: this.articleData?.id, elapsedMs: cumulativeActiveSeconds, wordCount }
+        payload: { articleId: this.articleData?.id, elapsedMs: cumulativeActiveSeconds, wordCount, completionId }
       });
       this._showReadingProgressCleanupFailure();
       return;
@@ -1584,10 +1608,10 @@ export const ReadingView = {
     // Show summary popup
     this.readingCompletionSummary = null;
     await this.showSummary(cumulativeActiveSeconds, wpm, { qualifiesForCalibration: readingQualification.qualified });
-    completeSpan?.end({ payload: { qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode } });
+    completeSpan?.end({ payload: { qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode, completionId } });
     diagnosticLogger()?.record('reading.completed', {
       category: 'reading',
-      payload: { articleId: this.articleData?.id, qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode }
+      payload: { articleId: this.articleData?.id, qualified: true, elapsedMs: cumulativeActiveSeconds, wordCount, reviewMode: this.reviewMode, completionId }
     });
   },
 

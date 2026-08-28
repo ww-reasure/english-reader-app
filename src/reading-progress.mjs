@@ -75,6 +75,10 @@ function normalizeAnchor(anchor = {}) {
   };
 }
 
+function buildCompletionId(articleId, fingerprint, startedAt) {
+  return `reading:${String(articleId)}:${String(fingerprint)}:${String(startedAt)}`;
+}
+
 /**
  * Normalize a stored snapshot and reject snapshots belonging to another
  * article/body.  Missing optional fields are tolerated for forward/backward
@@ -97,11 +101,15 @@ export function normalizeReadingProgress(raw, {
   const lastIndex = total > 0
     ? Math.min(total - 1, Math.max(0, integerOr(rawGuide.lastIndex, visitedIndexes.at(-1) || 0)))
     : Math.max(0, integerOr(rawGuide.lastIndex, visitedIndexes.at(-1) || 0));
+  const completionId = typeof raw.completionId === 'string' && raw.completionId.trim()
+    ? raw.completionId.trim().slice(0, 256)
+    : null;
 
   return {
     articleId: raw.articleId ?? articleId,
     version: READING_PROGRESS_VERSION,
     contentFingerprint: expectedFingerprint || raw.contentFingerprint || '',
+    completionId,
     status: 'in_progress',
     startedAt: nonNegative(raw.startedAt, 0),
     updatedAt: nonNegative(raw.updatedAt, 0),
@@ -165,7 +173,14 @@ export function createReadingProgressSession({
     totalSentences: persisted?.guide?.totalSentences || 0
   });
   const persistedBase = normalizedPersisted?.activeSeconds || 0;
-  const startedAt = normalizedPersisted?.startedAt || nonNegative(now(), Date.now());
+  const persistedStartedAt = normalizedPersisted?.startedAt > 0
+    ? normalizedPersisted.startedAt
+    : normalizedPersisted?.updatedAt > 0
+      ? normalizedPersisted.updatedAt
+      : null;
+  const startedAt = persistedStartedAt ?? nonNegative(now(), Date.now());
+  const completionId = normalizedPersisted?.completionId
+    || buildCompletionId(articleId, fingerprint, startedAt);
   const persistedGuideVisited = new Set(normalizedPersisted?.guide?.visitedIndexes || []);
   const guideVisited = new Set(persistedGuideVisited);
   const sessionGuideVisited = new Set();
@@ -254,6 +269,7 @@ export function createReadingProgressSession({
       articleId,
       version: READING_PROGRESS_VERSION,
       contentFingerprint: fingerprint,
+      completionId,
       status,
       startedAt,
       updatedAt: timestamp,
@@ -350,6 +366,7 @@ export function createReadingProgressSession({
       phase,
       articleId,
       contentFingerprint: fingerprint,
+      completionId,
       sessionBaseActiveSeconds: persistedBase,
       sessionActiveSeconds,
       cumulativeActiveSeconds: persistedBase + sessionActiveSeconds,
@@ -468,6 +485,7 @@ export function createReadingProgressSession({
     complete,
     getState,
     getResume,
+    getCompletionId: () => completionId,
     getCumulativeActiveSeconds: ({ activeSeconds } = {}) => persistedBase + Math.max(sessionActiveSeconds, nonNegative(activeSeconds, 0)),
     getSnapshot: () => clone(completionSnapshot || buildSnapshot()),
     getCompletionState: () => ({

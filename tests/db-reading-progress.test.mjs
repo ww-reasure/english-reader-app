@@ -48,7 +48,7 @@ async function seedV21(name) {
   });
 }
 
-test('v21 to v22 adds readingProgress without migrating or deleting readingStats', async () => {
+test('v21 to v22 adds readingProgress and completion id index without migrating readingStats', async () => {
   const name = `EnglishReaderProgressUpgrade-${process.pid}-${databaseSequence++}`;
   globalThis.indexedDB = indexedDB;
   await seedV21(name);
@@ -56,8 +56,36 @@ test('v21 to v22 adds readingProgress without migrating or deleting readingStats
   assert.equal(DB.DB_VERSION, 22);
   const db = await DB.open();
   assert.equal(db.objectStoreNames.contains('readingProgress'), true);
+  const statsIndex = db.transaction('readingStats', 'readonly')
+    .objectStore('readingStats').index('completionId');
+  assert.equal(statsIndex.unique, true);
   assert.equal((await DB.getAllReadingStats()).length, 1);
   db.close();
+});
+
+test('readingStats replays one completion id without deduping a later cycle', async () => {
+  const { DB } = await createDatabase();
+  const firstId = await DB.saveReadingStat({
+    articleId: 44,
+    completionId: 'reading:44:cycle-1',
+    activeSeconds: 60,
+    completed: true
+  });
+  const replay = await DB.saveReadingStat({
+    articleId: 44,
+    completionId: 'reading:44:cycle-1',
+    activeSeconds: 120,
+    completed: true
+  });
+  await DB.saveReadingStat({
+    articleId: 44,
+    completionId: 'reading:44:cycle-2',
+    activeSeconds: 90,
+    completed: true
+  });
+
+  assert.equal(replay.id, firstId);
+  assert.equal((await DB.getAllReadingStats()).length, 2);
 });
 
 test('readingProgress CRUD is keyed by article and does not touch readingStats', async () => {

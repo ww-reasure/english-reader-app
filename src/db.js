@@ -229,6 +229,7 @@ export const DB = {
         if (!db.objectStoreNames.contains('readingStats')) {
           const store = db.createObjectStore('readingStats', { keyPath: 'id', autoIncrement: true });
           store.createIndex('createdAt', 'createdAt');
+          store.createIndex('completionId', 'completionId', { unique: true });
         }
 
         // v6: add fields for RSS articles
@@ -503,6 +504,16 @@ export const DB = {
         if (!db.objectStoreNames.contains('readingProgress')) {
           const store = db.createObjectStore('readingProgress', { keyPath: 'articleId' });
           store.createIndex('updatedAt', 'updatedAt');
+        }
+
+        // v22: make a completed reading cycle idempotent.  Existing reading
+        // stats have no completionId and are intentionally left untouched;
+        // IndexedDB does not index records whose key is missing.
+        if (e.oldVersion < 22) {
+          const store = e.target.transaction.objectStore('readingStats');
+          if (!store.indexNames.contains('completionId')) {
+            store.createIndex('completionId', 'completionId', { unique: true });
+          }
         }
       };
 
@@ -1531,6 +1542,73 @@ export const DB = {
     });
   },
 
+  // Write a non-SRS review event once.  Reading context exposure uses this
+  // small idempotent path so a completion retry cannot create a second event.
+  async addReviewEventOnce(event = {}, { attemptId = event?.attemptId } = {}) {
+    const stableAttemptId = String(attemptId || '').trim();
+    if (!stableAttemptId) throw new TypeError('幂等复习事件需要 attemptId');
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('reviewEvents', 'readwrite');
+      const store = tx.objectStore('reviewEvents');
+      let result = null;
+      let failure = null;
+
+      const add = () => {
+        const req = store.add({
+          reviewedAt: Date.now(),
+          rating: null,
+          source: 'reading',
+          sawAnswer: false,
+          schedulerVersion: 2,
+          ...event,
+          attemptId: stableAttemptId
+        });
+        req.onsuccess = () => { result = req.result; };
+        req.onerror = () => {
+          failure = req.error;
+          try { tx.abort(); } catch {}
+        };
+      };
+
+      const onExisting = existing => {
+        if (existing) {
+          result = clonePlain(existing);
+          return;
+        }
+        try { add(); } catch (error) {
+          failure = error;
+          try { tx.abort(); } catch {}
+        }
+      };
+
+      try {
+        if (store.indexNames.contains('attemptId')) {
+          const req = store.index('attemptId').get(stableAttemptId);
+          req.onsuccess = () => onExisting(req.result || null);
+          req.onerror = () => {
+            failure = req.error;
+            try { tx.abort(); } catch {}
+          };
+        } else {
+          const req = store.getAll();
+          req.onsuccess = () => onExisting((req.result || []).find(item => item?.attemptId === stableAttemptId) || null);
+          req.onerror = () => {
+            failure = req.error;
+            try { tx.abort(); } catch {}
+          };
+        }
+      } catch (error) {
+        failure = error;
+        try { tx.abort(); } catch {}
+      }
+
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('复习事件保存失败'));
+    });
+  },
+
   // ===== Local diagnostic logs =====
 
   async appendDiagnosticLogs(items = []) {
@@ -2228,11 +2306,70 @@ export const DB = {
 
   async saveReadingStat(stat) {
     const db = await this.open();
+    const completionId = String(stat?.completionId || '').trim();
+    const record = { ...stat };
+    if (completionId) record.completionId = completionId;
+    else delete record.completionId;
+    record.createdAt = Date.now();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('readingStats', 'readwrite');
-      const req = tx.objectStore('readingStats').add({ ...stat, createdAt: Date.now() });
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      const store = tx.objectStore('readingStats');
+      let result = null;
+      let failure = null;
+
+      const add = () => {
+        const req = store.add(record);
+        req.onsuccess = () => {
+          // Preserve the old numeric return value for a newly inserted stat.
+          result = req.result;
+        };
+        req.onerror = () => {
+          failure = req.error;
+          try { tx.abort(); } catch {}
+        };
+      };
+
+      const onExisting = existing => {
+        if (existing) {
+          // A replay is a successful no-op.  Return the durable record so the
+          // caller can observe which completion was retained.
+          result = clonePlain(existing);
+          return;
+        }
+        try { add(); } catch (error) {
+          failure = error;
+          try { tx.abort(); } catch {}
+        }
+      };
+
+      try {
+        if (!completionId) {
+          add();
+        } else if (store.indexNames.contains('completionId')) {
+          const req = store.index('completionId').get(completionId);
+          req.onsuccess = () => onExisting(req.result || null);
+          req.onerror = () => {
+            failure = req.error;
+            try { tx.abort(); } catch {}
+          };
+        } else {
+          // Compatibility fallback for a test/legacy database that has not
+          // received the v22 index yet.  Normal app databases use the index.
+          const req = store.getAll();
+          req.onsuccess = () => onExisting((req.result || []).find(item => item?.completionId === completionId) || null);
+          req.onerror = () => {
+            failure = req.error;
+            try { tx.abort(); } catch {}
+          };
+        }
+      } catch (error) {
+        failure = error;
+        try { tx.abort(); } catch {}
+      }
+
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('阅读记录保存失败'));
     });
   },
 

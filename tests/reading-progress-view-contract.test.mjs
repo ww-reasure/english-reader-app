@@ -56,6 +56,8 @@ test('reading completion flushes and deletes progress only after the existing qu
   assert.match(finish, /evaluateReadingSession\(/);
   assert.match(finish, /readingProgressSession.*flush|readingProgressSession.*complete/s);
   assert.match(finish, /DB\.saveReadingStat\(/);
+  assert.match(finish, /completionId/);
+  assert.match(finish, /_updateReviewSRS\(completionId\)/);
   assert.match(finish, /deleteReadingProgress|readingProgressSession.*complete/s);
   assert.match(finish, /activeSeconds/);
   assert.match(finish, /wordCount\s*\/\s*\(.*activeSeconds/);
