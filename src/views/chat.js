@@ -12,6 +12,11 @@ import { SpacedRepetition } from '../spaced-repetition.js';
 import { AudioCache } from '../audio-cache.js';
 import { Dictionary } from '../dictionary.js';
 import { ConversationStore } from '../components/conversation-store.js';
+import {
+  collectImageObjectUrls,
+  compactPersistentHomeMessageNodes,
+  releaseRemovedImageObjectUrls
+} from '../home-runtime-resource-compaction.mjs';
 import { LEARNING_TOOLS, LearningAgent } from '../components/learning-agent.js';
 import { ContextBuilder } from '../components/context-builder.js';
 import { ChatService } from '../components/chat-service.js';
@@ -424,18 +429,19 @@ export const ChatView = {
       }
     } else {
       for (const message of session.messages) {
+        const messageId = this.homeMessageIdentity(message);
         if (message.kind === 'article') {
-          this.addArticleCardToDOM(message.article);
+          this.addArticleCardToDOM(message.article, messageId);
         } else if (message.kind === 'generation_failure') {
-          this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
+          this.addGenerationFailureToDOM(message.failure, messageId);
         } else if (message.kind === 'app_actions') {
-          this.addAppActionsToDOM(message.actions || []);
+          this.addAppActionsToDOM(message.actions || [], messageId);
         } else if (message.kind === 'research_sources') {
-          this.addResearchSourcesToDOM(message.research || message);
+          this.addResearchSourcesToDOM(message.research || message, messageId);
         } else if (message.kind === 'activity') {
           // Activity events are model context, not duplicate visible chat bubbles.
         } else if (message.kind === 'daily_report') {
-          await this.restoreDailyReportReference(message);
+          await this.restoreDailyReportReference({ ...message, id: messageId });
         } else if (message.kind === 'learning_mode_choice') {
           this.addLearningModeChoiceToDOM(message);
         } else if (message.kind === 'guided_learning') {
@@ -446,7 +452,7 @@ export const ChatView = {
           await this.addMessageToDOM(
             message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role,
             message.content,
-            { imageGroup: message.imageGroup, messageId: message.id || message.createdAt }
+            { imageGroup: message.imageGroup, messageId }
           );
         }
       }
@@ -1043,10 +1049,9 @@ export const ChatView = {
   async renderImageDraft(groupId) {
     const strip = document.getElementById('chatImageDraftStrip');
     if (!strip) return;
-    for (const url of this._imageDraftObjectUrls.values()) {
-      try { globalThis.URL?.revokeObjectURL(url); } catch {}
-    }
-    this._imageDraftObjectUrls.clear();
+    // History galleries own the `history:` entries in the same map. Re-rendering
+    // the composer must release only the current draft previews.
+    this.clearDraftPreviewUrls();
     const rows = groupId ? await DB.getChatImageGroup(groupId).catch(() => []) : [];
     if (!rows.length) {
       strip.hidden = true;
@@ -1219,10 +1224,13 @@ export const ChatView = {
     }
   },
 
-  async renderImageGallery(node, imageGroup) {
+  async renderImageGallery(node, imageGroup, messageId = '') {
     if (!node || !imageGroup?.groupId) return;
     const rows = await DB.getChatImageGroup(imageGroup.groupId).catch(() => []);
-    if (!rows.length) return;
+    const container = document.getElementById('chatMessages');
+    // A slow image read may finish after Store-driven compaction detached the
+    // message. Do not create a new URL or listener for a stale node.
+    if (!rows.length || !container?.contains(node)) return;
     const gallery = document.createElement('div');
     gallery.className = 'chat-image-message-grid';
     gallery.setAttribute('aria-label', `图片 ${Math.min(rows.length, 12)} 张`);
@@ -1235,7 +1243,7 @@ export const ChatView = {
       button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
       if (source && typeof globalThis.URL?.createObjectURL === 'function') {
         const url = globalThis.URL.createObjectURL(source);
-        this._imageDraftObjectUrls.set(`history:${row.id}`, url);
+        this._imageDraftObjectUrls.set(`history:${messageId || imageGroup.groupId}:${row.id}`, url);
         button.innerHTML = `<img src="${esc(url)}" alt="第 ${index + 1} 张图片">`;
       } else {
         button.innerHTML = '<span class="chat-image-placeholder"><i class="fa-solid fa-image" aria-hidden="true"></i><small>原图已释放</small></span>';
@@ -1532,7 +1540,38 @@ export const ChatView = {
   },
 
   homeMessageIdentity(message) {
-    return String(message?.id || message?.createdAt || '');
+    if (!message || typeof message !== 'object') return '';
+    return conversationStore.messageIdentity(message, 0, 'home');
+  },
+
+  compactHomeConversationDOM(retainedMessageIds = []) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return [];
+    let releasedImageUrls = 0;
+    const removed = compactPersistentHomeMessageNodes({
+      nodes: container.querySelectorAll('[data-home-message-id]'),
+      retainedMessageIds,
+      onRemove: node => {
+        const removedUrls = collectImageObjectUrls(node);
+        const stillUsedUrls = new Set(
+          [...container.querySelectorAll('img[src]')]
+            .map(image => String(image?.currentSrc || image?.getAttribute?.('src') || image?.src || '').trim())
+            .filter(Boolean)
+        );
+        releasedImageUrls += releaseRemovedImageObjectUrls({
+          urlMap: this._imageDraftObjectUrls,
+          urls: removedUrls,
+          stillUsedUrls
+        }).length;
+      }
+    });
+    if (removed.length) {
+      diagnosticLogger()?.record('chat.runtime_compacted', {
+        category: 'ui',
+        payload: { removedMessages: removed.length, releasedImageUrls }
+      });
+    }
+    return removed;
   },
 
   findHomeMessage(messageId) {
@@ -2805,31 +2844,34 @@ export const ChatView = {
   },
 
   appendConversation(message) {
-    conversationStore.append('home', message);
-    conversationStore.maintainHomeConversation();
+    const persisted = conversationStore.append('home', message);
+    const maintenance = conversationStore.maintainHomeConversation();
+    if (maintenance.trimmed) this.compactHomeConversationDOM(maintenance.retainedMessageIds);
+    const messageId = this.homeMessageIdentity(persisted || message);
     if (message.kind === 'article') {
-      this.addArticleCardToDOM(message.article);
+      this.addArticleCardToDOM(message.article, messageId);
     } else if (message.kind === 'generation_failure') {
-      this.addGenerationFailureToDOM(message.failure, message.id || message.createdAt);
+      this.addGenerationFailureToDOM(message.failure, messageId);
     } else if (message.kind === 'app_actions') {
-      this.addAppActionsToDOM(message.actions || []);
+      this.addAppActionsToDOM(message.actions || [], messageId);
     } else if (message.kind === 'research_sources') {
-      this.addResearchSourcesToDOM(message.research || message);
+      this.addResearchSourcesToDOM(message.research || message, messageId);
     } else if (message.kind === 'daily_report') {
-      void this.restoreDailyReportReference(message);
+      void this.restoreDailyReportReference({ ...message, id: messageId });
     } else if (message.kind === 'learning_mode_choice') {
       this.addLearningModeChoiceToDOM(message);
     } else if (message.kind === 'guided_learning') {
-      this.addGuidedLearningToDOM(message.session, message.id || message.createdAt);
+      this.addGuidedLearningToDOM(message.session, messageId);
     } else if (message.kind === 'guided_learning_failure') {
-      this.addGuidedLearningFailureToDOM(message.failure, message);
+      this.addGuidedLearningFailureToDOM(message.failure, { ...message, id: messageId });
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       void this.addMessageToDOM(type, message.content, {
         imageGroup: message.imageGroup,
-        messageId: message.id || message.createdAt
+        messageId
       });
     }
+    return persisted;
   },
 
   activityArticle(article = {}) {
@@ -2973,12 +3015,13 @@ export const ChatView = {
     this.appendConversation({ role: 'assistant', kind: 'app_actions', actions });
   },
 
-  addAppActionsToDOM(actions = []) {
+  addAppActionsToDOM(actions = [], messageId = '') {
     if (!actions.length) return;
     const container = document.getElementById('chatMessages');
     if (!container) return;
     const div = document.createElement('div');
     div.className = 'message ai-message app-action-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
     div.innerHTML = `<nav class="app-action-card" aria-label="建议的学习操作">
       ${actions.slice(0, 3).map(action => `<a class="app-action-link" href="${esc(action.route)}"><span>${esc(action.label)}</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>`).join('')}
     </nav>`;
@@ -2990,11 +3033,12 @@ export const ChatView = {
     this.appendConversation({ role: 'assistant', kind: 'research_sources', research });
   },
 
-  addResearchSourcesToDOM(research = {}) {
+  addResearchSourcesToDOM(research = {}, messageId = '') {
     const container = document.getElementById('chatMessages');
     if (!container) return;
     const div = document.createElement('div');
     div.className = 'message ai-message research-sources-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
     if (research.status === 'missing_key') {
       div.innerHTML = `<section class="research-sources-card" aria-label="联网检索">
         <div class="research-sources-head"><i class="fa-solid fa-globe" aria-hidden="true"></i><strong>联网检索</strong><span>需要 Tavily Key</span></div>
@@ -3041,7 +3085,7 @@ export const ChatView = {
       .find(element => element.dataset.reportId === wanted) || null;
   },
 
-  addExpiredDailyReportToDOM(reference = {}) {
+  addExpiredDailyReportToDOM(reference = {}, messageId = '') {
     const container = document.getElementById('chatMessages');
     if (!container) return null;
     const reportId = String(reference.reportId || `daily:${reference.dateKey || ''}`);
@@ -3049,6 +3093,7 @@ export const ChatView = {
     if (existing) existing.remove();
     const div = document.createElement('div');
     div.className = 'message ai-message daily-report-message daily-report-expired-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
     div.dataset.dailyReportMessage = 'true';
     div.dataset.reportId = reportId;
     div.innerHTML = `<section class="daily-report-card daily-report-expired-card" aria-label="日报已过期">
@@ -3059,7 +3104,7 @@ export const ChatView = {
     return div;
   },
 
-  addDailyReportToDOM(report, artifact = null) {
+  addDailyReportToDOM(report, artifact = null, messageId = '') {
     const container = document.getElementById('chatMessages');
     if (!container || !report) return null;
     const resolvedArtifact = artifact || dailyReportArtifactOf(report);
@@ -3068,6 +3113,7 @@ export const ChatView = {
     if (existing) existing.remove();
     const div = document.createElement('div');
     div.className = 'message ai-message daily-report-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
     div.dataset.dailyReportMessage = 'true';
     div.dataset.reportId = resolvedArtifact.reportId;
     div.dataset.reportFingerprint = resolvedArtifact.dataFingerprint || String(report.dataFingerprint || '');
@@ -3093,7 +3139,8 @@ export const ChatView = {
   async restoreDailyReportReference(reference = {}) {
     const dateKey = String(reference.dateKey || '').trim();
     const reportId = String(reference.reportId || `daily:${dateKey}`);
-    if (!dateKey || reportId !== `daily:${dateKey}`) return this.addExpiredDailyReportToDOM({ dateKey, reportId });
+    const messageId = this.homeMessageIdentity(reference);
+    if (!dateKey || reportId !== `daily:${dateKey}`) return this.addExpiredDailyReportToDOM({ dateKey, reportId }, messageId);
     let report = null;
     try {
       report = await DB.getDailyLearningReport(dateKey);
@@ -3101,9 +3148,9 @@ export const ChatView = {
       report = null;
     }
     if (!report || (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now())) {
-      return this.addExpiredDailyReportToDOM({ dateKey, reportId });
+      return this.addExpiredDailyReportToDOM({ dateKey, reportId }, messageId);
     }
-    return this.addDailyReportToDOM(report);
+    return this.addDailyReportToDOM(report, null, messageId);
   },
 
   async publishDailyReportArtifact(artifact = {}) {
@@ -3119,10 +3166,12 @@ export const ChatView = {
     if (!report || (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now())) {
       const reference = { role: 'assistant', kind: 'daily_report', reportId, dateKey };
       if (!conversationStore.getSession('home').messages.some(message => message.kind === 'daily_report' && message.reportId === reportId)) {
-        conversationStore.append('home', reference);
-        conversationStore.maintainHomeConversation();
+        const persisted = conversationStore.append('home', reference);
+        const maintenance = conversationStore.maintainHomeConversation();
+        if (maintenance.trimmed) this.compactHomeConversationDOM(maintenance.retainedMessageIds);
+        return this.addExpiredDailyReportToDOM(reference, this.homeMessageIdentity(persisted || reference));
       }
-      return this.addExpiredDailyReportToDOM(reference);
+      return this.addExpiredDailyReportToDOM(reference, this.homeMessageIdentity(reference));
     }
     return this.publishDailyReport(report, artifact);
   },
@@ -3137,19 +3186,22 @@ export const ChatView = {
     const existingElement = this.findDailyReportElement(resolvedArtifact.reportId);
     const existingFingerprint = existingElement?.dataset.reportFingerprint || '';
     if (existingReference && existingFingerprint === (resolvedArtifact.dataFingerprint || String(report.dataFingerprint || ''))) return false;
+    let persistedReference = existingReference;
     if (!existingReference) {
-      conversationStore.append('home', {
+      persistedReference = conversationStore.append('home', {
         role: 'assistant',
         kind: 'daily_report',
         reportId: resolvedArtifact.reportId,
         dateKey: resolvedArtifact.dateKey
       });
-      conversationStore.maintainHomeConversation();
+      const maintenance = conversationStore.maintainHomeConversation();
+      if (maintenance.trimmed) this.compactHomeConversationDOM(maintenance.retainedMessageIds);
     }
+    const messageId = this.homeMessageIdentity(persistedReference || resolvedArtifact);
     if (Number(report.expiresAt) > 0 && Number(report.expiresAt) <= Date.now()) {
-      this.addExpiredDailyReportToDOM(resolvedArtifact);
+      this.addExpiredDailyReportToDOM(resolvedArtifact, messageId);
     } else {
-      this.addDailyReportToDOM(report, resolvedArtifact);
+      this.addDailyReportToDOM(report, resolvedArtifact, messageId);
     }
     return true;
   },
@@ -3224,6 +3276,7 @@ export const ChatView = {
     if (!container) return;
     const div = document.createElement('div');
     div.className = 'message ai-message generation-failure-message';
+    if (failureId) div.dataset.homeMessageId = String(failureId);
     this.renderGenerationFailureToDOM(div, failure, failureId);
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
@@ -3238,7 +3291,8 @@ export const ChatView = {
     const element = this.findGenerationFailureElement(stableId);
     if (!replaced) {
       conversationStore.append('home', { id: stableId, role: 'assistant', kind: 'generation_failure', failure });
-      conversationStore.maintainHomeConversation();
+      const maintenance = conversationStore.maintainHomeConversation();
+      if (maintenance.trimmed) this.compactHomeConversationDOM(maintenance.retainedMessageIds);
     }
     if (element) this.renderGenerationFailureToDOM(element, failure, stableId);
     else this.addGenerationFailureToDOM(failure, stableId);
@@ -3260,7 +3314,10 @@ export const ChatView = {
     if (!container) return;
     const div = document.createElement('div');
     div.className = `message ${type}-message`;
-    if (messageId) div.dataset.chatMessageId = String(messageId);
+    if (messageId) {
+      div.dataset.homeMessageId = String(messageId);
+      div.dataset.chatMessageId = String(messageId);
+    }
     if (type === 'user') {
       const content = document.createElement('div');
       content.className = 'chat-user-content';
@@ -3279,16 +3336,17 @@ export const ChatView = {
       div.innerHTML = renderLearningMarkdown(text);
     }
     container.appendChild(div);
-    if (imageGroup?.groupId) await this.renderImageGallery(div, imageGroup);
+    if (imageGroup?.groupId) await this.renderImageGallery(div, imageGroup, messageId);
     container.scrollTop = container.scrollHeight;
   },
 
   // Add article card to DOM only (no history save)
-  addArticleCardToDOM(article) {
+  addArticleCardToDOM(article, messageId = '') {
     const container = document.getElementById('chatMessages');
     if (!container) return;
     const div = document.createElement('div');
     div.className = 'message ai-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
 
     const content = article.content || '';
     const preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
