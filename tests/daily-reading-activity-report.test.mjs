@@ -9,14 +9,16 @@ import { ActivityType } from '../src/learning-activity.mjs';
 
 const DATE_KEY = '2026-08-28';
 const NOW = new Date(2026, 7, 28, 22).getTime();
+const NEXT_DATE_KEY = '2026-08-29';
+const NEXT_NOW = new Date(2026, 7, 29, 22).getTime();
 
-const activity = ({ completionId = 'reading:article-1:cycle-1', durationMs = 17 * 60_000, completedToday = false, guideVisitedCount = 12, maxContentProgress = 0.47 } = {}) => ({
-  id: `reading-active:${DATE_KEY}:${completionId}`,
+const activity = ({ dateKey = DATE_KEY, occurredAt = NOW, completionId = 'reading:article-1:cycle-1', durationMs = 17 * 60_000, completedToday = false, guideVisitedCount = 12, maxContentProgress = 0.47 } = {}) => ({
+  id: `reading-active:${dateKey}:${completionId}`,
   type: ActivityType.READING_ACTIVE_SLICE,
-  occurredAt: NOW,
-  dayKey: DATE_KEY,
+  occurredAt,
+  dayKey: dateKey,
   sessionId: completionId,
-  dedupeKey: `reading-active:${DATE_KEY}:${completionId}`,
+  dedupeKey: `reading-active:${dateKey}:${completionId}`,
   payload: {
     articleId: 'article-1',
     articleTitle: 'A long article',
@@ -106,6 +108,127 @@ test('preview-only reading remains empty and does not create an in-progress row'
   assert.equal(report.reading.totalDurationMs, 0);
   assert.equal(report.reading.inProgressCount, 0);
   assert.equal(report.reading.completedCount, 0);
+});
+
+test('a later completion does not erase an earlier day in-progress reading', () => {
+  const completionId = 'reading:article-1:cross-day-cycle';
+  const dayOneActivity = activity({
+    dateKey: DATE_KEY,
+    occurredAt: NOW,
+    completionId,
+    durationMs: 15 * 60_000
+  });
+  const dayOneBeforeCompletion = buildDailyLearningReport(baseInput({ activities: [dayOneActivity] }));
+  const dayOneAfterCompletion = buildDailyLearningReport(baseInput({
+    activities: [dayOneActivity],
+    readingStats: [{
+      articleId: 'article-1',
+      completionId,
+      qualificationVersion: 2,
+      activityAccountingVersion: 1,
+      completed: true,
+      activeSeconds: 10 * 60,
+      wordCount: 1200,
+      wpm: 120,
+      createdAt: NEXT_NOW
+    }]
+  }));
+
+  assert.equal(dayOneBeforeCompletion.reading.totalDurationMs, 15 * 60_000);
+  assert.equal(dayOneBeforeCompletion.reading.completedCount, 0);
+  assert.equal(dayOneBeforeCompletion.reading.inProgressCount, 1);
+  assert.deepEqual(dayOneAfterCompletion.reading, dayOneBeforeCompletion.reading);
+});
+
+test('a cross-day completion is counted only on the completion day', () => {
+  const completionId = 'reading:article-1:cross-day-cycle-2';
+  const report = buildDailyLearningReport(baseInput({
+    activities: [activity({
+      dateKey: NEXT_DATE_KEY,
+      occurredAt: NEXT_NOW,
+      completionId,
+      durationMs: 10 * 60_000,
+      completedToday: true
+    })],
+    readingStats: [{
+      articleId: 'article-1',
+      completionId,
+      qualificationVersion: 2,
+      activityAccountingVersion: 1,
+      completed: true,
+      activeSeconds: 25 * 60,
+      wordCount: 1200,
+      wpm: 120,
+      createdAt: NEXT_NOW
+    }]
+  }));
+
+  assert.equal(report.reading.totalDurationMs, 0);
+  assert.equal(report.reading.completedCount, 0);
+  assert.equal(report.reading.inProgressCount, 0);
+
+  const nextDayReport = buildDailyLearningReport(baseInput({
+    dateKey: NEXT_DATE_KEY,
+    activities: [activity({
+      dateKey: NEXT_DATE_KEY,
+      occurredAt: NEXT_NOW,
+      completionId,
+      durationMs: 10 * 60_000,
+      completedToday: true
+    })],
+    readingStats: [{
+      articleId: 'article-1',
+      completionId,
+      qualificationVersion: 2,
+      activityAccountingVersion: 1,
+      completed: true,
+      activeSeconds: 25 * 60,
+      wordCount: 1200,
+      wpm: 120,
+      createdAt: NEXT_NOW
+    }]
+  }));
+  assert.equal(nextDayReport.reading.totalDurationMs, 10 * 60_000);
+  assert.equal(nextDayReport.reading.completedCount, 1);
+  assert.equal(nextDayReport.reading.inProgressCount, 0);
+});
+
+test('a completed old cycle and a new active cycle remain separate on one day', () => {
+  const oldCompletionId = 'reading:article-1:old-cycle';
+  const newCompletionId = 'reading:article-1:new-cycle';
+  const report = buildDailyLearningReport(baseInput({
+    activities: [
+      activity({
+        dateKey: DATE_KEY,
+        occurredAt: NOW - 60_000,
+        completionId: oldCompletionId,
+        durationMs: 12 * 60_000,
+        completedToday: true
+      }),
+      activity({
+        dateKey: DATE_KEY,
+        occurredAt: NOW,
+        completionId: newCompletionId,
+        durationMs: 4 * 60_000
+      })
+    ],
+    readingStats: [{
+      articleId: 'article-1',
+      completionId: oldCompletionId,
+      qualificationVersion: 2,
+      activityAccountingVersion: 1,
+      completed: true,
+      activeSeconds: 12 * 60,
+      wordCount: 600,
+      wpm: 50,
+      createdAt: NOW - 60_000
+    }]
+  }));
+
+  assert.equal(report.reading.completedCount, 1);
+  assert.equal(report.reading.inProgressCount, 1);
+  assert.equal(report.reading.totalDurationMs, 16 * 60_000);
+  assert.deepEqual(report.reading.readings.map(item => item.status).sort(), ['completed', 'in_progress']);
 });
 
 test('reading markdown and agent summary use actual duration, in-progress count, and guide count', () => {

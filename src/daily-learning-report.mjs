@@ -421,8 +421,14 @@ function buildReading({ dateKey, articles, readingStats, sourceStatus = {}, acti
     }
   }
 
-  const effectiveAll = asArray(readingStats).filter(item => Number(item.qualificationVersion) >= 2 && item.completed === true);
-  const completedCompletionIds = new Set(effectiveAll.map(item => text(item.completionId)).filter(Boolean));
+  // A historical report describes the state of its own local day.  A cycle
+  // completed on a later day must not retroactively erase the earlier day's
+  // in-progress activity row.
+  const completedCompletionIdsForDay = new Set(
+    effective
+      .map(item => text(item.completionId))
+      .filter(Boolean)
+  );
   const activeDurationFromSlices = [...activeSliceByCompletion.values()]
     .reduce((sum, item) => sum + positiveNumber(item.activeDurationMs), 0);
   const legacyDurationMs = effective
@@ -434,7 +440,7 @@ function buildReading({ dateKey, articles, readingStats, sourceStatus = {}, acti
   const lookupCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_LOOKUP)).length;
   const savedWordCount = latestByKey(dayActivities.filter(item => item.type === ActivityType.READING_WORD_SAVED)).length;
   const inProgress = [...activeSliceByCompletion.values()]
-    .filter(item => !completedCompletionIds.has(item.completionId));
+    .filter(item => !completedCompletionIdsForDay.has(item.completionId));
   const inProgressArticleIds = new Set(inProgress.map(item => text(item.articleId)).filter(Boolean));
   const inProgressRows = inProgress.map(item => ({
     ...item,
