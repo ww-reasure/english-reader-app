@@ -40,7 +40,15 @@ export const AppShell = {
     return { navKey: match[1], title: match[2], tabletLayout: 'rail' };
   },
 
-  getHeaderActions(navKey) {
+  getHeaderActions(navKey, hash = '') {
+    const readingMatch = String(hash).match(/^#\/reading\/(\d+)$/);
+    if (navKey === 'reading-list' && readingMatch) {
+      const articleId = readingMatch[1];
+      return `<div class="app-header-actions reading-app-header-actions" aria-label="阅读操作">
+        <button id="favBtn" class="app-icon-button reading-favorite-btn" type="button" onclick="ReadingView.toggleFavorite(${articleId})" aria-pressed="false" aria-label="收藏文章" title="收藏文章"><i class="fa-regular fa-star" aria-hidden="true"></i></button>
+        <button id="readingMoreBtn" class="app-icon-button reading-more-btn" type="button" onclick="ReadingView.toggleReadingActions()" aria-expanded="false" aria-controls="readingActionsOverlay" aria-label="打开阅读工具" title="打开阅读工具">⋯</button>
+      </div>`;
+    }
     if (navKey !== 'chat') return '<div class="app-header-actions" aria-hidden="true"></div>';
     return `<div class="app-header-actions">
       <button id="appClearContextBtn" class="app-icon-button" type="button" aria-label="清除对话上下文" title="清除对话上下文"><i class="fa-solid fa-broom" aria-hidden="true"></i></button>
@@ -57,7 +65,7 @@ export const AppShell = {
     )).join('');
 
     const kicker = meta.navKey === 'chat' ? 'AI STUDY COACH' : 'ENGLISH LEARNING';
-    const headerActions = this.getHeaderActions(meta.navKey);
+    const headerActions = this.getHeaderActions(meta.navKey, hash);
     const headerMode = meta.headerMode || 'drawer';
     const hasDrawer = meta.tabletLayout === 'rail';
     const isVocabularyHome = meta.navKey === 'vocab' && hash === '#/vocab';

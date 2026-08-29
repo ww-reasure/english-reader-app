@@ -6,14 +6,18 @@ async function read(relativePath) {
   return (await readFile(new URL(relativePath, import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
 }
 
-test('reading page keeps favourite separate and exposes a compact more-actions trigger', async () => {
-  const source = await read('../src/views/reading.js');
+test('reading article actions live in the app header and are not duplicated in the article title', async () => {
+  const [source, shell] = await Promise.all([
+    read('../src/views/reading.js'),
+    read('../src/components/app-shell.js')
+  ]);
 
-  assert.match(source, /id="favBtn"[^>]*aria-pressed=/);
-  assert.match(source, /class="reading-more-btn"[^>]*id="readingMoreBtn"/);
-  assert.match(source, /onclick="ReadingView\.toggleReadingActions\(\)"/);
-  assert.match(source, /aria-controls="readingActionsOverlay"/);
-  assert.doesNotMatch(source, /reading-header-utilities[\s\S]{0,900}id="wordMarkingBtn"/);
+  assert.doesNotMatch(source, /class="reading-header-utilities"/);
+  assert.doesNotMatch(source, /<button[^>]+id="favBtn"/);
+  assert.doesNotMatch(source, /<button[^>]+id="readingMoreBtn"/);
+  assert.match(shell, /getHeaderActions\(navKey, hash = ''\)/);
+  assert.match(shell, /reading-app-header-actions/);
+  assert.match(source, /_syncHeaderFavorite\(article\)/);
 });
 
 test('reading page keeps sentence guide prominent and moves secondary tools into one action sheet', async () => {
@@ -53,7 +57,24 @@ test('reading action sheet keeps toggle state visible and one-shot PDF action cl
   assert.match(source, /reading-action-state/);
   assert.match(source, /id="sentenceColorBtn"[^>]*aria-pressed=/);
   assert.match(source, /id="wordMarkingBtn"[^>]*aria-checked=/);
-  assert.match(source, /async exportArticlePdf\(\) \{[\s\S]{0,120}this\.closeReadingActions\(\)/);
+  const exportMarkupStart = source.indexOf('id="exportPdfBtn"');
+  const exportMarkupEnd = source.indexOf('</button>', exportMarkupStart);
+  assert.ok(exportMarkupStart >= 0 && exportMarkupEnd > exportMarkupStart, 'PDF action markup should be present');
+  const exportMarkup = source.slice(exportMarkupStart, exportMarkupEnd);
+  assert.match(exportMarkup, /fa-file-arrow-down/);
+  assert.match(exportMarkup, /<span>导出 PDF<\/span>/);
+  assert.match(exportMarkup, /reading-action-chevron/);
+  const exportStart = source.indexOf('async exportArticlePdf() {');
+  const exportEnd = source.indexOf('async cleanup(', exportStart);
+  assert.ok(exportStart >= 0 && exportEnd > exportStart, 'exportArticlePdf method should be present');
+  const exportMethod = source.slice(exportStart, exportEnd);
+  const emptyCheck = exportMethod.indexOf('这篇文章没有可导出的正文内容');
+  const closeSheet = exportMethod.indexOf('this.closeReadingActions()');
+  assert.ok(emptyCheck >= 0 && closeSheet > emptyCheck, 'empty content must be checked before closing the sheet');
+  assert.doesNotMatch(exportMethod, /button\.textContent\s*=/);
+  assert.match(exportMethod, /querySelector\(['"]\.reading-action-state['"]\)/);
+  assert.match(exportMethod, /导出中…/);
+  assert.match(exportMethod, /button\.disabled\s*=\s*true/);
   assert.match(css, /\.reading-actions-sheet\s*\{/);
   assert.match(css, /\.reading-action-item\s*\{[^}]*min-height:\s*54px/s);
   assert.match(css, /\.reading-actions-overlay\s*\{/);

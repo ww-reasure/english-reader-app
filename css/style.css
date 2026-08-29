@@ -457,10 +457,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .reading-title-row { display:flex; align-items:flex-start; gap:10px; }
 .reading-title-lookup { min-width:0; flex:1 1 auto; }
 .reading-title { max-width:720px; margin:8px 0 16px; font-size:clamp(30px,8vw,48px); line-height:1.03; }
-.reading-header-utilities { display:flex; flex:0 0 auto; align-items:center; gap:6px; margin-top:4px; }
 .reading-favorite-btn { width:44px; min-width:44px; height:44px; padding:0; border:1px solid var(--rule-strong); border-radius:999px; background:var(--surface); color:var(--ink-soft); font-size:16px; }
 .reading-favorite-btn.is-active { border-color:var(--signal); background:var(--signal); color:var(--on-accent); }
 .reading-more-btn { width:44px; min-width:44px; height:44px; display:grid; place-items:center; padding:0 0 8px; border:1px solid var(--rule-strong); border-radius:999px; background:var(--surface); color:var(--ink-soft); font-size:25px; font-weight:800; line-height:1; letter-spacing:.08em; }
+.app-header-actions.reading-app-header-actions { gap:4px; }
+.app-header-actions .reading-favorite-btn,
+.app-header-actions .reading-more-btn { flex:0 0 44px; }
 .reading-more-btn:hover,.reading-more-btn:focus-visible { border-color:var(--signal); color:var(--signal); background:var(--surface-soft); }
 .reading-more-btn.is-open { position:relative; z-index:calc(var(--z-modal) + 1); border-color:var(--signal); color:var(--signal); background:var(--surface-soft); }
 .reading-header::before { content:"02 / READING"; color:var(--signal); font-family:ui-monospace,monospace; font-size:10px; font-weight:800; letter-spacing:.14em; }
@@ -1191,7 +1193,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .skeleton-title { width:74%; height:22px; } .skeleton-meta { width:42%; height:12px; margin-top:10px; } .skeleton-line { height:12px; margin-top:9px; } .skeleton-line.short { width:60%; }
 @keyframes shimmer { to { background-position:-200% 0; } }
 @media (min-width:680px) { .modal-overlay { align-items:center; } .modal { border-radius:7px; } .word-study-detail-overlay { align-items:center; padding:14px; } .word-study-detail-sheet { height:min(94dvh,820px); border:1px solid var(--rule-strong); border-radius:16px 16px 8px 8px; box-shadow:var(--shadow); } .stats-grid,.report-stats-grid { grid-template-columns:repeat(4,1fr); } .stats-detail-grid { grid-template-columns:repeat(3,1fr); } }
-@media (max-width:380px) { .app-header { padding-inline:12px; } .chat-messages { padding-inline:12px; } .quick-action { padding-inline:11px; } .reading-container { padding-inline:12px; } .reading-title-row { gap:7px; } .reading-header-utilities { gap:4px; } .reading-actions-overlay { padding-inline:8px; } .reading-actions-head { padding-inline:15px; } .reading-actions-list { padding-inline:9px; } .article-body { font-size:17px; padding:22px 14px; } .flashcard-actions { gap:4px; } .flashcard-rating-btn { font-size:12px; } .word-study-detail-head { padding-inline:17px; } .word-study-panel { padding-inline:17px; } .word-study-related-word,.word-study-phrase-row { align-items:flex-start; flex-direction:column; gap:4px; } .word-study-related-translation,.word-study-phrase-gloss,.word-study-similar-copy { flex-basis:auto; text-align:left; } }
+@media (max-width:380px) { .app-header { padding-inline:12px; } .chat-messages { padding-inline:12px; } .quick-action { padding-inline:11px; } .reading-container { padding-inline:12px; } .reading-title-row { gap:7px; } .reading-actions-overlay { padding-inline:8px; } .reading-actions-head { padding-inline:15px; } .reading-actions-list { padding-inline:9px; } .article-body { font-size:17px; padding:22px 14px; } .flashcard-actions { gap:4px; } .flashcard-rating-btn { font-size:12px; } .word-study-detail-head { padding-inline:17px; } .word-study-panel { padding-inline:17px; } .word-study-related-word,.word-study-phrase-row { align-items:flex-start; flex-direction:column; gap:4px; } .word-study-related-translation,.word-study-phrase-gloss,.word-study-similar-copy { flex-basis:auto; text-align:left; } }
 
 @media (max-width:520px) {
   .daily-report-card { padding:13px; border-radius:14px; }

@@ -6,14 +6,21 @@ async function read(relativePath) {
   return (await readFile(new URL(relativePath, import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
 }
 
-test('reading header keeps favourite and exposes more actions in compact utilities', async () => {
-  const reading = await read('../src/views/reading.js');
+test('reading article actions are provided by the app header, not the scrolling article title', async () => {
+  const [reading, shell] = await Promise.all([
+    read('../src/views/reading.js'),
+    read('../src/components/app-shell.js')
+  ]);
 
-  assert.match(reading, /reading-header-utilities/);
-  assert.match(reading, /id="favBtn"[^>]*aria-pressed=/);
-  assert.match(reading, /id="readingMoreBtn"[^>]*aria-expanded="false"/);
-  assert.match(reading, /aria-controls="readingActionsOverlay"/);
-  assert.match(reading, /onclick="ReadingView\.toggleReadingActions\(\)"/);
+  assert.doesNotMatch(reading, /reading-header-utilities/);
+  assert.doesNotMatch(reading, /<button[^>]+id="favBtn"/);
+  assert.doesNotMatch(reading, /<button[^>]+id="readingMoreBtn"/);
+  assert.match(shell, /getHeaderActions\(navKey, hash = ''\)/);
+  assert.match(shell, /reading-app-header-actions/);
+  assert.match(shell, /id="favBtn"[^>]*aria-pressed="false"/);
+  assert.match(shell, /id="readingMoreBtn"[^>]*aria-expanded="false"/);
+  assert.match(shell, /aria-controls="readingActionsOverlay"/);
+  assert.match(shell, /onclick="ReadingView\.toggleReadingActions\(\)"/);
 });
 
 test('reading actions keep sentence guide prominent and secondary tools in one sheet', async () => {

@@ -638,6 +638,7 @@ export const ReadingView = {
               </div>`}
             <button class="reading-action-item" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">
               <span class="reading-action-item-main"><i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i><span>导出 PDF</span></span>
+              <span class="reading-action-state">就绪</span>
               <span class="reading-action-chevron" aria-hidden="true">›</span>
             </button>
             ${researchSources.length ? `
@@ -704,9 +705,23 @@ export const ReadingView = {
     if (event?.target === event?.currentTarget) this.closeReadingActions();
   },
 
+  _syncHeaderFavorite(article) {
+    const button = typeof document !== 'undefined' ? document.getElementById('favBtn') : null;
+    if (!button) return;
+    const favorite = Boolean(article?.favorite);
+    button.classList.toggle('is-active', favorite);
+    button.setAttribute('aria-pressed', String(favorite));
+    button.setAttribute('aria-label', favorite ? '取消收藏文章' : '收藏文章');
+    button.setAttribute('title', favorite ? '取消收藏文章' : '收藏文章');
+    const icon = button.querySelector?.('i');
+    if (icon) {
+      icon.classList.toggle('fa-solid', favorite);
+      icon.classList.toggle('fa-regular', !favorite);
+    }
+  },
+
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
-    const favorite = Boolean(article.favorite);
     return `
       <div class="reading-title-row">
         <div id="readingTitleLookup" class="reading-title-lookup">
@@ -716,40 +731,34 @@ export const ReadingView = {
             <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
           </div>` : ''}
         </div>
-        <div class="reading-header-utilities" aria-label="阅读工具">
-          <button class="reading-favorite-btn ${favorite ? 'is-active' : ''}" type="button" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn" aria-pressed="${favorite}" aria-label="${favorite ? '取消收藏文章' : '收藏文章'}">
-            <i class="fa-${favorite ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>
-          </button>
-          <button class="reading-more-btn" type="button" id="readingMoreBtn" onclick="ReadingView.toggleReadingActions()" aria-expanded="false" aria-controls="readingActionsOverlay" aria-label="打开阅读工具">⋯</button>
-        </div>
       </div>`;
   },
 
   async exportArticlePdf() {
-    this.closeReadingActions();
     const article = this.articleData || {};
     if (!String(article.content || '').trim()) {
       alert('这篇文章没有可导出的正文内容');
       return;
     }
     const button = document.getElementById('exportPdfBtn');
-    const originalLabel = button?.textContent || '导出 PDF';
+    const state = button?.querySelector('.reading-action-state');
+    const originalState = state?.textContent || '就绪';
     if (button) {
       button.disabled = true;
-      button.textContent = '导出中…';
     }
+    if (state) state.textContent = '导出中…';
     try {
       const track = resolveArticleTrack(article).targetTrack;
       const result = await exportArticlePdf(article, { track });
       if (!result.ok) throw new Error(result.error);
+      if (button) button.disabled = false;
+      if (state) state.textContent = originalState;
+      this.closeReadingActions();
       if (result.platform === 'web') alert('PDF 已生成，开始下载：' + result.fileName);
     } catch (error) {
+      if (button) button.disabled = false;
+      if (state) state.textContent = originalState;
       alert('导出 PDF 失败：' + String(error?.message || error));
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent = originalLabel;
-      }
     }
   },
 
@@ -871,6 +880,7 @@ export const ReadingView = {
       return;
     }
     this.articleData = article;
+    this._syncHeaderFavorite(article);
     AIAnalysis.setArticleContext({ id: article.id, title: article.title }, '');
     this.reviewMode = !!article.reviewMode;
 
@@ -2291,13 +2301,7 @@ export const ReadingView = {
       }
     }
     await DB.updateArticle(articleId, { favorite: newFav });
-    const btn = document.getElementById('favBtn');
-    if (btn) {
-      btn.classList.toggle('is-active', Boolean(newFav));
-      btn.setAttribute('aria-pressed', String(Boolean(newFav)));
-      btn.setAttribute('aria-label', newFav ? '取消收藏文章' : '收藏文章');
-      btn.innerHTML = `<i class="fa-${newFav ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>`;
-    }
+    this._syncHeaderFavorite({ favorite: newFav });
   }
 };
 
