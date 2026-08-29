@@ -6,32 +6,35 @@ async function read(relativePath) {
   return (await readFile(new URL(relativePath, import.meta.url), 'utf8')).replace(/\r\n?/g, '\n');
 }
 
-test('reading header puts favourite and vocabulary marking in compact utilities', async () => {
+test('reading header keeps favourite and exposes more actions in compact utilities', async () => {
   const reading = await read('../src/views/reading.js');
 
   assert.match(reading, /reading-header-utilities/);
   assert.match(reading, /id="favBtn"[^>]*aria-pressed=/);
-  assert.match(reading, /id="wordMarkingBtn"[^>]*role="switch"[^>]*aria-checked=/);
-  assert.match(reading, /词汇标记/);
-  assert.match(reading, /id="sentenceColorBtn"[^>]*aria-pressed=/);
+  assert.match(reading, /id="readingMoreBtn"[^>]*aria-expanded="false"/);
+  assert.match(reading, /aria-controls="readingActionsOverlay"/);
+  assert.match(reading, /onclick="ReadingView\.toggleReadingActions\(\)"/);
 });
 
-test('reading actions keep translation, sentence guide, PDF export and back in one compact strip', async () => {
+test('reading actions keep sentence guide prominent and secondary tools in one sheet', async () => {
   const [reading, css] = await Promise.all([
     read('../src/views/reading.js'),
     read('../css/style.css')
   ]);
 
-  assert.match(reading, /class="reading-action-strip"/);
+  assert.doesNotMatch(reading, /class="reading-action-strip"/);
+  assert.match(reading, /class="reading-primary-actions"/);
   assert.match(reading, /全文翻译/);
   assert.match(reading, /逐句导读/);
   assert.match(reading, /句子配色/);
   assert.match(reading, /导出 PDF/);
+  assert.match(reading, /class="reading-actions-sheet"/);
+  assert.match(reading, /id="readingActionsOverlay"/);
   assert.match(reading, /id="exportPdfBtn"/);
   assert.match(reading, /onclick="ReadingView\.exportArticlePdf\(\)"/);
-  assert.match(reading, /阅读返回/);
-  assert.match(css, /\.reading-action-strip\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.doesNotMatch(css, /@media \(max-width:380px\) \{[^}]*\.reading-actions \.btn \{ flex:1/s);
+  assert.doesNotMatch(reading, /readingActionsTitle[\s\S]{0,500}阅读返回/);
+  assert.match(css, /\.reading-actions-sheet\s*\{/);
+  assert.match(css, /\.reading-action-item\s*\{[^}]*min-height:\s*54px/s);
 });
 
 test('reading export method guards empty articles and reports failures', async () => {
