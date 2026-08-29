@@ -92,6 +92,7 @@ export const ReadingView = {
   _viewportResizeFrame: null,
   _learningActivitySequence: 0,
   _pagehideHandler: null,
+  _readingActionsKeydownHandler: null,
 
   goBack() {
     if (window.Router?.back?.()) return;
@@ -598,9 +599,129 @@ export const ReadingView = {
     if (scroller) scroller.scrollTop = 0;
   },
 
+  _getSentenceGuideActionLabel() {
+    const visitedCount = this.readingProgress?.guide?.visitedIndexes?.length || 0;
+    return visitedCount > 0 ? '继续逐句导读' : '逐句导读';
+  },
+
+  _renderReadingActionsMenu(article) {
+    const researchSources = Array.isArray(article?.researchSources)
+      ? article.researchSources.slice(0, 5)
+      : [];
+    return `
+      <div id="readingActionsOverlay" class="modal-overlay reading-actions-overlay" style="display:none" aria-hidden="true" onclick="ReadingView.handleReadingActionsBackdrop(event)">
+        <section class="reading-actions-sheet" role="dialog" aria-modal="true" aria-labelledby="readingActionsTitle">
+          <header class="reading-actions-head">
+            <div>
+              <p class="page-eyebrow">READING TOOLS</p>
+              <h2 id="readingActionsTitle">阅读工具</h2>
+            </div>
+            <button class="modal-close" type="button" onclick="ReadingView.closeReadingActions()" aria-label="关闭阅读工具">×</button>
+          </header>
+          <div class="reading-actions-list">
+            <button class="reading-action-item" type="button" onclick="ReadingView.toggleTranslation()" id="translateBtn" aria-pressed="false">
+              <span class="reading-action-item-main"><i class="fa-solid fa-language" aria-hidden="true"></i><span>全文翻译</span></span>
+              <span class="reading-action-state">未显示</span>
+            </button>
+            <button class="reading-action-item" type="button" id="sentenceColorBtn" onclick="ReadingView.toggleSentenceColors()" aria-pressed="${this.sentenceColorsEnabled}" aria-label="句子配色：${this.sentenceColorsEnabled ? '开' : '关'}">
+              <span class="reading-action-item-main"><i class="fa-solid fa-palette" aria-hidden="true"></i><span>句子配色</span></span>
+              <span class="reading-action-state">${this.sentenceColorsEnabled ? '开启' : '关闭'}</span>
+            </button>
+            ${!this.reviewMode ? `
+              <button class="reading-action-item" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()" role="switch" aria-checked="${this.wordMarkingEnabled}" aria-label="词汇标记：${this.wordMarkingEnabled ? '开' : '关'}">
+                <span class="reading-action-item-main"><i class="fa-solid fa-highlighter" aria-hidden="true"></i><span>词汇标记</span></span>
+                <span class="reading-action-state">${this.wordMarkingEnabled ? '开启' : '关闭'}</span>
+              </button>` : `
+              <div class="reading-action-item reading-action-item-static" role="status" aria-label="词汇标记：复习模式已开启">
+                <span class="reading-action-item-main"><i class="fa-solid fa-highlighter" aria-hidden="true"></i><span>词汇标记</span></span>
+                <span class="reading-action-state">复习模式 · 已开启</span>
+              </div>`}
+            <button class="reading-action-item" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">
+              <span class="reading-action-item-main"><i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i><span>导出 PDF</span></span>
+              <span class="reading-action-state">就绪</span>
+              <span class="reading-action-chevron" aria-hidden="true">›</span>
+            </button>
+            ${researchSources.length ? `
+              <details class="reading-research-sources reading-action-details" data-research-sources>
+                <summary><span class="reading-action-item-main"><i class="fa-solid fa-globe" aria-hidden="true"></i><span>资料来源（联网检索）</span></span><span class="reading-action-chevron" aria-hidden="true">›</span></summary>
+                <ul>
+                  ${researchSources.map(source => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title || source.domain)}</a><small>${esc(source.domain)}${source.publishedAt ? ` · ${esc(source.publishedAt)}` : ''}</small></li>`).join('')}
+                </ul>
+              </details>` : ''}
+          </div>
+        </section>
+      </div>`;
+  },
+
+  toggleReadingActions() {
+    const overlay = this.container?.querySelector?.('#readingActionsOverlay')
+      || (typeof document !== 'undefined' ? document.getElementById('readingActionsOverlay') : null);
+    if (!overlay) return false;
+    const isOpen = overlay.style.display !== 'none' && overlay.getAttribute('aria-hidden') !== 'true';
+    if (isOpen) {
+      this.closeReadingActions();
+      return false;
+    }
+
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    const moreButton = this.container?.querySelector?.('#readingMoreBtn')
+      || (typeof document !== 'undefined' ? document.getElementById('readingMoreBtn') : null);
+    moreButton?.setAttribute('aria-expanded', 'true');
+    moreButton?.setAttribute('aria-label', '关闭阅读工具');
+    moreButton?.classList.add('is-open');
+
+    if (typeof document !== 'undefined') {
+      if (this._readingActionsKeydownHandler) {
+        document.removeEventListener('keydown', this._readingActionsKeydownHandler);
+      }
+      this._readingActionsKeydownHandler = event => {
+        if (event.key === 'Escape') this.closeReadingActions();
+      };
+      document.addEventListener('keydown', this._readingActionsKeydownHandler);
+    }
+    return true;
+  },
+
+  closeReadingActions() {
+    if (typeof document !== 'undefined' && this._readingActionsKeydownHandler) {
+      document.removeEventListener('keydown', this._readingActionsKeydownHandler);
+    }
+    this._readingActionsKeydownHandler = null;
+    const overlay = this.container?.querySelector?.('#readingActionsOverlay')
+      || (typeof document !== 'undefined' ? document.getElementById('readingActionsOverlay') : null);
+    if (overlay) {
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+    const moreButton = this.container?.querySelector?.('#readingMoreBtn')
+      || (typeof document !== 'undefined' ? document.getElementById('readingMoreBtn') : null);
+    moreButton?.setAttribute('aria-expanded', 'false');
+    moreButton?.setAttribute('aria-label', '打开阅读工具');
+    moreButton?.classList.remove('is-open');
+  },
+
+  handleReadingActionsBackdrop(event) {
+    if (event?.target === event?.currentTarget) this.closeReadingActions();
+  },
+
+  _syncHeaderFavorite(article) {
+    const button = typeof document !== 'undefined' ? document.getElementById('favBtn') : null;
+    if (!button) return;
+    const favorite = Boolean(article?.favorite);
+    button.classList.toggle('is-active', favorite);
+    button.setAttribute('aria-pressed', String(favorite));
+    button.setAttribute('aria-label', favorite ? '取消收藏文章' : '收藏文章');
+    button.setAttribute('title', favorite ? '取消收藏文章' : '收藏文章');
+    const icon = button.querySelector?.('i');
+    if (icon) {
+      icon.classList.toggle('fa-solid', favorite);
+      icon.classList.toggle('fa-regular', !favorite);
+    }
+  },
+
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
-    const favorite = Boolean(article.favorite);
     return `
       <div class="reading-title-row">
         <div id="readingTitleLookup" class="reading-title-lookup">
@@ -609,12 +730,6 @@ export const ReadingView = {
             <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
             <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
           </div>` : ''}
-        </div>
-        <div class="reading-header-utilities" aria-label="阅读工具">
-          <button class="reading-favorite-btn ${favorite ? 'is-active' : ''}" type="button" onclick="ReadingView.toggleFavorite(${article.id})" id="favBtn" aria-pressed="${favorite}" aria-label="${favorite ? '取消收藏文章' : '收藏文章'}">
-            <i class="fa-${favorite ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>
-          </button>
-          ${!this.reviewMode ? `<button class="reading-marking-switch ${this.wordMarkingEnabled ? 'is-active' : ''}" type="button" id="wordMarkingBtn" onclick="ReadingView.toggleWordMarking()" role="switch" aria-checked="${this.wordMarkingEnabled}" aria-label="词汇标记：${this.wordMarkingEnabled ? '开' : '关'}"><span>词汇标记</span><i aria-hidden="true"></i></button>` : ''}
         </div>
       </div>`;
   },
@@ -626,27 +741,29 @@ export const ReadingView = {
       return;
     }
     const button = document.getElementById('exportPdfBtn');
-    const originalLabel = button?.textContent || '导出 PDF';
+    const state = button?.querySelector('.reading-action-state');
+    const originalState = state?.textContent || '就绪';
     if (button) {
       button.disabled = true;
-      button.textContent = '导出中…';
     }
+    if (state) state.textContent = '导出中…';
     try {
       const track = resolveArticleTrack(article).targetTrack;
       const result = await exportArticlePdf(article, { track });
       if (!result.ok) throw new Error(result.error);
+      if (button) button.disabled = false;
+      if (state) state.textContent = originalState;
+      this.closeReadingActions();
       if (result.platform === 'web') alert('PDF 已生成，开始下载：' + result.fileName);
     } catch (error) {
+      if (button) button.disabled = false;
+      if (state) state.textContent = originalState;
       alert('导出 PDF 失败：' + String(error?.message || error));
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent = originalLabel;
-      }
     }
   },
 
   async cleanup({ skipProgressCheckpoint = false } = {}) {
+    this.closeReadingActions();
     this.closeSentenceGuide({ restoreReading: false, checkpoint: false });
     let progressCheckpointFailed = false;
     let activitySaveFailed = false;
@@ -763,6 +880,7 @@ export const ReadingView = {
       return;
     }
     this.articleData = article;
+    this._syncHeaderFavorite(article);
     AIAnalysis.setArticleContext({ id: article.id, title: article.title }, '');
     this.reviewMode = !!article.reviewMode;
 
@@ -772,17 +890,8 @@ export const ReadingView = {
         <div class="reading-container">
           <header class="reading-header" data-reading-header="article">
             ${this._renderArticleTitle(article)}
-            <div class="reading-action-strip" aria-label="阅读工具">
-          ${Array.isArray(article.researchSources) && article.researchSources.length ? `
-          <details class="reading-research-sources" data-research-sources>
-            <summary><i class="fa-solid fa-globe" aria-hidden="true"></i> 资料来源（联网检索）</summary>
-            <ul>
-              ${article.researchSources.slice(0, 5).map(source => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title || source.domain)}</a><small>${esc(source.domain)}${source.publishedAt ? ` · ${esc(source.publishedAt)}` : ''}</small></li>`).join('')}
-            </ul>
-          </details>` : ''}
-              <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
-            </div>
           </header>
+          ${this._renderReadingActionsMenu(article)}
           <div class="reading-layout" data-reading-layout="article">
             <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
               <div class="empty-state">⏳ 文章正文尚未就绪，请稍后重试或重新打开</div>
@@ -863,12 +972,8 @@ export const ReadingView = {
             <span class="meta-item">${article.wordCount} 词</span>
             <span class="meta-item">${esc(article.topic)}</span>
           </div>
-          <div class="reading-action-strip" aria-label="阅读工具">
-            <button class="btn btn-outline reading-action-btn" type="button" onclick="ReadingView.toggleTranslation()" id="translateBtn" aria-pressed="false">全文翻译<span class="reading-action-state" aria-hidden="true"></span></button>
-            <button class="btn btn-outline" type="button" onclick="ReadingView.openSentenceGuide()">逐句导读</button>
-            <button class="btn btn-outline" type="button" id="sentenceColorBtn" onclick="ReadingView.toggleSentenceColors()" aria-pressed="${this.sentenceColorsEnabled}" aria-label="句子配色：${this.sentenceColorsEnabled ? '开' : '关'}">句子配色</button>
-            <button class="btn btn-outline" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">导出 PDF</button>
-            <a href="#/reading/${article.id}" onclick="ReadingView.goBack(); return false" class="btn btn-outline" aria-label="阅读返回">返回</a>
+          <div class="reading-primary-actions" aria-label="阅读主操作">
+            <button class="btn btn-primary reading-guide-primary-btn" type="button" onclick="ReadingView.openSentenceGuide()">${this._getSentenceGuideActionLabel()}</button>
           </div>
           <div class="reading-timer-bar collapsed" id="timerBar" onclick="this.classList.toggle('collapsed')">
             <span class="timer-toggle" title="点击展开/折叠计时">⏱</span>
@@ -891,6 +996,7 @@ export const ReadingView = {
           </section>
         </div>
         <div id="readingAiPanelHost" class="reading-ai-panel-host" data-reading-ai-panel="side" aria-hidden="true"></div>
+        ${this._renderReadingActionsMenu(article)}
       </div>
       <div id="wordTooltip" class="word-tooltip" style="display:none"></div>
       <div id="readingSummary" class="modal-overlay" style="display:none"></div>
@@ -1251,6 +1357,8 @@ export const ReadingView = {
       button.classList.toggle('is-active', this.wordMarkingEnabled);
       button.setAttribute('aria-checked', String(this.wordMarkingEnabled));
       button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
+      const state = button.querySelector('.reading-action-state');
+      if (state) state.textContent = this.wordMarkingEnabled ? '开启' : '关闭';
     }
   },
 
@@ -1263,6 +1371,8 @@ export const ReadingView = {
       button.classList.remove('is-active');
       button.setAttribute('aria-pressed', 'false');
       button.setAttribute('aria-label', '句子配色：关');
+      const state = button.querySelector('.reading-action-state');
+      if (state) state.textContent = '关闭';
     }
   },
 
@@ -1275,6 +1385,8 @@ export const ReadingView = {
       button.classList.toggle('is-active', this.sentenceColorsEnabled);
       button.setAttribute('aria-pressed', String(this.sentenceColorsEnabled));
       button.setAttribute('aria-label', `句子配色：${this.sentenceColorsEnabled ? '开' : '关'}`);
+      const state = button.querySelector('.reading-action-state');
+      if (state) state.textContent = this.sentenceColorsEnabled ? '开启' : '关闭';
     }
     return this.sentenceColorsEnabled;
   },
@@ -2065,7 +2177,7 @@ export const ReadingView = {
       toggleBtn.classList.toggle('is-active', pressed);
       toggleBtn.setAttribute('aria-pressed', String(pressed));
       const state = toggleBtn.querySelector('.reading-action-state');
-      if (state) state.textContent = pending ? '制作中' : pressed ? '已显示' : '';
+      if (state) state.textContent = pending ? '翻译中…' : pressed ? '已显示' : '未显示';
     };
     const missing = this.paragraphTranslations
       .map((text, index) => text ? -1 : index)
@@ -2148,7 +2260,7 @@ export const ReadingView = {
         toggleBtn.classList.remove('is-active');
         toggleBtn.setAttribute('aria-pressed', 'false');
         const state = toggleBtn.querySelector('.reading-action-state');
-        if (state) state.textContent = '';
+        if (state) state.textContent = '未显示';
       }
     } catch (e) {
       console.warn('段落翻译失败:', e);
@@ -2189,13 +2301,7 @@ export const ReadingView = {
       }
     }
     await DB.updateArticle(articleId, { favorite: newFav });
-    const btn = document.getElementById('favBtn');
-    if (btn) {
-      btn.classList.toggle('is-active', Boolean(newFav));
-      btn.setAttribute('aria-pressed', String(Boolean(newFav)));
-      btn.setAttribute('aria-label', newFav ? '取消收藏文章' : '收藏文章');
-      btn.innerHTML = `<i class="fa-${newFav ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>`;
-    }
+    this._syncHeaderFavorite({ favorite: newFav });
   }
 };
 
