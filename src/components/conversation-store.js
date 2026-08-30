@@ -1,5 +1,5 @@
 const KEY = 'learningConversationsV2';
-const VERSION = 4;
+const VERSION = 6;
 const MAX_HOME_ACTIVITIES = 50;
 const MAX_HOME_ROUNDS = 50;
 const MAX_CONTEXT_ROUNDS = 24;
@@ -7,6 +7,90 @@ const CONTEXT_BATCH_ROUNDS = 8;
 
 const emptySession = now => ({ updatedAt: now(), summary: '', contextSummary: '', messages: [], activities: [] });
 const clip = (value, limit) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+const DAILY_REPORT_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const BLOCKED_PERSISTED_KEYS = new Set(['blob', 'thumbnailBlob', 'inlineDataUrl', 'fileData', 'remoteFileId']);
+
+const sanitizePersistedValue = (value, key = '') => {
+  if (BLOCKED_PERSISTED_KEYS.has(String(key))) return undefined;
+  if (typeof value === 'string' && /^data:image\//i.test(value)) return undefined;
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return undefined;
+  if (Array.isArray(value)) return value.map(item => sanitizePersistedValue(item)).filter(item => item !== undefined);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([childKey, childValue]) => [childKey, sanitizePersistedValue(childValue, childKey)])
+      .filter(([, childValue]) => childValue !== undefined)
+  );
+};
+
+const safeId = value => {
+  const id = String(value || '').trim();
+  return id ? id.slice(0, 160) : '';
+};
+
+const normalizeImageGroup = group => {
+  if (!group || typeof group !== 'object') return null;
+  const groupId = safeId(group.groupId);
+  if (!groupId) return null;
+  const attachmentIds = [...new Set((Array.isArray(group.attachmentIds) ? group.attachmentIds : [])
+    .map(safeId)
+    .filter(Boolean))].slice(0, 12);
+  return {
+    groupId,
+    attachmentIds,
+    count: Math.min(12, attachmentIds.length),
+    state: group.state === 'released' ? 'released' : 'available',
+    visualSummary: clip(group.visualSummary, 1600)
+  };
+};
+
+const validDateKey = value => {
+  const match = DAILY_REPORT_DATE.exec(String(value || '').trim());
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+};
+
+const messageIdentityFor = (message, index = 0, key = 'session') => {
+  const explicit = safeId(message?.id);
+  if (explicit) return explicit;
+  if (message?.kind === 'daily_report') {
+    const reportId = safeId(message.reportId);
+    if (reportId) return `daily-report:${reportId}`;
+  }
+  const createdAt = safeId(message?.createdAt) || 'unknown';
+  return `${safeId(key) || 'session'}-message-${createdAt}-${Math.max(0, Number(index) || 0)}`;
+};
+
+const normalizeMessage = (message, index = 0, key = 'session') => {
+  if (!message || typeof message !== 'object') return null;
+  if (message.kind !== 'daily_report') {
+    const safe = sanitizePersistedValue(message);
+    if (!safe || typeof safe !== 'object') return null;
+    if (safe.imageGroup) {
+      const imageGroup = normalizeImageGroup(safe.imageGroup);
+      if (imageGroup) {
+        safe.imageGroup = imageGroup;
+        safe.kind = 'text';
+      } else {
+        delete safe.imageGroup;
+      }
+    }
+    safe.id = safeId(safe.id) || messageIdentityFor(safe, index, key);
+    return safe;
+  }
+  const dateKey = String(message.dateKey || '').trim();
+  const reportId = String(message.reportId || '').trim();
+  if (!validDateKey(dateKey) || reportId !== `daily:${dateKey}`) return null;
+  return {
+    role: 'assistant',
+    kind: 'daily_report',
+    reportId,
+    dateKey,
+    createdAt: message.createdAt
+  };
+};
 
 const legacyActivityFromMessage = message => {
   if (message?.kind === 'article') {
@@ -44,8 +128,10 @@ const legacyActivityFromMessage = message => {
 
 const normalizeSession = (session, now, key) => {
   const nowFn = typeof now === 'function' ? now : () => now;
-  const safe = session && typeof session === 'object' ? session : {};
-  const messages = Array.isArray(safe.messages) ? safe.messages : [];
+  const safe = sanitizePersistedValue(session && typeof session === 'object' ? session : {}) || {};
+  const messages = (Array.isArray(safe.messages) ? safe.messages : [])
+    .map((message, index) => normalizeMessage(message, index, key))
+    .filter(Boolean);
   const existingActivities = Array.isArray(safe.activities) ? safe.activities : null;
   const activities = existingActivities || (key === 'home'
     ? messages.map(legacyActivityFromMessage).filter(Boolean)
@@ -60,7 +146,17 @@ const normalizeSession = (session, now, key) => {
 };
 
 const summaryLineFor = (item, key) => {
-  if (item.kind === 'text') return (item.role === 'user' ? '用户：' : '助手：') + clip(item.content, 500);
+  if (item.kind === 'text') {
+    const imageGroup = normalizeImageGroup(item.imageGroup);
+    if (imageGroup) {
+      const stateLabel = imageGroup.state === 'released' ? '原图已释放' : '可重新引用';
+      const request = item.role === 'user'
+        ? `用户要求“${clip(item.content, 320)}”`
+        : `助手说明“${clip(item.content, 320)}”`;
+      return `图片组（${imageGroup.count}张，${stateLabel}）：${request}；视觉摘要：${imageGroup.visualSummary || '未记录'}`;
+    }
+    return (item.role === 'user' ? '用户：' : '助手：') + clip(item.content, 500);
+  }
   if (key === 'home' && item.kind === 'activity') {
     const activity = item.activity || {};
     const articles = Array.isArray(activity.articles) ? activity.articles : activity.article ? [activity.article] : [];
@@ -87,6 +183,13 @@ const summaryLineFor = (item, key) => {
       .filter(Boolean).join(' / ');
     return `文章生成未完成：${clip(failure.message, 360) || '内容不完整'}${spec ? `（${spec}）` : ''}`;
   }
+  if (item.kind === 'guided_learning') {
+    const session = item.session || {};
+    const steps = Array.isArray(session.steps) ? session.steps : [];
+    const index = Math.max(0, Math.min(steps.length - 1, Number(session.currentStepIndex) || 0));
+    const current = steps[index] || {};
+    return `互动教学：${clip(session.target?.title, 160) || '未命名目标'}；状态 ${clip(session.status, 32) || 'active'}；第 ${index + 1}/${steps.length || 1} 步 ${clip(current.title, 120) || '未命名步骤'}`;
+  }
   return '';
 };
 
@@ -96,18 +199,21 @@ export class ConversationStore {
     this.now = now;
   }
 
+  messageIdentity(message, index = 0, key = 'home') {
+    return messageIdentityFor(message, index, key);
+  }
+
   readState() {
     try {
       const value = JSON.parse(this.storage.getItem(KEY));
-      if (value?.version === VERSION && value.sessions) return value;
-      if ((value?.version === 2 || value?.version === 3) && value.sessions) {
+      if (Number.isInteger(value?.version) && value.version >= 2 && value.version <= VERSION && value.sessions) {
         const migrated = {
           version: VERSION,
           sessions: Object.fromEntries(
             Object.entries(value.sessions).map(([key, session]) => [key, normalizeSession(session, this.now(), key)])
           )
         };
-        this.writeState(migrated);
+        if (value.version !== VERSION || JSON.stringify(migrated) !== JSON.stringify(value)) this.writeState(migrated);
         return migrated;
       }
     } catch {
@@ -167,11 +273,16 @@ export class ConversationStore {
   append(key, message) {
     const session = this.getSession(key);
     const createdAt = this.now();
+    const nextMessage = { createdAt, ...message };
+    if (nextMessage.kind !== 'daily_report' && !safeId(nextMessage.id)) {
+      nextMessage.id = messageIdentityFor(nextMessage, session.messages.length, key);
+    }
     this.replaceSession(key, {
       ...session,
       updatedAt: createdAt,
-      messages: [...session.messages, { createdAt, ...message }]
+      messages: [...session.messages, nextMessage]
     });
+    return this.getSession(key).messages.at(-1) || null;
   }
 
   maintainHomeConversation({
@@ -180,6 +291,7 @@ export class ConversationStore {
     batchRounds = CONTEXT_BATCH_ROUNDS
   } = {}) {
     const session = this.getSession('home');
+    const previousMessageIds = session.messages.map((message, index) => messageIdentityFor(message, index, 'home'));
     let messages = [...session.messages];
     const userIndexes = messages.reduce((indexes, message, index) => {
       if (message.kind === 'text' && message.role === 'user') indexes.push(index);
@@ -211,7 +323,16 @@ export class ConversationStore {
       contextSummary,
       updatedAt: this.now()
     });
-    return this.getSession('home');
+    const nextSession = this.getSession('home');
+    const retainedMessageIds = nextSession.messages.map((message, index) => messageIdentityFor(message, index, 'home'));
+    const retainedSet = new Set(retainedMessageIds);
+    const removedMessageIds = previousMessageIds.filter(messageId => !retainedSet.has(messageId));
+    return {
+      ...nextSession,
+      trimmed: removedMessageIds.length > 0,
+      removedMessageIds,
+      retainedMessageIds
+    };
   }
 
   appendActivity(key, activity) {
@@ -258,8 +379,9 @@ export class ConversationStore {
 
   compact(key, keep) {
     const session = this.getSession(key);
-    const recent = session.messages.slice(-keep);
-    const archived = session.messages.slice(0, -keep);
+    const keepCount = Math.max(0, Number(keep) || 0);
+    const recent = keepCount ? session.messages.slice(-keepCount) : [];
+    const archived = keepCount ? session.messages.slice(0, -keepCount) : session.messages;
     const lines = archived
       .map(item => summaryLineFor(item, key))
       .filter(Boolean)

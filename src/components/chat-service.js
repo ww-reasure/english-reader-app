@@ -1,7 +1,9 @@
 import { LEARNING_TOOLS } from './learning-agent.js';
+import { assembleChatMessages } from './multimodal-context.mjs';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
 const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
+const isGuidedLearningCall = call => ['create_guided_learning', 'adapt_guided_learning'].includes(call?.function?.name);
 const TIMELY_QUERY_PATTERNS = [
   /新闻|时讯|资讯|热点|快讯|突发|头条|实时|时事|今日|今天|最新|最近|近日|近期|当前|进展|动态|大事|天气|预报/,
   /\b(news|headline|breaking|latest|today|current|recent|update|live|weather|what happened)\b/i
@@ -14,6 +16,10 @@ const isTimelyQuery = message => {
 const generationToolFailure = () => ({
   type: 'generation_failure',
   failure: { message: '文章定制暂时失败，请重新生成。', reason: 'tool_error' }
+});
+const guidedLearningToolFailure = () => ({
+  type: 'guided_learning_failure',
+  failure: { message: '互动教学暂时无法生成，请重试或改用详细解析。', reason: 'tool_error' }
 });
 const completeReply = (content, artifacts, toolSupport = null) => ({
   content,
@@ -48,19 +54,29 @@ export class ChatService {
     this.controllers.delete(key);
   }
 
-  async ask({ sessionKey, session, userMessage, kind, pageContext = null, tools = LEARNING_TOOLS, executeTool = null }) {
+  async ask({
+    sessionKey,
+    session,
+    userMessage,
+    kind,
+    pageContext = null,
+    tools = LEARNING_TOOLS,
+    executeTool = null,
+    responseFormat = null,
+    temperature = null,
+    attachmentGroup = null,
+    modelOverride = null,
+    webResearchEnabled = true
+  }) {
     this.cancel(sessionKey);
     const controller = new AbortController();
     this.controllers.set(sessionKey, controller);
     const requestId = `${sessionKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const plan = kind === 'home' && this.webResearch?.resolve
+    const plan = webResearchEnabled && kind === 'home' && this.webResearch?.resolve
       ? this.webResearch.resolve()
       : { native: false, tavily: true };
     const forceFirstSearch = Boolean(plan.native) && isTimelyQuery(userMessage);
-    // Reading follow-ups are deliberately ordinary chat. Sending the learning
-    // tool schema here makes some compatible chat models reject the request
-    // before they ever see the sentence context.
-    const baseTools = kind === 'reading' ? [] : (Array.isArray(tools) ? tools : []);
+    const baseTools = Array.isArray(tools) ? tools : [];
     const requestTools = plan.native
       ? [...baseTools.filter(tool => tool?.function?.name !== 'search_web'), { type: 'web_search' }]
       : plan.tavily
@@ -84,43 +100,62 @@ export class ChatService {
       pageContext,
       toolResults: toolResults || []
     });
-    const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto') => {
-      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto', requestModelOverride = modelOverride) => {
       if (plan.native) {
         if (typeof toItems !== 'function') throw new Error('当前联网配置缺少 Responses 消息转换器');
         const completion = await this.api.responsesCompletion(
           toItems(messages),
-          { tools: requestToolsForRound || [], signal: controller.signal, toolChoice }
+          {
+            tools: requestToolsForRound || [],
+            signal: controller.signal,
+            toolChoice,
+            ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
+          }
         );
         if (kind === 'home' && completion?.usage) {
           this.telemetry?.record({ requestId, phase, usage: completion.usage });
         }
-        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         return completion || { role: 'assistant', content: '' };
       }
       const chatTools = (requestToolsForRound || []).filter(tool => tool?.type === 'function');
-      const options = { tools: chatTools, signal: controller.signal };
+      const options = {
+        tools: chatTools,
+        signal: controller.signal,
+        ...(responseFormat ? { responseFormat } : {}),
+        ...(Number.isFinite(temperature) ? { temperature } : {}),
+        ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
+      };
       const completion = typeof this.api.chatCompletion === 'function'
         ? await this.api.chatCompletion(messages, options)
         : { message: await this.api.chat(messages, options), usage: null };
       if (kind === 'home' && completion?.usage) {
         this.telemetry?.record({ requestId, phase, usage: completion.usage });
       }
-      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       return completion?.message || { role: 'assistant', content: '' };
     };
 
     try {
       let reply;
       let toolSupport = null;
-      let transcript = buildMessages();
+      let transcript = assembleChatMessages({ messages: buildMessages(), attachmentGroup });
       try {
         reply = await call(transcript, requestTools, 'initial', forceFirstSearch ? { type: 'web_search' } : 'auto');
       } catch (error) {
-        if (!toolsUnsupported(error)) throw error;
-        toolSupport = 'unsupported';
-        transcript = buildMessages(kind === 'reading' ? [] : [await this.agent.getLearningOverview()]);
-        reply = await call(transcript, [], 'fallback');
+        const canUsePureTextVisionFallback = !attachmentGroup
+          && modelOverride === 'deepseek-v4-flash-vision-exp'
+          && typeof this.api.isVisionModelUnavailable === 'function'
+          && this.api.isVisionModelUnavailable(error);
+        if (canUsePureTextVisionFallback) {
+          reply = await call(transcript, requestTools, 'vision_text_fallback', 'auto', 'deepseek-v4-flash');
+        } else {
+          if (!toolsUnsupported(error)) throw error;
+          toolSupport = 'unsupported';
+          transcript = assembleChatMessages({
+            messages: buildMessages([await this.agent.getLearningOverview()]),
+            attachmentGroup
+          });
+          reply = await call(transcript, [], 'fallback');
+        }
       }
 
       const artifacts = [];
@@ -134,8 +169,14 @@ export class ChatService {
           try {
             handled = await toolRunner(name, JSON.parse(toolCall?.function?.arguments || '{}'), { signal: controller.signal });
           } catch (error) {
-            if (!isReadingGenerationCall(toolCall) || controller.signal.aborted) throw error;
-            handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+            if (controller.signal.aborted) throw error;
+            if (isReadingGenerationCall(toolCall)) {
+              handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+            } else if (isGuidedLearningCall(toolCall)) {
+              handled = { result: { status: 'tool_error' }, artifact: guidedLearningToolFailure() };
+            } else {
+              throw error;
+            }
           }
           if (handled.artifact) artifacts.push(handled.artifact);
           return { call: toolCall, name, result: handled.result };
@@ -145,7 +186,9 @@ export class ChatService {
         // request authorization boundary and prevents a failing read from
         // hiding an already-created article.
         const generationCall = reply.tool_calls.find(isReadingGenerationCall);
-        const callsToRun = generationCall ? [generationCall] : reply.tool_calls;
+        const guidedLearningCall = reply.tool_calls.find(isGuidedLearningCall);
+        const writeCall = generationCall || guidedLearningCall;
+        const callsToRun = writeCall ? [writeCall] : reply.tool_calls;
         const toolResults = await Promise.all(callsToRun.map(runToolCall));
         if (artifacts.some(item => item.type === 'article')) {
           return completeReply('已生成一篇定制阅读，点击卡片开始阅读。', artifacts, toolSupport);
@@ -154,6 +197,15 @@ export class ChatService {
           return completeReply('', artifacts, toolSupport);
         }
         if (artifacts.some(item => item.type === 'generation_blocked')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning_update')) {
+          return completeReply('', artifacts, toolSupport);
+        }
+        if (artifacts.some(item => item.type === 'guided_learning_failure')) {
           return completeReply('', artifacts, toolSupport);
         }
         if (generationCall) {

@@ -17,10 +17,9 @@ import { ChatService } from './chat-service.js';
 import { DB } from '../db.js';
 import { SpacedRepetition } from '../spaced-repetition.js';
 import { renderLearningMarkdown } from './rich-text.js';
+import { bindMessageCopy, createCopyButton } from './message-actions.mjs';
 import { createSentenceRangeForTextNodes, findSentenceOffsets } from './sentence-selection.mjs';
 import { bindSentenceLongPress } from './sentence-long-press.mjs';
-import { getRangeAtPoint } from './word-point.mjs';
-import { bindMessageCopy, createCopyButton } from './message-actions.mjs';
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService({
@@ -31,15 +30,6 @@ const chatService = new ChatService({
 
 const MAX_SELECTED_EXCERPT_LENGTH = 600;
 const normalizeSelectedExcerpt = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTED_EXCERPT_LENGTH);
-const MAX_FOLLOWUP_ERROR_LENGTH = 180;
-const formatFollowupError = error => {
-  const raw = String(error?.message || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return '请求失败，请稍后重试';
-  // Keep provider responses out of the UI while retaining a useful, bounded
-  // retry hint for ordinary network/request errors.
-  if (/authorization|api[_ -]?key|bearer|response\s+body|stack|token\s*:/i.test(raw)) return '请求失败，请稍后重试';
-  return raw.slice(0, MAX_FOLLOWUP_ERROR_LENGTH);
-};
 
 export const AIAnalysis = {
   currentText: '',
@@ -104,20 +94,15 @@ export const AIAnalysis = {
   },
 
   _removeResultModal() {
-    this.clearDetailSelection();
     this._messageCopyCleanup?.();
     this._messageCopyCleanup = null;
+    this.clearDetailSelection();
     Tooltip.hide();
     const existing = document.getElementById('aiResultModal');
     if (existing) existing.remove();
     const host = document.querySelector?.('[data-reading-ai-panel="side"]');
     host?.setAttribute('aria-hidden', 'true');
     host?.classList.remove('is-active');
-    if (this._followUpController) {
-      this._followUpController.disposed = true;
-      this._followUpController.requestToken += 1;
-      if (this._followUpController.send) this._followUpController.send.disabled = true;
-    }
     this._followUpController = null;
   },
 
@@ -218,8 +203,10 @@ export const AIAnalysis = {
       <div class="ai-result-body">
         <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
         <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
-        <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}">
-          ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+        <div class="ai-analysis-copyable" ${isLoading ? '' : 'data-copyable="true"'}>
+          <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}" ${isLoading ? '' : 'data-copy-content data-chat-selectable="true"'}>
+            ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
+          </div>
         </div>
         ${!isLoading && analysisContext?.id != null ? `
         <section class="ai-followup" aria-label="继续追问">
@@ -247,17 +234,11 @@ export const AIAnalysis = {
       host.classList.add('is-active');
     }
     (host || document.body).appendChild(overlay);
-    const isError = /^分析失败[：:]/.test(String(content || ''));
-    if (!isLoading && !isError) {
-      const answer = modal.querySelector('.ai-result-content');
-      if (answer) {
-        answer.dataset.copyable = 'true';
-        answer.dataset.copyContent = 'true';
-        answer.appendChild(createCopyButton());
-      }
-    }
-    this._messageCopyCleanup = bindMessageCopy(modal);
     modal.querySelector('#aiResultClose')?.addEventListener('click', () => this.closeResultModal());
+    if (!isLoading) {
+      modal.querySelector('[data-copyable]')?.appendChild(createCopyButton({ label: '复制分析' }));
+      this._messageCopyCleanup = bindMessageCopy(modal);
+    }
     this.bindWordLookup(modal);
     this.bindFollowUp(modal, sentence, content, analysisContext);
     this.bindDetailSelection(modal, analysisContext);
@@ -268,7 +249,6 @@ export const AIAnalysis = {
     const lookupTargets = modal.querySelectorAll('.ai-lookup-sentence, .ai-result-content');
     lookupTargets.forEach(target => {
       target.addEventListener('click', async (e) => {
-        if (e.target?.closest?.('[data-message-copy]')) return;
         // A native text selection is an intentional follow-up action, never a word lookup.
         if (this.getSelectedDetailExcerpt(modal)) {
           e.stopPropagation();
@@ -377,7 +357,7 @@ export const AIAnalysis = {
 
   openFollowUpPanel(modal, excerpt = '') {
     const controller = this._followUpController;
-    if (!controller || controller.modal !== modal || controller.disposed) return;
+    if (!controller || controller.modal !== modal) return;
     const selectedExcerpt = normalizeSelectedExcerpt(excerpt || this.selectedDetailExcerpt);
     if (selectedExcerpt) {
       this.selectedDetailExcerpt = selectedExcerpt;
@@ -413,15 +393,8 @@ export const AIAnalysis = {
       });
     };
 
-    this._followUpController?.send && (this._followUpController.disposed = true);
-    const controller = {
-      modal, panel, composer, input, send, excerpt, excerptText, renderHistory,
-      disposed: false,
-      requestToken: 0
-    };
-    this._followUpController = controller;
+    this._followUpController = { modal, panel, composer, input, excerpt, excerptText, renderHistory };
     toggle.addEventListener('click', () => {
-      if (controller.disposed) return;
       if (panel.hidden) this.openFollowUpPanel(modal);
       else {
         panel.hidden = true;
@@ -430,7 +403,6 @@ export const AIAnalysis = {
     });
 
     const submit = async () => {
-      if (controller.disposed || this._followUpController !== controller) return;
       const question = input.value.trim();
       if (!question || send.disabled) return;
       if (!Config.hasApiKey()) {
@@ -439,16 +411,11 @@ export const AIAnalysis = {
       }
 
       const list = modal.querySelector('#aiFollowupMessages');
-      if (!list) return;
-      const isLive = () => {
-        if (controller.disposed || this._followUpController !== controller || requestToken !== controller.requestToken) return false;
-        try { return modal.querySelector('#aiFollowupMessages') === list; } catch { return false; }
-      };
       const context = analysisContext;
       const selectedExcerpt = this.selectedDetailExcerpt;
       const session = conversationStore.getSession(key);
+      input.value = '';
       send.disabled = true;
-      const requestToken = ++controller.requestToken;
       this.addFollowUpBubble(list, 'user', question);
       this.addFollowUpBubble(list, 'assistant', '正在回答…', true);
 
@@ -458,52 +425,37 @@ export const AIAnalysis = {
           session,
           userMessage: question,
           kind: 'reading',
-          tools: [],
           pageContext: { article: { id: context.id, title: context.title }, sentence, paragraph: context.paragraph, analysis, selectedExcerpt }
         });
-        if (!isLive()) return;
         list.querySelector('.ai-followup-thinking')?.remove();
-        input.value = '';
         conversationStore.append(key, { role: 'user', kind: 'text', content: question, selectedExcerpt });
         conversationStore.append(key, { role: 'assistant', kind: 'text', content: reply.content });
         conversationStore.compact(key, 8);
         this.addFollowUpBubble(list, 'assistant', reply.content);
       } catch (error) {
-        if (!isLive()) return;
         list.querySelector('.ai-followup-thinking')?.remove();
-        if (error?.name !== 'AbortError') {
-          this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + formatFollowupError(error), false, true);
-        }
+        this.addFollowUpBubble(list, 'assistant', '暂时无法回答：' + error.message);
       } finally {
-        if (isLive()) {
-          send.disabled = false;
-          list.scrollTop = list.scrollHeight;
-        }
+        send.disabled = false;
+        list.scrollTop = list.scrollHeight;
       }
     };
 
-    send.addEventListener('click', () => { void submit(); });
+    send.addEventListener('click', submit);
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        void submit();
+        submit();
       }
     });
   },
 
-  addFollowUpBubble(container, role, content, isThinking = false, isError = false) {
+  addFollowUpBubble(container, role, content, isThinking = false) {
     if (!container) return;
     const bubble = document.createElement('div');
     bubble.className = 'ai-followup-bubble ' + (role === 'user' ? 'user-message' : 'ai-message') + (isThinking ? ' ai-followup-thinking' : '');
-    if (role === 'assistant' && !isThinking && !isError) {
-      bubble.dataset.copyable = 'true';
-      const body = document.createElement('div');
-      body.dataset.copyContent = 'true';
-      body.className = 'ai-followup-content';
-      body.innerHTML = renderLearningMarkdown(content);
-      bubble.appendChild(body);
-      bubble.appendChild(createCopyButton());
-    } else bubble.textContent = content;
+    if (role === 'assistant' && !isThinking) bubble.innerHTML = renderLearningMarkdown(content);
+    else bubble.textContent = content;
     container.appendChild(bubble);
   },
 
@@ -534,7 +486,18 @@ export const AIAnalysis = {
     const touch = e.touches?.[0] || e;
     if (!touch) return;
 
-    const range = getRangeAtPoint(touch);
+    // Get the text node at touch position
+    let range;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(touch.clientX, touch.clientY);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(touch.clientX, touch.clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.setEnd(pos.offsetNode, pos.offset);
+      }
+    }
 
     if (!range) return;
 
@@ -570,7 +533,6 @@ export const AIAnalysis = {
     this._longPressCleanup?.();
     this._longPressCleanup = bindSentenceLongPress({
       root: articleBody,
-      scrollTargets: [document.querySelector('.app-page-outlet')].filter(Boolean),
       shouldIgnore: event => Boolean(event.target?.closest?.('button, a, input, textarea, select, [role="button"]')),
       onLongPress: event => {
         this.isLongPress = false;

@@ -1,11 +1,19 @@
-const copyTextLimit = 12000;
+const MAX_COPY_LENGTH = 12000;
+const bindings = new WeakMap();
 
 export function normalizeCopyText(value) {
-  return String(value ?? '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .trim()
-    .slice(0, copyTextLimit);
+  return String(value ?? '').replace(/\r\n?/g, '\n').trim().slice(0, MAX_COPY_LENGTH);
+}
+
+export function readCopyText(root) {
+  if (!root) return '';
+  const attributeValue = typeof root.getAttribute === 'function'
+    ? root.getAttribute('data-copy-value')
+    : null;
+  const explicit = typeof attributeValue === 'string' ? attributeValue : root.dataset?.copyValue;
+  if (typeof explicit === 'string' && explicit.trim()) return normalizeCopyText(explicit);
+  const content = root.querySelector?.('[data-copy-content]');
+  return normalizeCopyText(typeof content?.innerText === 'string' ? content.innerText : content?.textContent);
 }
 
 export async function copyPlainText(value, {
@@ -15,88 +23,116 @@ export async function copyPlainText(value, {
   const text = normalizeCopyText(value);
   if (!text) return false;
 
-  if (navigatorObject?.clipboard?.writeText) {
+  if (typeof navigatorObject?.clipboard?.writeText === 'function') {
     try {
       await navigatorObject.clipboard.writeText(text);
       return true;
     } catch {
-      // Older WebViews can expose clipboard but reject the promise. Continue
-      // to the textarea path instead of reporting a false hard failure.
+      // Some Android WebViews expose clipboard.writeText but reject it at runtime.
     }
   }
 
-  if (!documentObject?.createElement || !documentObject.body?.appendChild) return false;
-  const area = documentObject.createElement('textarea');
-  area.value = text;
-  area.setAttribute?.('readonly', '');
-  area.style.position = 'fixed';
-  area.style.left = '-9999px';
-  area.style.opacity = '0';
-  documentObject.body.appendChild(area);
+  const body = documentObject?.body;
+  if (!documentObject?.createElement || !body?.appendChild) return false;
+  const textarea = documentObject.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute?.('readonly', '');
+  textarea.setAttribute?.('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  textarea.style.opacity = '0';
+
+  body.appendChild(textarea);
   try {
-    area.select?.();
-    return documentObject.execCommand?.('copy') === true;
+    textarea.select?.();
+    textarea.setSelectionRange?.(0, text.length);
+    return typeof documentObject.execCommand === 'function'
+      ? documentObject.execCommand('copy') !== false
+      : false;
   } catch {
     return false;
   } finally {
-    area.remove?.();
-    if (area.parentNode && !area.remove) area.parentNode.removeChild?.(area);
+    textarea.remove?.();
+    if (textarea.parentElement) documentObject.body?.removeChild?.(textarea);
   }
 }
 
-export function createCopyButton() {
-  const button = document.createElement('button');
+export function createCopyButton({ label = '复制回复' } = {}) {
+  const button = (globalThis.document?.createElement?.('button')) || {
+    dataset: {},
+    _attributes: new Map(),
+    setAttribute(name, value) { this._attributes.set(name, String(value)); },
+    getAttribute(name) { return this._attributes.get(name); },
+    addEventListener() {},
+    contains(node) { return node === this; }
+  };
   button.type = 'button';
-  button.className = 'message-copy-action';
-  button.dataset.messageCopy = 'true';
-  button.setAttribute('aria-label', '复制回复');
-  button.title = '复制回复';
-  button.innerHTML = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
+  button.className = 'message-copy-btn';
+  button.dataset.messageAction = 'copy';
+  button.dataset.copyLabel = label;
+  button.setAttribute?.('aria-label', label);
+  button.setAttribute?.('title', label);
+  button.textContent = '复制';
   return button;
 }
 
+const setFeedback = (button, success, label) => {
+  button.dataset.copyState = success ? 'success' : 'error';
+  button.setAttribute?.('aria-label', success ? '已复制' : '复制失败');
+  button.textContent = success ? '已复制' : '复制失败';
+  button.disabled = false;
+  return () => {
+    button.dataset.copyState = '';
+    button.setAttribute?.('aria-label', label);
+    button.textContent = '复制';
+  };
+};
+
 export function bindMessageCopy(container, {
-  documentObject = globalThis.document,
   navigatorObject = globalThis.navigator,
+  documentObject = globalThis.document,
   feedbackMs = 1500
 } = {}) {
-  if (!container) return () => {};
+  if (!container?.addEventListener) return () => {};
+  bindings.get(container)?.();
 
+  const timers = new Set();
   const onClick = async event => {
-    const button = event.target?.closest?.('[data-message-copy]');
-    if (!button || !container.contains?.(button)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const owner = button.closest?.('[data-copyable]');
-    const content = owner?.matches?.('[data-copy-content]')
-      ? owner
-      : owner?.querySelector?.('[data-copy-content]');
-    const text = content?.textContent || '';
+    const button = event.target?.closest?.('[data-message-action="copy"]');
+    if (!button || !container.contains?.(button) || button.disabled) return;
+    const message = button.closest?.('[data-copyable="true"], [data-copyable]');
+    if (!message) return;
+
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const copyText = readCopyText(message);
+    if (!copyText) return;
+    const label = button.dataset.copyLabel || '复制回复';
+    button.disabled = true;
+    let success = false;
     try {
-      const copied = await copyPlainText(text, { navigatorObject, documentObject });
-      if (!copied) throw new Error('clipboard_unavailable');
-      button.classList.add('is-copied');
-      button.setAttribute('aria-label', '已复制');
-      button.title = '已复制';
-      button.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i>';
-      setTimeout(() => {
-        if (!button.isConnected) return;
-        button.classList.remove('is-copied');
-        button.setAttribute('aria-label', '复制回复');
-        button.title = '复制回复';
-        button.innerHTML = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
-      }, feedbackMs);
+      success = await copyPlainText(copyText, { navigatorObject, documentObject });
     } catch {
-      button.classList.add('is-error');
-      button.setAttribute('aria-label', '复制失败');
-      setTimeout(() => {
-        if (!button.isConnected) return;
-        button.classList.remove('is-error');
-        button.setAttribute('aria-label', '复制回复');
-      }, feedbackMs);
+      success = false;
     }
+    const reset = setFeedback(button, success, label);
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      reset();
+    }, Math.max(0, Number(feedbackMs) || 0));
+    timers.add(timer);
   };
 
   container.addEventListener('click', onClick);
-  return () => container.removeEventListener('click', onClick);
+  const cleanup = () => {
+    container.removeEventListener('click', onClick);
+    timers.forEach(timer => clearTimeout(timer));
+    timers.clear();
+    if (bindings.get(container) === cleanup) bindings.delete(container);
+  };
+  bindings.set(container, cleanup);
+  return cleanup;
 }
+
+export const MAX_COPY_TEXT_LENGTH = MAX_COPY_LENGTH;

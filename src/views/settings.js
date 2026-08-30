@@ -11,11 +11,54 @@ import { listSelectableTracks, normalizeSelectableTrack } from '../learning-trac
 import { CHALLENGE_DETAILS, normalizeCoveragePreference } from '../difficulty-profile.mjs';
 import { createWebResearch } from '../components/web-research.mjs';
 import { createDeepSeekResponsesClient, isDeepSeekNativeSearchSupported } from '../components/deepseek-responses.mjs';
+import {
+  DEFAULT_DEEPSEEK_MODEL,
+  DEEPSEEK_MODEL_IDS,
+  listDeepSeekModelPresets
+} from '../components/deepseek-model-catalog.mjs';
+import { HOME_LEARNING_RESPONSE_MODES, normalizeHomeLearningResponseMode } from '../components/home-guided-learning.mjs';
+
+function diagnosticLogger() {
+  return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
+function diagnosticDb() {
+  return globalThis.__englishReaderDiagnosticDB || null;
+}
+
+function formatDiagnosticBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDiagnosticRemaining(until) {
+  const deadline = Number(until);
+  if (!Number.isFinite(deadline)) return '未开启';
+  const remaining = Math.max(0, deadline - Date.now());
+  if (!remaining) return '未开启';
+  const minutes = Math.ceil(remaining / 60_000);
+  return minutes < 60 ? `已开启，剩余约 ${minutes} 分钟` : `已开启，剩余约 ${Math.ceil(minutes / 60)} 小时`;
+}
+
+function formatDiagnosticDetailStatus(status = {}) {
+  if (status.detailed) return formatDiagnosticRemaining(status.detailedUntil);
+  const reasonLabels = {
+    manual: '详细日志已手动关闭',
+    timeout: '详细日志已到时间自动关闭',
+    event_limit: '详细日志已达到数量上限并自动关闭'
+  };
+  return reasonLabels[status.detailedStopReason] || '详细日志未开启';
+}
 
 export const SettingsView = {
+  _diagnosticRefreshToken: 0,
+
   // Render settings page
   render(container) {
     const currentTheme = Config.get('theme') || 'light';
+    const examWordLookupEnabled = Config.get('exam_word_lookup_enabled') !== 'false';
     const storedTrack = Config.get('exam_level');
     const targetMigrationRequired = Config.get('target_track_selection_required') === 'true' || storedTrack === 'graduate';
     // A legacy or unselected target must remain visibly unselected. Falling
@@ -33,270 +76,322 @@ export const SettingsView = {
       || (!hasCurrentCalibration && Config.get('assessment_done') === 'true');
     const assessmentDate = Config.get('assessment_date') || '';
     const currentModeDetails = CHALLENGE_DETAILS[currentMode];
-    const trackOptions = listSelectableTracks().map(track => `
-      <label class="settings-radio settings-target-option">
+    const selectableTracks = listSelectableTracks();
+    const diagnosticStatus = diagnosticLogger()?.getStatus?.() || {
+      detailed: false,
+      detailedUntil: null,
+      detailedCount: 0,
+      eventCount: 0,
+      lastError: null,
+      detailedStopReason: null
+    };
+    const currentTrackDetails = selectableTracks.find(track => track.id === currentTrack);
+    const trackOptions = selectableTracks.map(track => `
+      <label class="settings-choice settings-target-option">
         <input type="radio" name="targetTrack" value="${track.id}" ${currentTrack === track.id ? 'checked' : ''}>
-        <span class="settings-radio-label">
-          <span class="settings-radio-title">${track.label}</span>
-          <span class="settings-radio-desc">${track.description}</span>
+        <span class="settings-choice-label">
+          <span class="settings-choice-title">${track.label}</span>
+          <span class="settings-choice-desc">${track.description}</span>
         </span>
       </label>`).join('');
     const calibrationSection = hasCurrentCalibration ? `
-        <div class="settings-section">
-          <h2 class="settings-section-title">📊 初测后的材料建议</h2>
-          <div class="assessment-result-card">
-            <div class="assessment-result-info">
-              <span>当前推荐：<strong>${currentModeDetails.label}</strong></span>
-              <span class="text-muted">证据收集中，暂不承诺实际覆盖。</span>
-              <span class="text-muted">初测用于建立起点；完成更多有效阅读与复习后，系统才会判断材料匹配证据是否充分。</span>
-              <span class="text-muted">${assessmentDate ? '初测时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
-            </div>
-            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">重新进行初测</button>
-          </div>
-        </div>` : hasLegacyAssessment ? `
-        <div class="settings-section">
-          <h2 class="settings-section-title">📊 历史测评记录</h2>
-          <div class="assessment-result-card">
-            <div class="assessment-result-info">
-              <span>旧版测评只保留了材料难度偏好，不能作为当前词汇掌握或实际覆盖的证据。</span>
-              <span class="text-muted">完成新的分层自适应初测后，系统才会开始收集可用于材料匹配的学习证据。</span>
-              <span class="text-muted">${assessmentDate ? '历史测评时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</span>
-            </div>
-            <button class="btn btn-outline btn-sm" onclick="location.hash='#/assessment'">开始新的初测</button>
-          </div>
-        </div>` : `
-        <div class="settings-section">
-          <h2 class="settings-section-title">📊 3 分钟阅读校准</h2>
-          <p class="settings-desc">24 道分层自适应词义题加一篇短阅读理解，用于推荐材料压力；不会给出不可靠的“词汇量”数字。也可以跳过，先以保守材料目标阅读。</p>
-          <button class="btn btn-primary" onclick="location.hash='#/assessment'">开始初测</button>
-        </div>`;
+      <div class="settings-calibration-note">
+        <div class="settings-calibration-copy">
+          <strong>初测后的材料建议</strong>
+          <span>当前推荐：<strong>${currentModeDetails.label}</strong></span>
+          <span>证据收集中，暂不承诺实际覆盖。</span>
+          <small>初测用于建立起点；完成更多有效阅读与复习后，系统才会判断材料匹配证据是否充分。${assessmentDate ? ' 初测时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</small>
+        </div>
+        <button class="settings-text-action" type="button" onclick="location.hash='#/assessment'">重新校准</button>
+      </div>` : hasLegacyAssessment ? `
+      <div class="settings-calibration-note settings-calibration-note--attention">
+        <div class="settings-calibration-copy">
+          <strong>历史测评记录</strong>
+          <span>旧版测评只保留了材料难度偏好，不能作为当前词汇掌握或实际覆盖的证据。</span>
+          <small>旧版测评不能替代新的分层自适应初测。${assessmentDate ? ' 历史测评时间：' + new Date(assessmentDate).toLocaleDateString('zh-CN') : ''}</small>
+        </div>
+        <button class="settings-text-action" type="button" onclick="location.hash='#/assessment'">开始新的初测</button>
+      </div>` : `
+      <div class="settings-calibration-note settings-calibration-note--attention">
+        <div class="settings-calibration-copy">
+          <strong>3 分钟阅读校准</strong>
+          <span>24 道分层自适应词义题加一篇短阅读理解，用于推荐材料压力；不会给出不可靠的“词汇量”数字。</span>
+          <small>也可以跳过，先以保守材料目标阅读。</small>
+        </div>
+        <button class="settings-text-action" type="button" onclick="location.hash='#/assessment'">开始初测</button>
+      </div>`;
+    const currentModel = Config.get('model');
+    const homeLearningResponseMode = normalizeHomeLearningResponseMode(Config.get('home_learning_response_mode'));
+    const homeLearningResponseModeLabel = {
+      [HOME_LEARNING_RESPONSE_MODES.ASK]: '学习方式每次询问',
+      [HOME_LEARNING_RESPONSE_MODES.DETAILED]: '默认详细解析',
+      [HOME_LEARNING_RESPONSE_MODES.GUIDED]: '默认互动教学'
+    }[homeLearningResponseMode];
+    const customModelSelected = !DEEPSEEK_MODEL_IDS.includes(currentModel);
+    const modelOptions = listDeepSeekModelPresets()
+      .map(preset => `<option value="${preset.id}" ${currentModel === preset.id ? 'selected' : ''}>${preset.label}</option>`)
+      .join('');
 
     container.innerHTML = `
       <section class="app-standard-page settings-container" aria-labelledby="settingsContentTitle">
         <h2 id="settingsContentTitle" class="sr-only">设置内容</h2>
-        <header class="page-heading app-route-heading">
-          <p class="page-eyebrow">05 / WORKSPACE</p>
-          <h1 class="page-title">设置</h1>
-          <p class="page-desc">调整你的阅读节奏、主题与生成方式。</p>
-        </header>
 
-        ${targetMigrationRequired ? `
-        <div class="settings-section settings-migration-note" role="status">
-          <h2 class="settings-section-title">选择新的考研目标</h2>
-          <p class="settings-desc">旧版“考研”文章会继续保留旧标签。请为今后生成的文章选择考研英语一或英语二；系统不会猜测或改写历史文章。</p>
-        </div>` : ''}
-
-        ${calibrationSection}
-
-        <div class="settings-section">
-          <h2 class="settings-section-title">目标考试导向</h2>
-          <p class="settings-desc">这是你想练习的固定目标；阅读匹配方式只改变材料的相对压力，不会替你更改目标考试。</p>
-          <div class="settings-options">
-            ${trackOptions}
+        <section class="settings-preference-overview" aria-labelledby="settingsPreferenceTitle">
+          <div class="settings-section-heading">
+            <div>
+              <p class="settings-kicker">STUDY PROFILE</p>
+              <h2 id="settingsPreferenceTitle">学习偏好</h2>
+            </div>
+            <button class="settings-overview-action" type="button" onclick="location.hash='#/assessment'">
+              ${hasCurrentCalibration ? '重新校准' : '开始校准'}
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </button>
           </div>
-        </div>
-
-        <div class="settings-section">
-          <h2 class="settings-section-title">阅读匹配方式</h2>
-          <p class="settings-desc">系统会结合初测、复习证据和有效阅读提出材料压力建议；你可以在对应范围内调整材料目标，这不会被当作当前掌握程度的事实。</p>
-          <div class="settings-options">
-            <label class="settings-radio">
-              <input type="radio" name="readingMode" value="support" ${currentMode === 'support' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
-              <span class="settings-radio-label"><span class="settings-radio-title">巩固</span><span class="settings-radio-desc">材料目标 97–98%，优先保持流畅理解和巩固</span></span>
-            </label>
-            <label class="settings-radio">
-              <input type="radio" name="readingMode" value="standard" ${currentMode === 'standard' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
-              <span class="settings-radio-label"><span class="settings-radio-title">对标</span><span class="settings-radio-desc">材料目标 95–97%，用于目标考试导向练习</span></span>
-            </label>
-            <label class="settings-radio">
-              <input type="radio" name="readingMode" value="stretch" ${currentMode === 'stretch' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
-              <span class="settings-radio-label"><span class="settings-radio-title">加压</span><span class="settings-radio-desc">材料目标 92–95%，保留明确的理解压力</span></span>
-            </label>
+          <div class="settings-preference-metrics">
+            <article>
+              <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+              <span>当前目标</span>
+              <strong>${currentTrackDetails?.label || '待选择'}</strong>
+            </article>
+            <article>
+              <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+              <span>阅读压力</span>
+              <strong>${currentModeDetails.label}</strong>
+            </article>
+            <article>
+              <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
+              <span>材料覆盖</span>
+              <strong>${coveragePreference.coverage}%</strong>
+            </article>
           </div>
-          <div class="coverage-control">
-            <div class="coverage-item">
-              <label for="coverageSlider">材料目标覆盖率</label>
-              <div class="slider-container">
-                <input type="range" id="coverageSlider" min="${coveragePreference.range.min}" max="${coveragePreference.range.max}" value="${coveragePreference.coverage}"
-                  oninput="SettingsView.updateCoverageLabel(this.value)">
-                <div class="slider-labels">
-                  <span id="coverageMin">${coveragePreference.range.min}%</span>
-                  <span id="coverageDisplay" class="slider-current">${coveragePreference.coverage}%</span>
-                  <span id="coverageMax">${coveragePreference.range.max}%</span>
-                </div>
-              </div>
-              <p id="coverageHint" class="coverage-hint">用于设定生成材料的词汇压力和陌生词配比，不表示你当前已掌握词汇的实际覆盖；系统只在独立证据足够后另行给出匹配判断。</p>
+          <div class="settings-calibration-context" hidden>${calibrationSection}</div>
+        </section>
+
+        <section class="settings-study-panel" aria-labelledby="settingsStudyTitle">
+          <div class="settings-section-heading settings-section-heading--compact">
+            <div>
+              <p class="settings-kicker">LEARNING</p>
+              <h2 id="settingsStudyTitle">学习设置</h2>
             </div>
           </div>
-        </div>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">离线词库与难度来源</h2>
-          <p class="settings-desc">核心词库、版本、来源、许可证和校验和随 APK 安装；个人学习证据、收藏和复习记录保存在本机 IndexedDB，与公共词库分离。</p>
-          <details class="settings-data-disclosure">
-            <summary>查看当前数据与边界</summary>
-            <div class="settings-data-disclosure-body">
-              <p><strong>通用与学术词层：</strong>NGSL 用于通用高频层，NAWL 用于学术词层，CEFR-J 仅作为 CEFR 参考层。</p>
-              <p><strong>释义质量：</strong>只有经过来源、词性和常用中文学习义审核的词可离线直接显示；受限词可按需读取 Open English WordNet 的英文义项结构，中文仍走在线词典或 AI 临时回退。</p>
-              <p><strong>目标考试：</strong>四级、六级、英语一和英语二用于设定练习方向；不使用未授权历年题干或“真题词表”。在取得可复现且获许可的同口径语料前，App 不把生成材料表述为真题等值。</p>
-              <p class="text-muted">完整的版本、来源、许可证、署名和 SHA-256 校验和随安装包中的 <code>data/lexicon-manifest.json</code>、<code>data/oewn-artifact-manifest.json</code> 与 <code>data/lexicon-ATTRIBUTION.md</code> 一同发布。</p>
+          ${targetMigrationRequired ? `
+          <div class="settings-migration-note" role="status">
+            <strong>选择新的考研目标</strong>
+            <span>旧版“考研”文章会继续保留旧标签。请为今后生成的文章选择考研英语一或英语二；系统不会猜测或改写历史文章。</span>
+          </div>` : ''}
+
+          <details class="settings-inline-disclosure">
+            <summary>
+              <span class="settings-inline-icon"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></span>
+              <span><strong>考试目标</strong><small>当前：${currentTrackDetails?.label || '请选择目标'}</small></span>
+              <i class="fa-solid fa-chevron-down settings-inline-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-inline-body">
+              <p>这是你想练习的固定目标；阅读匹配方式只改变材料的相对压力，不会替你更改目标考试。</p>
+              <div class="settings-target-grid">${trackOptions}</div>
             </div>
           </details>
-        </div>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">外观</h2>
-          <div class="settings-options">
-            <label class="settings-radio">
-              <input type="radio" name="theme" value="light" ${currentTheme === 'light' ? 'checked' : ''}>
-              <span class="settings-radio-label">
-                <span class="settings-radio-title">亮色模式</span>
-              </span>
-            </label>
-            <label class="settings-radio">
-              <input type="radio" name="theme" value="dark" ${currentTheme === 'dark' ? 'checked' : ''}>
-              <span class="settings-radio-label">
-                <span class="settings-radio-title">暗黑模式</span>
-              </span>
-            </label>
-          </div>
-        </div>
+          <fieldset class="settings-fieldset">
+            <legend>阅读压力</legend>
+            <p>按当前目标调整材料难度，不把偏好当作已掌握程度。</p>
+            <div class="settings-pressure-grid">
+              <label class="settings-choice settings-pressure-option">
+                <input type="radio" name="readingMode" value="support" ${currentMode === 'support' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+                <span class="settings-choice-label"><span class="settings-choice-title">巩固</span><span class="settings-choice-desc">97–98%</span></span>
+              </label>
+              <label class="settings-choice settings-pressure-option">
+                <input type="radio" name="readingMode" value="standard" ${currentMode === 'standard' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+                <span class="settings-choice-label"><span class="settings-choice-title">对标</span><span class="settings-choice-desc">95–97%</span></span>
+              </label>
+              <label class="settings-choice settings-pressure-option">
+                <input type="radio" name="readingMode" value="stretch" ${currentMode === 'stretch' ? 'checked' : ''} onchange="SettingsView.onReadingModeChange()">
+                <span class="settings-choice-label"><span class="settings-choice-title">加压</span><span class="settings-choice-desc">92–95%</span></span>
+              </label>
+            </div>
+          </fieldset>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">API 设置</h2>
-          <div class="form-group">
-            <label>API Key</label>
-            <input type="password" id="settingsApiKey" value="${esc(Config.get('api_key'))}" placeholder="sk-...">
-          </div>
-          <div class="form-group">
-            <label>Base URL</label>
-            <input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1">
-          </div>
-          <div class="form-group">
-            <label>模型</label>
-            <div class="model-select">
-              <select id="settingsModelPreset" onchange="SettingsView.onModelChange()">
-                <option value="deepseek-v4-flash" ${Config.get('model') === 'deepseek-v4-flash' ? 'selected' : ''}>DeepSeek V4 Flash（快速）</option>
-                <option value="deepseek-v4-pro" ${Config.get('model') === 'deepseek-v4-pro' ? 'selected' : ''}>DeepSeek V4 Pro（高质量）</option>
-                <option value="custom" ${!['deepseek-v4-flash', 'deepseek-v4-pro'].includes(Config.get('model')) ? 'selected' : ''}>自定义模型</option>
-              </select>
-              <input type="text" id="settingsModelInput" value="${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? esc(Config.get('model')) : ''}" placeholder="输入模型名称" style="display:${!['deepseek-v4-flash', 'deepseek-v4-pro', ''].includes(Config.get('model')) ? 'block' : 'none'}">
+          <div class="settings-coverage-control">
+            <div class="settings-coverage-heading">
+              <label for="coverageSlider">材料目标覆盖率</label>
+              <strong id="coverageDisplay">${coveragePreference.coverage}%</strong>
             </div>
+            <input type="range" id="coverageSlider" min="${coveragePreference.range.min}" max="${coveragePreference.range.max}" value="${coveragePreference.coverage}"
+              oninput="SettingsView.updateCoverageLabel(this.value)">
+            <div class="settings-coverage-range"><span id="coverageMin">${coveragePreference.range.min}%</span><span id="coverageMax">${coveragePreference.range.max}%</span></div>
+            <p id="coverageHint">用于设定生成材料的词汇压力和陌生词配比，不表示你当前已掌握词汇的实际覆盖；系统只在独立证据足够后另行给出匹配判断。</p>
           </div>
-          <div class="api-tutorial">
-            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
-              📖 如何获取 API Key？<span class="api-tutorial-arrow">▼</span>
-            </div>
-            <div class="api-tutorial-content">
-              <div class="api-tutorial-step">
-                <strong>1. 注册 DeepSeek 账号</strong>
-                <p>访问 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>，注册并登录</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>2. 充值余额</strong>
-                <p>进入「费用」页面，充值少量金额（几块钱即可，Flash 模型很便宜）</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>3. 创建 API Key</strong>
-                <p>进入「API Keys」页面，点击「创建 API Key」，复制生成的密钥</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>4. 粘贴到上方</strong>
-                <p>将复制的 Key 粘贴到上方「API Key」输入框，点击保存即可</p>
-              </div>
-              <div class="api-tutorial-note">
-                💡 DeepSeek V4 Flash 每篇文章不到 ¥0.01，非常便宜。<br>
-                也支持其他兼容 OpenAI 协议的服务（如 OpenRouter、硅基流动等），修改 Base URL 和模型名称即可。
-              </div>
-            </div>
-          </div>
-        </div>
+        </section>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">联网检索</h2>
-          <p class="settings-desc">首页 Agent 查询最新资讯或感兴趣的话题时使用联网检索；DeepSeek 原生联网无需额外 Key，Tavily 为可选方案。</p>
-          <div class="form-group">
-            <label for="settingsWebResearchMode">联网检索方式</label>
-            <select id="settingsWebResearchMode" onchange="SettingsView.onWebResearchModeChange()">
-              <option value="deepseek_native" ${Config.get('web_research_mode') === 'deepseek_native' ? 'selected' : ''}>DeepSeek 原生联网（推荐，无需额外 Key）</option>
-              <option value="tavily" ${Config.get('web_research_mode') === 'tavily' ? 'selected' : ''}>Tavily 联网检索（需要 Tavily Key）</option>
-              <option value="off" ${Config.get('web_research_mode') === 'off' ? 'selected' : ''}>关闭联网检索</option>
-            </select>
-            <p id="webResearchModeStatus" class="settings-form-status" role="status"></p>
-          </div>
-          <button type="button" class="btn btn-outline btn-sm" id="settingsNativeTestBtn" onclick="SettingsView.testDeepSeekNativeConnection()">测试 DeepSeek 原生联网</button>
-          <p id="deepSeekNativeStatus" class="settings-form-status" role="status"></p>
-          <div class="api-tutorial">
-            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
-              📖 DeepSeek 原生联网说明<span class="api-tutorial-arrow">▼</span>
-            </div>
-            <div class="api-tutorial-content">
-              <div class="api-tutorial-step">
-                <strong>使用条件</strong>
-                <p>模型必须为 deepseek-v4-flash 且 Base URL 为 DeepSeek 官方地址；v4-pro 暂不支持原生联网。</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>工作原理</strong>
-                <p>首页对话走 DeepSeek Responses API，由服务端自动执行联网搜索并返回真实来源，使用你现有的 DeepSeek Key，不需要额外注册。</p>
-              </div>
-              <div class="api-tutorial-note">
-                💡 选择 Tavily 方式时需要在下方填写 Tavily Key；两种方式切换后立即生效，随时可以换回。
+        <section class="settings-grouped-list" aria-label="更多设置">
+          <details class="settings-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-file-pen" aria-hidden="true"></i></span>
+              <span><strong>真题练习</strong><small>点词翻译 ${examWordLookupEnabled ? '已开启' : '已关闭'}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body">
+              <div class="settings-switch-row">
+                <div class="settings-switch-copy"><strong>做题时点词翻译</strong><span>控制作答过程中的英文点词查词；提交后查看解析时始终可用。</span></div>
+                <label class="settings-switch-control">
+                  <span class="sr-only">做题时点词翻译</span>
+                  <input id="settingsExamWordLookup" type="checkbox" role="switch" aria-checked="${examWordLookupEnabled ? 'true' : 'false'}" ${examWordLookupEnabled ? 'checked' : ''}>
+                  <b id="settingsExamWordLookupState">${examWordLookupEnabled ? '开' : '关'}</b>
+                </label>
               </div>
             </div>
-          </div>
-          <div class="tavily-fields" id="tavilyFields">
-          <div class="form-group">
-            <label for="settingsTavilyKey">Tavily API Key</label>
-            <div class="tavily-key-row">
-              <input type="password" id="settingsTavilyKey" value="${esc(Config.get('tavily_api_key'))}" placeholder="tvly-..." autocomplete="off">
-              <button type="button" class="btn btn-outline btn-sm" id="tavilyKeyToggle" onclick="SettingsView.toggleTavilyKeyVisibility()">显示</button>
-            </div>
-            <p id="tavilyConnectionStatus" class="settings-form-status" role="status"></p>
-          </div>
-          <button type="button" class="btn btn-outline btn-sm" onclick="SettingsView.testTavilyConnection()">测试连接</button>
-          <div class="api-tutorial">
-            <div class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">
-              📖 如何获取 Tavily API Key？<span class="api-tutorial-arrow">▼</span>
-            </div>
-            <div class="api-tutorial-content">
-              <div class="api-tutorial-step">
-                <strong>1. 注册 Tavily</strong>
-                <p>访问 <a href="https://tavily.com" target="_blank" rel="noopener">tavily.com</a>，注册并登录</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>2. 创建 API Key</strong>
-                <p>进入 API Keys 页面，点击「Create API Key」，复制以 tvly- 开头的密钥</p>
-              </div>
-              <div class="api-tutorial-step">
-                <strong>3. 粘贴并测试</strong>
-                <p>把密钥粘贴到上方，点击「测试连接」，确认可用后点「保存设置」</p>
-              </div>
-              <div class="api-tutorial-note">
-                💡 Tavily 只用于联网检索，会产生 Tavily 服务用量，免费额度与价格以 Tavily 官网为准。Key 仅保存在本机安全存储，不会写入文章或对话记录。
-              </div>
-            </div>
-          </div>
-        </div>
-        </div>
+          </details>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">🗂 标题翻译缓存</h2>
-          <p class="settings-desc">阅读列表的中文标题会保存在本机；最多保留 300 条。</p>
-          <div id="titleTranslationCacheInfo" class="audio-cache-info">加载中...</div>
-          <button class="btn btn-outline btn-sm" onclick="SettingsView.clearTitleTranslationCache()" style="margin-top:8px">清除缓存</button>
-        </div>
+          <details class="settings-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-sun" aria-hidden="true"></i></span>
+              <span><strong>外观</strong><small>${currentTheme === 'dark' ? '暗黑模式' : '亮色模式'}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body">
+              <div class="settings-theme-grid">
+                <label class="settings-choice"><input type="radio" name="theme" value="light" ${currentTheme === 'light' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">亮色模式</span><span class="settings-choice-desc">温暖纸张与深色文字</span></span></label>
+                <label class="settings-choice"><input type="radio" name="theme" value="dark" ${currentTheme === 'dark' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">暗黑模式</span><span class="settings-choice-desc">低光环境更舒适</span></span></label>
+              </div>
+            </div>
+          </details>
 
-        <div class="settings-section">
-          <h2 class="settings-section-title">🔊 发音缓存</h2>
-          <p class="settings-desc">文章生成后自动缓存单词发音，离线也能播放</p>
-          <div id="audioCacheInfo" class="audio-cache-info">加载中...</div>
-          <button class="btn btn-outline btn-sm" onclick="SettingsView.clearAudioCache()" style="margin-top:8px">清除缓存</button>
-        </div>
+          <details class="settings-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+              <span><strong>AI 与模型</strong><small>${homeLearningResponseModeLabel} · ${modelOptions.includes(`value="${currentModel}" selected`) ? 'DeepSeek 预设模型' : '自定义模型'}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body settings-form-stack">
+              <fieldset class="settings-fieldset settings-home-learning-mode">
+                <legend>首页英语学习回答</legend>
+                <p>只影响首页里直接发送英文词句或“帮我看看这个”等学习请求；日报、文章生成、普通聊天和其他页面不受影响。</p>
+                <div class="settings-home-learning-grid">
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="ask" ${homeLearningResponseMode === 'ask' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">每次询问</span><span class="settings-choice-desc">先选择详细解析或互动教学</span></span></label>
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="detailed" ${homeLearningResponseMode === 'detailed' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认详细解析</span><span class="settings-choice-desc">一次展示完整解释</span></span></label>
+                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="guided" ${homeLearningResponseMode === 'guided' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认互动教学</span><span class="settings-choice-desc">分步理解、提示与练习</span></span></label>
+                </div>
+              </fieldset>
+              <div class="form-group"><label for="settingsApiKey">API Key</label><input type="password" id="settingsApiKey" value="${esc(Config.get('api_key'))}" placeholder="sk-..."></div>
+              <div class="form-group"><label for="settingsBaseUrl">Base URL</label><input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1"></div>
+              <div class="form-group">
+                <label for="settingsModelPreset">模型</label>
+                <div class="model-select"><select id="settingsModelPreset" onchange="SettingsView.onModelChange()">${modelOptions}<option value="custom" ${customModelSelected ? 'selected' : ''}>自定义模型</option></select><input type="text" id="settingsModelInput" value="${customModelSelected ? esc(currentModel) : ''}" placeholder="输入模型名称" style="display:${customModelSelected ? 'block' : 'none'}"></div>
+              </div>
+              <div class="api-tutorial">
+                <button type="button" class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">如何获取 API Key？<i class="fa-solid fa-chevron-down api-tutorial-arrow" aria-hidden="true"></i></button>
+                <div class="api-tutorial-content">
+                  <div class="api-tutorial-step"><strong>1. 注册 DeepSeek 账号</strong><p>访问 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>，注册并登录</p></div>
+                  <div class="api-tutorial-step"><strong>2. 充值余额</strong><p>进入「费用」页面，充值少量金额。</p></div>
+                  <div class="api-tutorial-step"><strong>3. 创建 API Key</strong><p>进入「API Keys」页面创建并复制密钥。</p></div>
+                  <div class="api-tutorial-step"><strong>4. 粘贴到上方</strong><p>将 Key 粘贴到上方输入框，点击保存即可。</p></div>
+                  <div class="api-tutorial-note">DeepSeek V4 Flash 每篇文章成本很低；也支持其他兼容 OpenAI 协议的服务，修改 Base URL 和模型名称即可。</div>
+                </div>
+              </div>
+            </div>
+          </details>
 
-        <div class="settings-actions">
-          <button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button>
-          <a href="#/chat" class="btn btn-outline">返回对话</a>
-        </div>
+          <details class="settings-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-globe" aria-hidden="true"></i></span>
+              <span><strong>联网检索</strong><small>${Config.get('web_research_mode') === 'off' ? '已关闭' : Config.get('web_research_mode') === 'tavily' ? 'Tavily' : 'DeepSeek 原生联网'}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body settings-form-stack">
+              <p class="settings-desc">首页 Agent 查询最新资讯或感兴趣的话题时使用联网检索；DeepSeek 原生联网无需额外 Key，Tavily 为可选方案。</p>
+              <div class="form-group">
+                <label for="settingsWebResearchMode">联网检索方式</label>
+                <select id="settingsWebResearchMode" onchange="SettingsView.onWebResearchModeChange()">
+                  <option value="deepseek_native" ${Config.get('web_research_mode') === 'deepseek_native' ? 'selected' : ''}>DeepSeek 原生联网（推荐，无需额外 Key）</option>
+                  <option value="tavily" ${Config.get('web_research_mode') === 'tavily' ? 'selected' : ''}>Tavily 联网检索（需要 Tavily Key）</option>
+                  <option value="off" ${Config.get('web_research_mode') === 'off' ? 'selected' : ''}>关闭联网检索</option>
+                </select>
+                <p id="webResearchModeStatus" class="settings-form-status" role="status"></p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" id="settingsNativeTestBtn" onclick="SettingsView.testDeepSeekNativeConnection()">测试 DeepSeek 原生联网</button>
+              <p id="deepSeekNativeStatus" class="settings-form-status" role="status"></p>
+              <div class="api-tutorial">
+                <button type="button" class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">DeepSeek 原生联网说明<i class="fa-solid fa-chevron-down api-tutorial-arrow" aria-hidden="true"></i></button>
+                <div class="api-tutorial-content">
+                  <div class="api-tutorial-step"><strong>使用条件</strong><p>模型必须为 deepseek-v4-flash 且 Base URL 为 DeepSeek 官方地址；v4-pro 暂不支持原生联网。</p></div>
+                  <div class="api-tutorial-step"><strong>工作原理</strong><p>首页对话走 DeepSeek Responses API，由服务端自动执行联网搜索并返回真实来源。</p></div>
+                  <div class="api-tutorial-note">选择 Tavily 方式时需要在下方填写 Tavily Key；两种方式可以随时切换。</div>
+                </div>
+              </div>
+              <div class="tavily-fields" id="tavilyFields">
+                <div class="form-group">
+                  <label for="settingsTavilyKey">Tavily API Key</label>
+                  <div class="tavily-key-row"><input type="password" id="settingsTavilyKey" value="${esc(Config.get('tavily_api_key'))}" placeholder="tvly-..." autocomplete="off"><button type="button" class="btn btn-outline btn-sm" id="tavilyKeyToggle" onclick="SettingsView.toggleTavilyKeyVisibility()">显示</button></div>
+                  <p id="tavilyConnectionStatus" class="settings-form-status" role="status"></p>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="SettingsView.testTavilyConnection()">测试连接</button>
+                <div class="api-tutorial">
+                  <button type="button" class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">如何获取 Tavily API Key？<i class="fa-solid fa-chevron-down api-tutorial-arrow" aria-hidden="true"></i></button>
+                  <div class="api-tutorial-content">
+                    <div class="api-tutorial-step"><strong>1. 注册 Tavily</strong><p>访问 <a href="https://tavily.com" target="_blank" rel="noopener">tavily.com</a>，注册并登录。</p></div>
+                    <div class="api-tutorial-step"><strong>2. 创建 API Key</strong><p>进入 API Keys 页面创建并复制以 tvly- 开头的密钥。</p></div>
+                    <div class="api-tutorial-step"><strong>3. 粘贴并测试</strong><p>把密钥粘贴到上方，测试可用后保存设置。</p></div>
+                    <div class="api-tutorial-note">Tavily 只用于联网检索；Key 仅保存在本机安全存储，不会写入文章或对话记录。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="settings-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-database" aria-hidden="true"></i></span>
+              <span><strong>存储与缓存</strong><small>离线词库、标题与发音缓存</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body settings-storage-stack">
+              <section>
+                <h3>离线词库与难度来源</h3>
+                <p class="settings-desc">核心词库、版本、来源、许可证和校验和随 APK 安装；个人学习证据、收藏和复习记录保存在本机 IndexedDB，与公共词库分离。</p>
+                <details class="settings-data-disclosure"><summary>查看当前数据与边界</summary><div class="settings-data-disclosure-body">
+                  <p><strong>通用与学术词层：</strong>NGSL 用于通用高频层，NAWL 用于学术词层，CEFR-J 仅作为 CEFR 参考层。</p>
+                  <p><strong>释义质量：</strong>只有经过来源、词性和常用中文学习义审核的词可离线直接显示；受限词可按需读取 Open English WordNet 的英文义项结构，中文仍走在线词典或 AI 临时回退。</p>
+                  <p><strong>目标考试导向：</strong>四级、六级、英语一和英语二用于设定练习方向；不使用未授权历年题干或“真题词表”。在取得可复现且获许可的同口径语料前，App 不把生成材料表述为真题等值。</p>
+                  <p class="text-muted">完整的版本、来源、许可证、署名和 SHA-256 校验和随安装包中的 <code>data/lexicon-manifest.json</code>、<code>data/oewn-artifact-manifest.json</code> 与 <code>data/lexicon-ATTRIBUTION.md</code> 一同发布。</p>
+                </div></details>
+              </section>
+              <section><h3>标题翻译缓存</h3><p class="settings-desc">阅读列表的中文标题会保存在本机；最多保留 300 条。</p><div id="titleTranslationCacheInfo" class="audio-cache-info">加载中...</div><button class="btn btn-outline btn-sm" onclick="SettingsView.clearTitleTranslationCache()">清除缓存</button></section>
+              <section><h3>发音缓存</h3><p class="settings-desc">文章生成后自动缓存单词发音，离线也能播放。</p><div id="audioCacheInfo" class="audio-cache-info">加载中...</div><button class="btn btn-outline btn-sm" onclick="SettingsView.clearAudioCache()">清除缓存</button></section>
+            </div>
+          </details>
+
+          <details class="settings-disclosure settings-diagnostic-disclosure">
+            <summary class="settings-disclosure-summary">
+              <span class="settings-disclosure-icon"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i></span>
+              <span><strong>问题排查</strong><small id="settingsDiagnosticSummary">${formatDiagnosticDetailStatus(diagnosticStatus)}</small></span>
+              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-disclosure-body settings-diagnostic-body">
+              <p class="settings-desc">基础日志正在记录并只保存在本机，用于定位卡顿、保存失败和网络异常；不会自动上传，也不会记录 API Key、完整对话或文章全文。</p>
+              <div class="settings-diagnostic-status" id="settingsDiagnosticStatus" role="status">
+                <span>日志数量</span><strong id="settingsDiagnosticCount">${diagnosticStatus.eventCount || 0}</strong>
+                <span>占用空间</span><strong id="settingsDiagnosticBytes">读取中…</strong>
+                <span>最近错误</span><strong id="settingsDiagnosticError">${esc(diagnosticStatus.lastError?.message || '暂无')}</strong>
+              </div>
+              <div class="settings-switch-row settings-diagnostic-switch-row">
+                <div class="settings-switch-copy"><strong>开启详细日志</strong><span id="settingsDiagnosticDetailHint">只在排查问题时临时开启，最多持续 30 分钟或 2000 条详细事件。</span></div>
+                <label class="settings-switch-control">
+                  <span class="sr-only">开启详细日志</span>
+                  <input id="settingsDiagnosticDetailed" type="checkbox" role="switch" aria-checked="${diagnosticStatus.detailed ? 'true' : 'false'}" ${diagnosticStatus.detailed ? 'checked' : ''}>
+                  <b id="settingsDiagnosticDetailedState">${diagnosticStatus.detailed ? '开' : '关'}</b>
+                </label>
+              </div>
+              <div class="settings-diagnostic-actions">
+                <button class="btn btn-outline btn-sm" id="settingsDiagnosticExport" type="button" onclick="SettingsView.exportDiagnosticLogs()">导出诊断日志</button>
+                <button class="btn btn-text btn-sm" id="settingsDiagnosticClear" type="button" onclick="SettingsView.clearDiagnosticLogs()">清除诊断日志</button>
+              </div>
+              <p id="settingsDiagnosticActionStatus" class="settings-form-status" role="status"></p>
+            </div>
+          </details>
+        </section>
+
+        <div class="settings-actions"><button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button></div>
       </section>`;
 
     document.querySelectorAll('input[name="theme"]').forEach(radio => {
@@ -305,16 +400,125 @@ export const SettingsView = {
       });
     });
 
+    const findInContainer = selector => typeof container.querySelector === 'function' ? container.querySelector(selector) : null;
+    const examWordLookupToggle = findInContainer('#settingsExamWordLookup');
+    examWordLookupToggle?.addEventListener('change', event => {
+      const enabled = Boolean(event.target.checked);
+      event.target.setAttribute('aria-checked', String(enabled));
+      const state = findInContainer('#settingsExamWordLookupState');
+      if (state) state.textContent = enabled ? '开' : '关';
+      void Config.set('exam_word_lookup_enabled', String(enabled));
+    });
+
     // Load cache info
     this.loadTitleTranslationCacheInfo();
     this.loadAudioCacheInfo();
     this.onWebResearchModeChange();
+    const diagnosticToggle = findInContainer('#settingsDiagnosticDetailed');
+    diagnosticToggle?.addEventListener('change', event => this.setDiagnosticDetail(event.target.checked));
+    void this.refreshDiagnosticStatus();
+  },
+
+  setDiagnosticDetail(enabled) {
+    const logger = diagnosticLogger();
+    if (enabled) logger?.enableDetailed?.();
+    else logger?.disableDetailed?.();
+    void this.refreshDiagnosticStatus();
+  },
+
+  async refreshDiagnosticStatus() {
+    const refreshToken = ++this._diagnosticRefreshToken;
+    const logger = diagnosticLogger();
+    const status = logger?.getStatus?.() || {
+      detailed: false,
+      detailedUntil: null,
+      detailedStopReason: null,
+      eventCount: 0,
+      lastError: null
+    };
+    const count = document.getElementById('settingsDiagnosticCount');
+    const bytes = document.getElementById('settingsDiagnosticBytes');
+    const error = document.getElementById('settingsDiagnosticError');
+    const summary = document.getElementById('settingsDiagnosticSummary');
+    const toggle = document.getElementById('settingsDiagnosticDetailed');
+    const toggleState = document.getElementById('settingsDiagnosticDetailedState');
+    if (count) count.textContent = String(status.eventCount);
+    if (error) error.textContent = status.lastError?.message || '暂无';
+    if (summary) summary.textContent = formatDiagnosticDetailStatus(status);
+    if (toggle) {
+      toggle.checked = status.detailed;
+      toggle.setAttribute('aria-checked', String(status.detailed));
+    }
+    if (toggleState) toggleState.textContent = status.detailed ? '开' : '关';
+    try {
+      const db = diagnosticDb();
+      if (!db?.getDiagnosticLogStats) throw new Error('诊断日志数据库未就绪');
+      const stats = await db.getDiagnosticLogStats();
+      if (refreshToken !== this._diagnosticRefreshToken) return;
+      const latestStatus = logger?.getStatus?.() || status;
+      if (count) count.textContent = String(Math.max(latestStatus.eventCount || 0, stats.count));
+      if (bytes) bytes.textContent = formatDiagnosticBytes(stats.bytes);
+      if (error) error.textContent = latestStatus.lastError?.message || '暂无';
+      if (summary) summary.textContent = formatDiagnosticDetailStatus(latestStatus);
+      if (toggle) {
+        toggle.checked = Boolean(latestStatus.detailed);
+        toggle.setAttribute('aria-checked', String(Boolean(latestStatus.detailed)));
+      }
+      if (toggleState) toggleState.textContent = latestStatus.detailed ? '开' : '关';
+    } catch {
+      if (refreshToken !== this._diagnosticRefreshToken) return;
+      if (bytes) bytes.textContent = '暂不可用';
+    }
+  },
+
+  async exportDiagnosticLogs() {
+    const button = document.getElementById('settingsDiagnosticExport');
+    const actionStatus = document.getElementById('settingsDiagnosticActionStatus');
+    if (button) button.disabled = true;
+    if (actionStatus) {
+      actionStatus.textContent = '正在整理本机诊断日志…';
+      actionStatus.className = 'settings-form-status';
+    }
+    try {
+      const logger = diagnosticLogger();
+      const exportModule = await import('../diagnostic-export.mjs');
+      const result = await exportModule.exportDiagnosticLogs({
+        logger,
+        app: {
+          version: globalThis.__ENGLISH_READER_VERSION || '2.0.0',
+          platform: globalThis?.Capacitor?.getPlatform?.() || 'web',
+          dbVersion: diagnosticDb()?.DB_VERSION
+        }
+      });
+      if (actionStatus) {
+        actionStatus.textContent = result.ok
+          ? (result.shared === false ? '已保存到本机缓存；系统分享不可用，可从下载结果中取得文件。' : `已导出：${result.fileName}`)
+          : `导出失败：${result.error}`;
+        actionStatus.className = `settings-form-status ${result.ok ? 'is-success' : 'is-error'}`;
+      }
+    } finally {
+      if (button) button.disabled = false;
+      void this.refreshDiagnosticStatus();
+    }
+  },
+
+  async clearDiagnosticLogs() {
+    if (!confirm('确定要清除本机诊断日志吗？这不会影响单词、文章、复习记录或日报。')) return;
+    const actionStatus = document.getElementById('settingsDiagnosticActionStatus');
+    await diagnosticLogger()?.clear?.();
+    if (actionStatus) {
+      actionStatus.textContent = '诊断日志已清除。';
+      actionStatus.className = 'settings-form-status is-success';
+    }
+    void this.refreshDiagnosticStatus();
   },
 
   // Handle model preset change
   onModelChange() {
-    const preset = document.getElementById('settingsModelPreset').value;
-    document.getElementById('settingsModelInput').style.display = preset === 'custom' ? 'block' : 'none';
+    const preset = document.getElementById('settingsModelPreset')?.value;
+    const input = document.getElementById('settingsModelInput');
+    if (input) input.style.display = preset === 'custom' ? 'block' : 'none';
+    Config.markModelSelectionExplicit();
   },
 
   // Update the web research mode hint and toggle the Tavily-only fields.
@@ -445,9 +649,12 @@ export const SettingsView = {
 
     Config.set('api_key', apiKey);
     Config.set('base_url', document.getElementById('settingsBaseUrl').value.trim() || 'https://api.deepseek.com/v1');
-    Config.set('model', model || 'deepseek-v4-flash');
+    Config.set('model', model || DEFAULT_DEEPSEEK_MODEL);
     Config.set('tavily_api_key', document.getElementById('settingsTavilyKey').value.trim());
     Config.set('web_research_mode', document.getElementById('settingsWebResearchMode')?.value || 'deepseek_native');
+    Config.set('home_learning_response_mode', normalizeHomeLearningResponseMode(
+      document.querySelector('input[name="homeLearningResponseMode"]:checked')?.value
+    ));
 
     const targetTrack = document.querySelector('input[name="targetTrack"]:checked')?.value;
     if (!normalizeSelectableTrack(targetTrack)) {

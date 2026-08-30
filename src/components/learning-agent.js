@@ -1,6 +1,8 @@
 import { buildReadingAnalytics } from '../reading-analytics.mjs';
+import { localDayKey } from '../learning-day.mjs';
 
 const clip = (value, limit) => String(value || '').slice(0, limit);
+const activeLearnWords = words => (Array.isArray(words) ? words : []).filter(word => word?.archivedAt == null);
 
 const articleMeta = article => ({
   id: article.id,
@@ -13,6 +15,74 @@ const articleMeta = article => ({
 });
 
 export const LEARNING_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_exam_learning_overview',
+      description: '只读查询真题练习表现、趋势和复习摘要。仅当用户明确提到某一年时传入 year；仅在明确提到四级或英语一时传入 bankId。',
+      parameters: { type: 'object', properties: { year: { type: 'integer', minimum: 2000, maximum: 2100 }, bankId: { type: 'string' } } }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_today_learning_report',
+      description: '只读查询今天本地日期的学习日报。日期由 App 自动确定，不需要也不接受日期参数；只返回本地有界学习事实。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_learner_profile',
+      description: '只读查询学习者基础档案和有界能力证据。用于回答当前水平、学习压力、难度依据以及适合巩固还是加压；配置中的目标覆盖率和新词比例只是材料目标，不代表实际掌握率。无参数。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_daily_learning_report',
+      description: '只读查询指定本地日期的学习日报。数据来自本机学习记录，可能标记为部分可用或不可用；若该日期已有保存的智能分析会一并返回，但不会因缺少分析主动发起 AI 请求；不包含完整文章、试卷或对话内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '本地日期 YYYY-MM-DD' }
+        },
+        required: ['date'],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_recent_learning_reports',
+      description: '只读列出最近的本地学习日报摘要。结果最多 30 条，历史数据可能部分可用或已过期。',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'integer', minimum: 1, maximum: 30 } },
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_learning_activity_detail',
+      description: '只读查看指定本地日期和类别的有界学习活动明细。仅返回元数据，可能部分可用；不返回完整文章、题目、答案或对话。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          category: { type: 'string', enum: ['vocabulary', 'lookup', 'reading', 'review', 'exam'] },
+          limit: { type: 'integer', minimum: 1, maximum: 100 }
+        },
+        required: ['date', 'category'],
+        additionalProperties: false
+      }
+    }
+  },
   {
     type: 'function',
     function: {
@@ -55,22 +125,126 @@ export const LEARNING_TOOLS = [
   }
 ];
 
+const DAILY_REPORT_CATEGORIES = new Set(['vocabulary', 'lookup', 'reading', 'review', 'exam']);
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const RECENT_REPORT_STATUSES = new Set(['available', 'empty', 'partial', 'unavailable']);
+
+function dateArg(args = {}) {
+  const date = String(args.date || args.dateKey || '').trim();
+  if (!DATE_PATTERN.test(date)) throw new TypeError('日报日期必须为 YYYY-MM-DD');
+  return date;
+}
+
 export class LearningAgent {
-  constructor({ db, srs, examCorpus = null, targetTrack = () => '', now = () => Date.now() }) {
+  constructor({ db, srs, examCorpus = null, examLearningProvider = null, dailyReportProvider = null, learnerProfileProvider = null, targetTrack = () => '', now = () => Date.now() }) {
     this.db = db;
     this.srs = srs;
     this.examCorpus = examCorpus;
+    this.examLearningProvider = examLearningProvider;
+    this.dailyReportProvider = dailyReportProvider;
+    this.learnerProfileProvider = learnerProfileProvider;
     this.targetTrack = targetTrack;
     this.now = now;
   }
 
   async execute(name, args = {}) {
     if (name === 'get_learning_overview') return this.getLearningOverview();
+    if (name === 'get_exam_learning_overview') return this.getExamLearningOverview(args);
     if (name === 'find_learning_words') return this.findLearningWords(args.query);
     if (name === 'list_saved_articles') return this.listSavedArticles(args);
     if (name === 'get_review_queue') return this.getReviewQueue();
     if (name === 'get_exam_learning_priorities') return this.getExamLearningPriorities();
+    if (name === 'get_today_learning_report') return this.getTodayLearningReport();
+    if (name === 'get_learner_profile') return this.getLearnerProfile();
+    if (name === 'get_daily_learning_report') return this.getDailyLearningReport(args);
+    if (name === 'list_recent_learning_reports') return this.listRecentLearningReports(args);
+    if (name === 'get_learning_activity_detail') return this.getLearningActivityDetail(args);
     throw new Error('Tool not allowed: ' + name);
+  }
+
+  unavailableDailyResult(source = 'daily_learning_report') {
+    return { source, status: 'unavailable', completeness: 'unavailable', reports: [], items: [] };
+  }
+
+  async getDailyLearningReport(args = {}) {
+    const dateKey = dateArg(args);
+    if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
+    return this.dailyReportProvider.getOrCreate(dateKey);
+  }
+
+  async getTodayLearningReport() {
+    const dateKey = localDayKey(this.now());
+    if (!this.dailyReportProvider?.getOrCreate) return { ...this.unavailableDailyResult(), dateKey };
+    return this.dailyReportProvider.getOrCreate(dateKey);
+  }
+
+  unavailableLearnerProfile() {
+    return {
+      source: 'learner_profile',
+      status: 'unavailable',
+      learnerSettings: {
+        targetExam: { id: null, label: null },
+        readingPressure: { configuredMode: null, configuredLabel: null, effectiveStrategy: null, coverageRange: null },
+        calibration: { status: 'unknown', stage: 'unknown', completed: false, assessmentDate: null },
+        configuredTargets: { targetCoveragePercent: null, newWordPercent: null, meaning: '材料目标配置，不是实际掌握率或词汇量测量。' }
+      },
+      abilityEvidence: {
+        status: 'insufficient',
+        knowledgeProfileReadStatus: 'unavailable',
+        hasValidEvidence: false,
+        hasSufficientValidEvidence: false,
+        frequencyBands: [],
+        recentDifficultyFeedback: null
+      }
+    };
+  }
+
+  async getLearnerProfile() {
+    if (typeof this.learnerProfileProvider?.getProfile !== 'function') return this.unavailableLearnerProfile();
+    try {
+      const result = await this.learnerProfileProvider.getProfile();
+      return result && typeof result === 'object' ? result : this.unavailableLearnerProfile();
+    } catch {
+      return this.unavailableLearnerProfile();
+    }
+  }
+
+  async listRecentLearningReports(args = {}) {
+    const limit = Math.max(1, Math.min(30, Math.trunc(Number(args.limit) || 30)));
+    if (!this.dailyReportProvider?.listRecent) return { source: 'recent_learning_reports', status: 'unavailable', reports: [] };
+    let result;
+    try {
+      result = await this.dailyReportProvider.listRecent(limit);
+    } catch {
+      return { source: 'recent_learning_reports', status: 'unavailable', reports: [] };
+    }
+
+    const isLegacyArray = Array.isArray(result);
+    const reports = (isLegacyArray ? result : Array.isArray(result?.reports) ? result.reports : []).slice(0, 30);
+    const providerStatus = !isLegacyArray && typeof result?.status === 'string' ? result.status : '';
+    const status = RECENT_REPORT_STATUSES.has(providerStatus)
+      ? providerStatus
+      : reports.length ? 'available' : isLegacyArray ? 'empty' : 'unavailable';
+    return { source: 'recent_learning_reports', status, reports };
+  }
+
+  async getLearningActivityDetail(args = {}) {
+    const dateKey = dateArg(args);
+    const category = String(args.category || '').trim();
+    if (!DAILY_REPORT_CATEGORIES.has(category)) throw new TypeError('学习活动详情类别无效');
+    const limit = Math.max(1, Math.min(100, Math.trunc(Number(args.limit) || 20)));
+    if (!this.dailyReportProvider?.getActivityDetail) return { source: 'learning_activity_detail', status: 'unavailable', dateKey, category, items: [] };
+    return this.dailyReportProvider.getActivityDetail({ dateKey, category, limit });
+  }
+
+  async getExamLearningOverview({ year, bankId } = {}) {
+    if (!this.examLearningProvider?.getOverview) {
+      return { source: 'exam_learning_overview', status: 'unavailable', availableYears: [], recentAttempts: [], wrongSummary: [] };
+    }
+    const query = { recentLimit: 5, wrongLimit: 5 };
+    if (Number.isInteger(Number(year))) query.year = Number(year);
+    if (typeof bankId === 'string' && bankId.trim()) query.bankId = bankId.trim();
+    return this.examLearningProvider.getOverview(query);
   }
 
   async getLearningOverview() {
@@ -79,12 +253,13 @@ export class LearningAgent {
       this.db.getAllArticles(),
       this.db.getAllReadingStats()
     ]);
+    const activeWords = activeLearnWords(words);
     const reading = buildReadingAnalytics({ articles, readingStats: stats, now: this.now() });
     return {
       source: 'learning_overview',
       totals: {
-        words: words.length,
-        due: this.srs.getDueCount(words),
+        words: activeWords.length,
+        due: this.srs.getDueCount(activeWords),
         favorites: articles.filter(article => article.favorite).length,
         libraryArticles: reading.libraryArticleCount,
         effectiveReadings: reading.effectiveReadingCount,
@@ -97,7 +272,7 @@ export class LearningAgent {
 
   async findLearningWords(query = '') {
     const needle = String(query).trim().toLowerCase();
-    const words = (await this.db.getAllLearnWords())
+    const words = activeLearnWords(await this.db.getAllLearnWords())
       .filter(word => !needle || String(word.word || '').toLowerCase().includes(needle) || String(word.translation || '').includes(needle))
       .slice(0, 20)
       .map(word => ({
@@ -119,7 +294,7 @@ export class LearningAgent {
   }
 
   async getReviewQueue() {
-    const words = this.srs.getDueWords(await this.db.getAllLearnWords())
+    const words = this.srs.getDueWords(activeLearnWords(await this.db.getAllLearnWords()))
       .slice(0, 20)
       .map(word => ({
         word: word.word,
@@ -135,7 +310,7 @@ export class LearningAgent {
     if (!targetTrack || !this.examCorpus?.lookup) {
       return { source: 'exam_learning_priorities', targetTrack, status: 'unavailable', highFrequencyUnmastered: [], duePriorityWords: [] };
     }
-    const words = await this.db.getAllLearnWords();
+    const words = activeLearnWords(await this.db.getAllLearnWords());
     const dueIds = new Set(this.srs.getDueWords(words).map(word => word.id));
     const rows = (await Promise.all(words.map(async word => {
       if (this.srs.getStatus(word) === 'stable') return null;

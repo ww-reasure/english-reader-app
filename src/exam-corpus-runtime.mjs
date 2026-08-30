@@ -72,6 +72,17 @@ export function createExamCorpusService({ fetchFn = globalThis.fetch, dataUrl = 
   return Object.freeze({
     loadIndexArtifact,
 
+    async preload(targetTrack) {
+      const track = corpusTrackForTarget(targetTrack);
+      if (!track) return false;
+      try {
+        await loadIndex();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
     async lookup(word, targetTrack) {
       try {
         return (await loadIndex()).lookup(word, targetTrack);
