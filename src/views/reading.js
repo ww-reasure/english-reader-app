@@ -25,7 +25,7 @@ import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.m
 import { SentenceGuide } from '../components/sentence-guide.js';
 import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
-import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
+import { bindLearningTextLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
 import { splitSentences } from '../components/sentence-selection.mjs';
 import { localDayKey } from '../learning-day.mjs';
@@ -800,10 +800,10 @@ export const ReadingView = {
     return `
       <div class="reading-title-row">
         <div id="readingTitleLookup" class="reading-title-lookup">
-          <h1 class="reading-title" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
+          <h1 class="reading-title" data-learning-text="click" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
           ${titleZh ? `<div class="reading-title-translation">
             <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
-            <p class="zh-paragraph reading-title-zh" style="display:none">${esc(titleZh)}</p>
+            <p class="zh-paragraph reading-title-zh" data-word-lookup="disabled" style="display:none">${esc(titleZh)}</p>
           </div>` : ''}
         </div>
       </div>`;
@@ -1020,9 +1020,9 @@ export const ReadingView = {
       const paraHTML = this._renderParagraphContent(i);
       parasHTML += `
         <div class="paragraph-pair" data-paragraph-index="${i}">
-          <p class="en-paragraph">${paraHTML}</p>
+          <p class="en-paragraph" data-learning-text="click">${paraHTML}</p>
           <button class="btn-paragraph-translate" data-paragraph-index="${i}" onclick="ReadingView.toggleParagraph(this)">译</button>
-          ${hasTranslation ? `<p class="zh-paragraph" style="display:none">${esc(zhText.trim())}</p>` : ''}
+          ${hasTranslation ? `<p class="zh-paragraph" data-word-lookup="disabled" style="display:none">${esc(zhText.trim())}</p>` : ''}
         </div>`;
     });
 
@@ -1186,7 +1186,7 @@ export const ReadingView = {
     const articleTrack = resolveArticleTrack(this.articleData || {});
 
     const lookupRoot = this.container?.querySelector('.reading-container') || articleBody || titleLookupHost;
-    this._wordLookupCleanup = bindReadingStyleWordLookup({
+    this._wordLookupCleanup = bindLearningTextLookup({
       root: lookupRoot,
       getContextSentence: event => this.getLookupSentence(event) || (event.target.closest?.('#readingTitleLookup') ? this.articleData?.title || '' : ''),
       getTargetTrack: () => articleTrack.targetTrack,
@@ -1329,7 +1329,7 @@ export const ReadingView = {
           <button class="modal-close" type="button" onclick="ReadingView.closeSentenceGuide()" aria-label="关闭逐句导读">×</button>
         </header>
         <div class="sentence-guide-body">
-          <p class="sentence-guide-source">${this._renderGuideSource(current.sentence)}</p>
+          <p class="sentence-guide-source" data-learning-text="click">${this._renderGuideSource(current.sentence)}</p>
           ${status}
         </div>
         <footer class="sentence-guide-actions">
@@ -1341,7 +1341,7 @@ export const ReadingView = {
 
     const source = overlay.querySelector?.('.sentence-guide-source');
     if (source) {
-      this._guideWordLookupCleanup = bindReadingStyleWordLookup({
+      this._guideWordLookupCleanup = bindLearningTextLookup({
         root: source,
         surface: 'guide',
         getContextSentence: () => current.sentence,

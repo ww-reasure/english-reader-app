@@ -8,7 +8,7 @@ import { Config } from '../config.js';
 import { DIFFICULTY_LABELS, esc, getStemForm } from '../helpers.js';
 import { API } from '../api.js';
 import { Tooltip } from '../components/tooltip.js';
-import { Dictionary } from '../dictionary.js';
+import { bindLearningTextLookup } from '../components/reading-word-lookup.js';
 import { AudioCache } from '../audio-cache.js';
 import { Modal } from '../components/modal.js';
 import { buildReadingProfile } from '../reading-profile.mjs';
@@ -291,14 +291,14 @@ ${formatProfileConstraints(profile)}
 
         <div class="reading-container">
           <div class="reading-header">
-            <h1 class="reading-title">${esc(article.title)}</h1>
+            <h1 class="reading-title" data-learning-text="click">${esc(article.title)}</h1>
             <div class="reading-meta">
               <span class="badge badge-${article.difficulty}">${DIFFICULTY_LABELS[article.difficulty]}（${levelLabel}）</span>
               <span class="meta-item">${article.wordCount} 词</span>
             </div>
             <div class="reading-hint">📖 遇到不认识的单词，点击查看翻译</div>
           </div>
-          <div id="articleBody" class="article-body">${parasHTML}</div>
+          <div id="articleBody" class="article-body assessment-article" data-learning-text="click">${parasHTML}</div>
         </div>
 
         <div class="assessment-reading-footer">
@@ -318,63 +318,26 @@ ${formatProfileConstraints(profile)}
     const articleBody = document.getElementById('articleBody');
     if (!articleBody) return;
 
-    // 先移除上一篇残留的 document 级监听(读第2篇会再次进入此函数, 否则累积泄漏)
-    if (this._globalClickHandler) document.removeEventListener('click', this._globalClickHandler);
+    // 第二篇文章会复用同一视图，先释放上一篇的委托监听。
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = null;
     if (this._audioClickHandler) document.removeEventListener('click', this._audioClickHandler);
-    if (this._tooltipDismissCleanup) this._tooltipDismissCleanup();
 
-    // Global click handler: dismiss tooltip when clicking outside
-    this._globalClickHandler = (e) => {
-      const tooltip = document.getElementById('wordTooltip');
-      if (!tooltip || tooltip.style.display === 'none') return;
-      // Don't dismiss if clicking on tooltip itself (buttons etc.)
-      if (tooltip.contains(e.target)) return;
-      Tooltip.hide();
-    };
-    document.addEventListener('click', this._globalClickHandler);
-    this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
-
-    articleBody.addEventListener('click', async (e) => {
-      const tooltip = document.getElementById('wordTooltip');
-      // 阅读控件和 tooltip 内点击不进入基于 caret 的查词逻辑
-      if (tooltip?.contains(e.target) || e.target.closest('button, a, input, textarea, select, [role="button"]')) return;
-
-      // 卡片打开时，正文第一次点击只负责收起，不立即查询其他单词。
-      if (Tooltip.isVisible()) {
-        e.stopPropagation();
-        Tooltip.hide();
-        return;
-      }
-
-      const word = Tooltip.getWordAtPoint(e);
-      if (!word || word.length < 2) return;
-
-      // Stop propagation so global handler doesn't immediately hide the new tooltip
-      e.stopPropagation();
-
-      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
-
-      try {
-        const data = await Dictionary.lookup(word);
-        const shown = await Tooltip.show(lookupId, e.clientX, e.clientY, data);
-        if (!shown) return;
-
-        // Track clicked words for assessment
+    this._wordLookupCleanup = bindLearningTextLookup({
+      root: this.container.querySelector('.reading-container') || articleBody,
+      onShown: ({ word, data }) => {
         const stem = getStemForm(word.toLowerCase());
-        const alreadyClicked = this.state.clickedWords.some(w => w.stem === stem);
+        const alreadyClicked = this.state.clickedWords.some(item => item.stem === stem);
         if (!alreadyClicked) {
           this.state.clickedWords.push({
             word: word.toLowerCase(),
-            stem: stem,
+            stem,
             freqLevel: data.freqLevel || 'unknown',
             articleIndex: this.state.currentArticle
           });
-          // Update counter
           const counter = document.getElementById('clickCount');
           if (counter) counter.textContent = this.state.clickedWords.length;
         }
-      } catch {
-        if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
       }
     });
 
@@ -400,17 +363,11 @@ ${formatProfileConstraints(profile)}
       this.state.generationController = null;
       this.state.assessmentRunId += 1;
     }
-    if (this._globalClickHandler) {
-      document.removeEventListener('click', this._globalClickHandler);
-      this._globalClickHandler = null;
-    }
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = null;
     if (this._audioClickHandler) {
       document.removeEventListener('click', this._audioClickHandler);
       this._audioClickHandler = null;
-    }
-    if (this._tooltipDismissCleanup) {
-      this._tooltipDismissCleanup();
-      this._tooltipDismissCleanup = null;
     }
     Tooltip.hide();
   },

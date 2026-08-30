@@ -26,7 +26,7 @@ test('Review Center groups by unit and allows autonomous review with full detail
   assert.match(source, /startReviewCenterAttempt/);
   assert.match(source, /review_center_manual/);
   assert.match(source, /data-review-question-detail/);
-  assert.match(source, /bindReadingStyleWordLookup/);
+  assert.match(source, /bindLearningTextLookup/);
   assert.match(source, /翻译/);
 });
 

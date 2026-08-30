@@ -65,7 +65,7 @@ export function renderFocusedWordStudyExample({ examples, index = 0, targetWord 
       <span class="flashcard-focused-source"><i class="fa-solid fa-book-open" aria-hidden="true"></i>${esc(focusedExampleSourceLabel(example))}</span>
       <button class="example-translate-btn flashcard-focused-translate" type="button" data-example-translate="${sourceIndex}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''}>译</button>
     </div>
-    <p class="word-study-example-text flashcard-example-text flashcard-focused-sentence" data-example-text>${renderHighlightedWordStudySentence(example.sentenceEn, targetWord)}</p>
+    <p class="word-study-example-text flashcard-example-text flashcard-focused-sentence" data-example-text data-learning-text="click">${renderHighlightedWordStudySentence(example.sentenceEn, targetWord)}</p>
     <div class="example-translation flashcard-focused-translation" data-example-translation="${sourceIndex}"></div>
     ${sourceDetails ? `<p class="flashcard-focused-example-source">${esc(sourceDetails)}</p>` : ''}
     <div class="flashcard-focused-pagination" aria-label="例句分页">

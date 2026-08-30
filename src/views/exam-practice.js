@@ -7,7 +7,7 @@ import { ExamTutorDialog } from '../exam/exam-tutor-dialog.js';
 import { SelectableTextActions } from '../exam/selectable-text-actions.mjs';
 import { Tooltip } from '../components/tooltip.js';
 import { Dictionary } from '../dictionary.js';
-import { bindReadingStyleWordLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
+import { bindLearningTextLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { esc } from '../helpers.js';
 import { Config } from '../config.js';
 import { SNAP_ORDER, SNAP_HEIGHTS, closestSnap, isFinalPracticeQuestion } from '../exam/practice-ui.mjs';
@@ -25,6 +25,21 @@ const AUTOSAVE_MS = 500;
 
 function diagnosticLogger() {
   return globalThis.__englishReaderDiagnosticLogger || null;
+}
+
+export function markExamLearningTextSurfaces(root) {
+  if (!root?.querySelectorAll) return;
+  const disabledSources = [
+    'option_translations',
+    'option_analysis',
+    'question_translation',
+    'evidence_translation',
+    'user_translation',
+    'reference_translation'
+  ];
+  disabledSources.forEach(source => root.querySelectorAll(`[data-selection-source="${source}"]`).forEach(node => node.setAttribute('data-word-lookup', 'disabled')));
+  root.querySelectorAll('[data-selection-source="passage"]:not(button), [data-selection-source="question"]:not(button), [data-selection-source="translation_source"]:not(button), [data-selection-source="location"], [data-selection-source="evidence"], [data-selection-source="explanation"], [data-selection-source="local_analysis"], .exam-question-stem').forEach(node => node.setAttribute('data-learning-text', 'click'));
+  root.querySelectorAll('.exam-option, .exam-original-options li').forEach(node => node.setAttribute('data-learning-text', 'longpress'));
 }
 
 const examTypeKey = unit => unit?.type === 'matching' && unit.matchingVariant
@@ -422,7 +437,7 @@ export const ExamPracticeView = {
 
   bindExamWordLookup() {
     this._wordLookupCleanup?.();
-    this._wordLookupCleanup = bindReadingStyleWordLookup({
+    this._wordLookupCleanup = bindLearningTextLookup({
       root: this.container,
       getContextSentence: event => getContextSentenceAtPoint(event, this.container),
       getTargetTrack: () => this.paper?.targetTrack || (this.attempt?.examId === 'cet4' ? 'cet4' : this.attempt?.examId === 'kaoyan_en1' ? 'kaoyan1' : ''),
@@ -970,6 +985,7 @@ export const ExamPracticeView = {
       });
     });
     this.articleInner.querySelector('#examOverflowBtn')?.addEventListener('click', () => this.showExitModal());
+    markExamLearningTextSurfaces(this.articleInner);
   },
 
   updateSheetStatus() {
@@ -1021,6 +1037,7 @@ export const ExamPracticeView = {
     this.sheetBody.querySelectorAll('[data-key]').forEach(button => {
       button.addEventListener('click', () => this.selectAnswer(button.dataset.key));
     });
+    markExamLearningTextSurfaces(this.sheetBody);
     this.uncertainBtn.classList.toggle('is-active', Boolean(response?.uncertain));
     this.uncertainBtn.textContent = response?.uncertain ? '? 已标记' : '? 不确定';
     this.updateSheetStatus();
@@ -1054,6 +1071,7 @@ export const ExamPracticeView = {
       this.sheetBody.querySelector('#examTranslationTutorScore')?.addEventListener('click', () => this.scoreTranslationTutor());
       this.sheetBody.querySelector('#examTranslationTutorContinue')?.addEventListener('click', () => this.openTranslationTutor());
       this.updateTranslationReview();
+      markExamLearningTextSurfaces(this.sheetBody);
       return;
     }
     const correctAnswer = response?.correctOptionKeyAtSubmit || question.answer;
@@ -1068,6 +1086,7 @@ export const ExamPracticeView = {
     this.sheetBody.querySelectorAll('.exam-jump-evidence').forEach(button => {
       button.addEventListener('click', () => this.jumpToEvidence(button.dataset.location));
     });
+    markExamLearningTextSurfaces(this.sheetBody);
     this.updateExplanationActions();
   },
 

@@ -25,7 +25,7 @@ test('reading title and body delegate to the shared Tooltip and Dictionary looku
 
   assert.match(source, /id="readingTitleLookup"/);
   assert.match(source, /const titleLookupHost = document\.getElementById\('readingTitleLookup'\);/);
-  assert.match(source, /bindReadingStyleWordLookup\(\{/);
+  assert.match(source, /bindLearningTextLookup\(\{/);
   assert.match(source, /getContextSentence: event => this\.getLookupSentence\(event\) \|\| \(event\.target\.closest\?\.\('#readingTitleLookup'/);
   assert.match(source, /getTargetTrack: \(\) => articleTrack\.targetTrack/);
   assert.match(lookupSource, /if \((?:Tooltip|tooltipApi)\.isVisible\(\)\) \{[\s\S]*?hide\(\);[\s\S]*?return;/);

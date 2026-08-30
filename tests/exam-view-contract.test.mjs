@@ -145,7 +145,7 @@ test('draft and submitted explanation reuse the shared reading-style word lookup
     readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reading-word-lookup.js', import.meta.url), 'utf8')
   ]);
-  assert.match(practiceSource, /bindReadingStyleWordLookup/);
+  assert.match(practiceSource, /bindLearningTextLookup/);
   assert.ok((practiceSource.match(/this\.bindExamWordLookup\(\)/g) || []).length >= 2);
   assert.match(practiceSource, /id="wordTooltip" class="word-tooltip"/);
   assert.match(lookupSource, /(?:Tooltip|tooltipApi)\.beginLookup/);

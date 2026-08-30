@@ -55,20 +55,20 @@ export function renderGuidedLearningCard(value) {
   const canAdvance = step.kind === 'explain' || (step.kind === 'choice' && answer?.correct) || (step.kind === 'free_response' && answer?.correct);
   const progress = Math.round(((session.currentStepIndex + 1) / session.steps.length) * 100);
   if (session.status === 'completed') {
-    return `<section class="guided-learning-card is-completed" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" aria-label="互动教学已完成">
+    return `<section class="guided-learning-card is-completed" data-learning-text="click" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" aria-label="互动教学已完成">
       <header><span class="guided-learning-kicker">INTERACTIVE LESSON</span><strong>${text(session.target.title)}</strong></header>
       <div class="guided-learning-complete"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><h3>这一小节完成了</h3><p>${text(session.closingSummary)}</p></div>
       <div class="guided-learning-actions"><button type="button" data-guided-action="restart">重新浏览</button><button type="button" data-guided-action="detailed">查看详细解析</button></div>
     </section>`;
   }
   if (session.status === 'paused') {
-    return `<section class="guided-learning-card is-paused" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" aria-label="互动教学已暂停">
+    return `<section class="guided-learning-card is-paused" data-learning-text="click" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" aria-label="互动教学已暂停">
       <header><span class="guided-learning-kicker">INTERACTIVE LESSON</span><strong>${text(session.target.title)}</strong></header>
       <p class="guided-learning-paused-copy">已停在第 ${session.currentStepIndex + 1} 步，进度会保留。</p>
       <div class="guided-learning-actions"><button type="button" data-guided-action="resume">继续学习</button><button type="button" data-guided-action="detailed">查看详细解析</button></div>
     </section>`;
   }
-  return `<section class="guided-learning-card" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" data-guided-step-id="${esc(step.id)}" aria-label="互动教学：${esc(session.target.title)}">
+  return `<section class="guided-learning-card" data-learning-text="click" data-guided-session-id="${esc(session.id)}" data-guided-revision="${session.revision}" data-guided-step-id="${esc(step.id)}" aria-label="互动教学：${esc(session.target.title)}">
     <header><div><span class="guided-learning-kicker">INTERACTIVE LESSON</span><strong>${text(session.target.title)}</strong></div><span class="guided-learning-count">${session.currentStepIndex + 1} / ${session.steps.length}</span></header>
     <div class="guided-learning-progress" aria-hidden="true"><span style="width:${progress}%"></span></div>
     <blockquote>${text(session.target.text)}</blockquote>

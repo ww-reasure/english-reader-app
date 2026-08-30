@@ -7,7 +7,7 @@ const sourceUrl = new URL('../src/components/ai-analysis.js', import.meta.url);
 async function loadAIAnalysis(mocks) {
   const source = await readFile(sourceUrl, 'utf8');
   const imports = `
-    const { Tooltip, API, Dictionary, esc, debounce, SentenceAnalysisCache, Config, Modal,
+    const { Tooltip, API, Dictionary, bindLearningTextLookup, esc, debounce, SentenceAnalysisCache, Config, Modal,
       ConversationStore, LearningAgent, ContextBuilder, ChatService, DB, SpacedRepetition,
     renderLearningMarkdown, createCopyButton, bindMessageCopy } = globalThis.__aiAnalysisMocks;
   `;
@@ -40,7 +40,7 @@ function createTarget(name) {
 }
 
 function baseMocks(overrides = {}) {
-  const calls = { lookup: [], show: [] };
+  const calls = { lookup: [], show: [], binding: null, cleanup: 0 };
   return {
     calls,
     mocks: {
@@ -57,6 +57,10 @@ function baseMocks(overrides = {}) {
           calls.lookup.push(word);
           return { word, translation: '练习' };
         }
+      },
+      bindLearningTextLookup: options => {
+        calls.binding = options;
+        return () => { calls.cleanup += 1; };
       },
       esc: value => String(value),
       debounce: fn => fn,
@@ -81,7 +85,7 @@ function baseMocks(overrides = {}) {
   };
 }
 
-test('first analysis details support word lookup while follow-up bubbles remain inert', async () => {
+test('first analysis details delegate word lookup to the shared learning-text binding', async () => {
   const { calls, mocks } = baseMocks();
   const { AIAnalysis } = await loadAIAnalysis(mocks);
   const original = createTarget('original');
@@ -97,12 +101,11 @@ test('first analysis details support word lookup while follow-up bubbles remain 
   };
 
   AIAnalysis.bindWordLookup(modal);
-  await detail.emit('click', { clientX: 14, clientY: 18, stopPropagation() {} });
-
-  assert.equal(detail.hasListener('click'), true);
+  assert.equal(calls.binding.root, modal);
+  assert.equal(typeof calls.binding.getContextSentence, 'function');
+  assert.equal(typeof calls.binding.shouldIgnoreClick, 'function');
+  assert.equal(detail.hasListener('click'), false, 'the modal owns one delegated listener instead of per-node listeners');
   assert.equal(followup.hasListener('click'), false);
-  assert.deepEqual(calls.lookup, ['practice']);
-  assert.equal(calls.show.length, 1);
 });
 
 test('a selected analysis excerpt suppresses word lookup until the selection is handled', async () => {
@@ -124,11 +127,8 @@ test('a selected analysis excerpt suppresses word lookup until the selection is 
   };
 
   AIAnalysis.bindWordLookup(modal);
-  await detail.emit('click', { clientX: 14, clientY: 18, stopPropagation() {} });
-
-  assert.deepEqual(calls.lookup, []);
-  assert.equal(calls.show.length, 0);
-  assert.equal(detail.hasListener('click'), true);
+  assert.equal(calls.binding.shouldIgnoreClick(), true);
+  assert.equal(detail.hasListener('click'), false);
 });
 
 test('analysis modal source wires selection into the existing follow-up panel and clears it on close', async () => {

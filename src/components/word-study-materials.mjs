@@ -114,7 +114,7 @@ export function renderWordStudyPanel({
       return `
       <li class="word-study-example-item flashcard-example-item">
         ${example.isExam ? `<div class="word-study-example-source"><span>${esc(examExampleLabel(example))}</span>${sourceDetails ? `<small>${esc(sourceDetails)}</small>` : ''}</div>` : ''}
-        <p class="word-study-example-text flashcard-example-text" data-example-text>${renderWordStudyClickableSentence(example.sentenceEn)}</p>
+        <p class="word-study-example-text flashcard-example-text" data-example-text data-learning-text="click">${renderWordStudyClickableSentence(example.sentenceEn)}</p>
         <button class="example-translate-btn" type="button" data-example-translate="${index}"${example.translationZh ? ` data-cached-translation="${esc(example.translationZh)}"` : ''} title="翻译例句">译</button>
         <div class="example-translation" data-example-translation="${index}"></div>
       </li>`;
@@ -141,7 +141,7 @@ export function renderWordStudyPanel({
     const family = related.rootFamily ? `<div class="word-study-root-family"><span>共同词根</span><strong>${esc(related.rootFamily.label)}</strong><small>${esc(related.rootFamily.meaningZh)}</small></div>` : '';
     return `${family}<div class="word-study-related-list flashcard-related-list">${related.items.map(({ word, translation, rootForm }) => `
       <div class="word-study-related-word flashcard-related-word">
-        <span class="word-study-related-term flashcard-related-term">${renderRootHighlightedWord(word, rootForm, esc)}</span>
+        <span class="word-study-related-term flashcard-related-term" data-learning-text="click">${renderRootHighlightedWord(word, rootForm, esc)}</span>
         <span class="word-study-related-translation flashcard-related-translation">${translation ? esc(translation) : '暂无释义'}</span>
       </div>`).join('')}</div>`;
   }
@@ -156,8 +156,8 @@ export function renderWordStudyPanel({
     if (!phrases.items?.length) return '<div class="word-study-empty flashcard-study-empty">暂无可用词组。</div>';
     return `<div class="word-study-phrase-list">${phrases.items.map(({ phrase, glossZh }) => `
       <div class="word-study-phrase-row">
-        <span class="word-study-phrase-term">${esc(phrase)}</span>
-        <span class="word-study-phrase-gloss">${esc(glossZh)}</span>
+        <span class="word-study-phrase-term" data-learning-text="click">${esc(phrase)}</span>
+        <span class="word-study-phrase-gloss" data-word-lookup="disabled">${esc(glossZh)}</span>
       </div>`).join('')}</div>`;
   }
 
@@ -171,7 +171,7 @@ export function renderWordStudyPanel({
     if (!similar.items?.length) return '<div class="word-study-empty flashcard-study-empty">暂无可用近义词。</div>';
     return `<div class="word-study-similar-list word-study-phrase-list">${similar.items.map(({ word, glossZh, nuanceZh = '' }) => `
       <div class="word-study-similar-row word-study-phrase-row">
-        <span class="word-study-similar-term word-study-phrase-term">${esc(word)}</span>
+          <span class="word-study-similar-term word-study-phrase-term" data-learning-text="click">${esc(word)}</span>
         <span class="word-study-similar-copy">
           <span class="word-study-similar-gloss word-study-phrase-gloss">${esc(glossZh)}</span>
           ${nuanceZh ? `<small class="word-study-similar-nuance">${esc(nuanceZh)}</small>` : ''}

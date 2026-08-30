@@ -2,11 +2,11 @@ import { API } from '../api.js';
 import { ContextReview } from '../components/context-review.js';
 import { ContextReviewResult, scheduleContextReview } from '../context-review-scheduler.mjs';
 import { DB } from '../db.js';
-import { Dictionary } from '../dictionary.js';
 import { formatPartOfSpeech, getDefinitionSenses, getSavableTranslation } from '../components/definition-trust.mjs';
 import { esc, escAttr, getStemForm } from '../helpers.js';
 import { ReviewQueue } from '../review-queue.js';
 import { Tooltip } from '../components/tooltip.js';
+import { bindLearningTextLookup } from '../components/reading-word-lookup.js';
 import { WordStudyDetail } from '../components/word-study-detail.js';
 import { Config } from '../config.js';
 import { createLexiconLoader } from '../lexicon-runtime.mjs';
@@ -69,9 +69,9 @@ function wordTokens(sentence, item, answered) {
       if (!answered) {
         return `<button class="context-review-word context-review-target" type="button" data-context-target="true">${esc(part)}</button>`;
       }
-      return `<button class="context-review-word context-review-target context-review-answered-word" type="button" data-context-word="${escAttr(part)}" data-context-target="true" data-token-index="${index}">${esc(part)}</button>`;
+      return `<button class="context-review-word context-review-target context-review-answered-word" type="button" data-context-word="${escAttr(part)}" data-word-lookup-token="${escAttr(part)}" data-context-target="true" data-token-index="${index}">${esc(part)}</button>`;
     }
-    return `<button class="context-review-word" type="button" data-context-word="${escAttr(part)}" data-token-index="${index}">${esc(part)}</button>`;
+    return `<button class="context-review-word" type="button" data-context-word="${escAttr(part)}" data-word-lookup-token="${escAttr(part)}" data-token-index="${index}">${esc(part)}</button>`;
   }).join('');
 }
 
@@ -387,7 +387,7 @@ export const ContextReviewView = {
         <div class="context-review-progress-track"><i style="width:${progress}%"></i></div>
         <section class="context-review-sheet context-review-detail-pane ${answered ? 'is-answered' : ''}" data-context-review-pane="detail">
           <p class="context-review-instruction">${answered ? `你的判断：${RESULT_LABELS[this.answered]}` : '读句子，判断高亮单词在这里是否认识'}</p>
-          <p class="context-review-sentence">${wordTokens(item.sentence, item, answered)}</p>
+          <p class="context-review-sentence" data-learning-text="click">${wordTokens(item.sentence, item, answered)}</p>
         ${answered ? `<div class="context-review-answer" aria-live="polite">
             <div class="context-review-answer-label">本句义</div>
             ${renderDefinition(item)}
@@ -431,11 +431,20 @@ export const ContextReviewView = {
           return;
         }
       }
-      const wordButton = target.closest('[data-context-word]');
-      if (wordButton) void this.lookupWord(event, wordButton.dataset.contextWord);
     };
     this.container.addEventListener('click', this._clickHandler);
-    this._tooltipDismissCleanup = Tooltip.attachAutoDismiss();
+    this._learningTextLookupCleanup = bindLearningTextLookup({
+      root: this.container,
+      longPressScopeSelector: '',
+      getContextSentence: () => this.session.items[this.currentIndex]?.sentence || '',
+      getTargetTrack: () => this.session?.targetTrack || '',
+      onHide: () => { this.tooltipWord = ''; },
+      onShown: ({ word }) => {
+        if (!this.answered) this.assistedLookupCount += 1;
+        this.tooltipWord = word;
+      },
+      lookupContext: { source: 'context-review' }
+    });
   },
 
   renderNotice() {
@@ -460,35 +469,8 @@ export const ContextReviewView = {
   unbindInteractions() {
     if (this.container && this._clickHandler) this.container.removeEventListener('click', this._clickHandler);
     this._clickHandler = null;
-    this._tooltipDismissCleanup?.();
-    this._tooltipDismissCleanup = null;
-  },
-
-  async lookupWord(event, word) {
-    if (!word) return;
-    if (Tooltip.isVisible()) {
-      if (this.tooltipWord === word) {
-        Tooltip.hide();
-        this.tooltipWord = '';
-        return;
-      }
-      Tooltip.hide();
-    }
-    if (!this.answered) this.assistedLookupCount += 1;
-    this.tooltipWord = word;
-    const lookupId = Tooltip.beginLookup(event.clientX, event.clientY);
-    try {
-      const data = await Dictionary.lookup(word);
-      await Tooltip.show(lookupId, event.clientX, event.clientY, data, false, {
-        contextSentence: this.session.items[this.currentIndex].sentence,
-        targetTrack: this.session.targetTrack
-      });
-    } catch {
-      if (Tooltip.isCurrent(lookupId)) {
-        Tooltip.hide();
-        this.tooltipWord = '';
-      }
-    }
+    this._learningTextLookupCleanup?.();
+    this._learningTextLookupCleanup = null;
   },
 
   async submit(result) {

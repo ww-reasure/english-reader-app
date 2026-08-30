@@ -1,5 +1,5 @@
 import { createExamServices } from '../exam/create-services.js';
-import { bindReadingStyleWordLookup } from '../components/reading-word-lookup.js';
+import { bindLearningTextLookup } from '../components/reading-word-lookup.js';
 import { esc } from '../helpers.js';
 import { renderExamBottomNav } from '../exam/bottom-nav.mjs';
 import { listAcrossExams, resolveExamIdForBank, unitLabel } from '../exam/exam-context.mjs';
@@ -47,24 +47,24 @@ async function enrichState(services, state) {
 function passageHtml(unit) {
   const paragraphs = Array.isArray(unit.passage) ? unit.passage : [];
   if (!paragraphs.length) return '';
-  return `<section class="exam-review-detail-passage" data-selection-source="passage"><h3>相关正文</h3>${paragraphs.map(item => `<p>${esc(item.text || '')}</p>`).join('')}</section>`;
+  return `<section class="exam-review-detail-passage" data-selection-source="passage" data-learning-text="click"><h3>相关正文</h3>${paragraphs.map(item => `<p>${esc(item.text || '')}</p>`).join('')}</section>`;
 }
 
 function questionDetailHtml(entry, index, latestAttempt) {
   const { unit, question, state } = entry;
   const label = questionLabel(unit, question, index);
-  const options = (question.options || []).map(option => `<li data-selection-source="question"><b>${esc(option.key)}</b><span>${esc(option.text)}</span></li>`).join('');
+  const options = (question.options || []).map(option => `<li data-selection-source="question" data-learning-text="longpress"><b>${esc(option.key)}</b><span>${esc(option.text)}</span></li>`).join('');
   const canonicalExplanation = esc(question.explanation || question.localAnalysis || '当前题包暂未提供文字解析。');
   return `<section class="exam-review-question-detail" data-review-question-detail="${esc(question.questionKey)}" hidden>
     <button type="button" class="exam-review-detail-back" data-review-detail-back>← 返回题目列表</button>
     ${passageHtml(unit)}
     <div class="exam-review-detail-question">
       <p class="exam-review-detail-label">${esc(label)}</p>
-      <h3 data-selection-source="question">${esc(question.stem || question.sourceText || '原题')}</h3>
+      <h3 data-selection-source="question" data-learning-text="click">${esc(question.stem || question.sourceText || '原题')}</h3>
       ${options ? `<ol class="exam-review-detail-options">${options}</ol>` : ''}
     </div>
     <button type="button" class="btn btn-outline" data-review-explanation="${esc(latestAttempt?.attemptId || '')}">查看解析</button>
-    <div class="exam-review-canonical-explanation" data-canonical-explanation hidden><small>${latestAttempt ? '最近一次作答解析' : '当前题包解析'}</small><p>${canonicalExplanation}</p></div>
+    <div class="exam-review-canonical-explanation" data-canonical-explanation data-learning-text="click" hidden><small>${latestAttempt ? '最近一次作答解析' : '当前题包解析'}</small><p>${canonicalExplanation}</p></div>
   </section>`;
 }
 
@@ -88,7 +88,7 @@ function objectiveGroups(entries, attempts, now) {
     const mostUnreviewed = Math.max(...group.entries.map(entry => ageDays(entry.state, now)));
     const rows = group.entries.map((entry, index) => {
       const unitIndex = group.unit.questions.findIndex(item => item.questionKey === entry.question.questionKey);
-      return `<button type="button" class="exam-review-question-row" data-review-question-open="${esc(entry.question.questionKey)}"><strong>${esc(questionLabel(group.unit, entry.question, unitIndex))}</strong><span>${esc(entry.question.stem || entry.question.sourceText || '查看完整题目')}</span><small>${Number(entry.state.reviewCount) || 0} 次 · ${esc(ageCopy(entry.state, now))}</small></button>`;
+      return `<button type="button" class="exam-review-question-row" data-word-lookup="disabled" data-review-question-open="${esc(entry.question.questionKey)}"><strong>${esc(questionLabel(group.unit, entry.question, unitIndex))}</strong><span>${esc(entry.question.stem || entry.question.sourceText || '查看完整题目')}</span><small>${Number(entry.state.reviewCount) || 0} 次 · ${esc(ageCopy(entry.state, now))}</small></button>`;
     }).join('');
     const details = group.entries.map(entry => {
       const index = group.unit.questions.findIndex(item => item.questionKey === entry.question.questionKey);
@@ -107,7 +107,7 @@ function objectiveGroups(entries, attempts, now) {
 function translationCards(entries, now) {
   return entries.filter(entry => entry.paper && entry.unit && entry.question).map(entry => {
     const index = entry.unit.questions.findIndex(item => item.questionKey === entry.question.questionKey);
-    return `<article class="exam-review-card" data-oldest="${lastReviewedAt(entry.state)}" data-completions="${Number(entry.state.reviewCount) || 0}"><div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(entry.paper.year || ''))} · ${esc(unitTitle(entry.unit, entry.paper.examId))}</p><h2>${esc(questionLabel(entry.unit, entry.question, index))}</h2></div><span class="exam-review-status">${esc(ageCopy(entry.state, now))}</span></div><p class="exam-review-copy" data-selection-source="passage">${esc(entry.question.sourceText || '')}</p><div class="exam-review-actions">${entry.state.sourceAttemptId ? `<button type="button" class="btn btn-outline btn-sm" data-translation-explanation="${esc(entry.state.sourceAttemptId)}">查看解析</button>` : ''}<button type="button" class="btn btn-primary btn-sm" data-translation-redo="${esc(entry.state.bankId)}" data-paper="${esc(entry.state.paperKey)}" data-unit="${esc(entry.state.unitKey)}">重新练习 ${resolveExamIdForBank(entry.state.bankId) === 'cet4' ? '翻译' : 'Part C'}</button></div></article>`;
+    return `<article class="exam-review-card" data-oldest="${lastReviewedAt(entry.state)}" data-completions="${Number(entry.state.reviewCount) || 0}"><div class="exam-review-card-head"><div><p class="exam-review-kicker">${esc(String(entry.paper.year || ''))} · ${esc(unitTitle(entry.unit, entry.paper.examId))}</p><h2>${esc(questionLabel(entry.unit, entry.question, index))}</h2></div><span class="exam-review-status">${esc(ageCopy(entry.state, now))}</span></div><p class="exam-review-copy" data-selection-source="passage" data-learning-text="click">${esc(entry.question.sourceText || '')}</p><div class="exam-review-actions">${entry.state.sourceAttemptId ? `<button type="button" class="btn btn-outline btn-sm" data-translation-explanation="${esc(entry.state.sourceAttemptId)}">查看解析</button>` : ''}<button type="button" class="btn btn-primary btn-sm" data-translation-redo="${esc(entry.state.bankId)}" data-paper="${esc(entry.state.paperKey)}" data-unit="${esc(entry.state.unitKey)}">重新练习 ${resolveExamIdForBank(entry.state.bankId) === 'cet4' ? '翻译' : 'Part C'}</button></div></article>`;
   }).join('');
 }
 
@@ -154,6 +154,6 @@ export const ExamReviewView = {
     container.querySelectorAll('[data-review-start]').forEach(button => add(button, 'click', async () => { try { const examId = resolveExamIdForBank(button.dataset.reviewStart) || 'kaoyan_en1'; const attempt = await services.practiceService.startReviewCenterAttempt({ examId, bankId: button.dataset.reviewStart, paperKey: button.dataset.paper, unitKey: button.dataset.unit, questionKeys: button.dataset.keys.split('|').filter(Boolean) }); location.hash = `#/exam/practice/${attempt.attemptId}`; } catch { await this.render(container); } }));
     container.querySelectorAll('[data-translation-explanation]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.translationExplanation}/explanation`; }));
     container.querySelectorAll('[data-translation-redo]').forEach(button => add(button, 'click', async () => { const examId = resolveExamIdForBank(button.dataset.translationRedo) || 'kaoyan_en1'; const attempt = await services.practiceService.startAttempt({ examId, bankId: button.dataset.translationRedo, paperKey: button.dataset.paper, unitKey: button.dataset.unit, practiceOrigin: 'review_center_manual' }); location.hash = `#/exam/practice/${attempt.attemptId}`; }));
-    this._wordLookupCleanup = bindReadingStyleWordLookup({ root: container, shouldIgnoreClick: event => Boolean(event.target.closest('[data-word-lookup="disabled"]')) });
+    this._wordLookupCleanup = bindLearningTextLookup({ root: container });
   }
 };

@@ -100,12 +100,13 @@ test('all example sentences expose each English word as a lookup target', async 
 });
 
 test('all full word details share the focused study sheet while tooltip stays compact with a detail entry', async () => {
-  const [detail, vocabulary, flashcard, tooltip, css] = await Promise.all([
+  const [detail, vocabulary, flashcard, tooltip, css, materials] = await Promise.all([
     read('../src/components/word-study-detail.js'),
     read('../src/views/vocabulary.js'),
     read('../src/views/flashcard.js'),
     read('../src/components/tooltip.js'),
-    read('../css/style.css')
+    read('../css/style.css'),
+    read('../src/components/word-study-materials.mjs')
   ]);
 
   assert.match(detail, /word-study-detail-sheet/);
@@ -124,10 +125,9 @@ test('all full word details share the focused study sheet while tooltip stays co
   assert.match(detail, /flashcard-study-masthead/);
   assert.match(detail, /flashcard-study-tabs/);
   assert.match(detail, /flashcard-study-info-overlay/);
-  assert.match(detail, /Dictionary\.lookup\(word\)/);
-  assert.match(detail, /Tooltip\.show\(lookupId/);
-  assert.match(detail, /data-word-study-word/);
-  assert.match(detail, /Tooltip\.attachAutoDismiss\(\)/);
+  assert.match(detail, /bindLearningTextLookup\(\{/);
+  assert.match(materials, /data-word-study-word/);
+  assert.match(materials, /data-learning-text="click"/);
   assert.match(css, /\.word-study-detail-sheet\s*\{[^}]*grid-template-rows:auto auto auto minmax\(0,1fr\)/s);
   assert.match(css, /\.flashcard-study-tabs\s*\{[^}]*overflow-x:auto/s);
 });

@@ -581,6 +581,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .tooltip-close:hover,.tooltip-close:focus-visible { color:var(--ink); }
 .tooltip-close:focus-visible { outline:2px solid var(--signal); outline-offset:2px; }
 .tooltip-error { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:36px; color:var(--muted); font-size:13px; line-height:1.45; }
+.tooltip-retry { min-height:30px; padding:5px 9px; border:1px solid var(--signal); border-radius:3px; background:transparent; color:var(--signal); font-size:12px; font-weight:800; white-space:nowrap; }
 .tooltip-phonetic,.tooltip-pos { font-family:"Aptos",sans-serif; font-size:12px; color:var(--muted); }
 .tooltip-lexical-meta { display:flex; align-items:center; justify-content:flex-start; gap:8px; min-height:42px; margin-top:7px; padding-bottom:8px; border-bottom:1px solid var(--rule); }
 .tooltip-lexical-copy { display:grid; gap:4px; min-width:0; }
@@ -1163,11 +1164,11 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .ai-detail-selection-btn { position:fixed; z-index:calc(var(--z-tooltip) - 1); min-height:38px; padding:8px 12px; border:1px solid var(--signal); border-radius:3px; background:var(--signal); color:var(--on-accent); box-shadow:var(--shadow-sm); font-size:13px; font-weight:800; touch-action:manipulation; }
 .ai-detail-selection-btn:active { background:var(--signal-deep); transform:translateY(1px); }
 .ai-result-modal { display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0; overflow:hidden; }
-.ai-result-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--rule); }
+.ai-result-modal::before { display:none; }
+.ai-result-head { grid-row:1; position:relative; z-index:2; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--rule); background:var(--surface); }
 .ai-result-head h2 { margin:0; }
 .ai-result-head .btn-icon { flex:0 0 auto; }
-.ai-result-body { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px 0 4px; }
-.ai-result-footer { min-height:0; margin:0; padding-top:10px; }
+.ai-result-body { grid-row:2; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px 0 4px; }
 .exam-selection-actions { position:fixed; z-index:calc(var(--z-tooltip) - 1); display:flex; gap:4px; padding:5px; border:1px solid var(--rule-strong); border-radius:8px; background:var(--surface); box-shadow:var(--shadow); }
 .exam-selection-actions button { min-height:34px; padding:6px 9px; border:0; border-radius:5px; background:transparent; color:var(--text); font-size:13px; font-weight:700; white-space:nowrap; }
 .exam-selection-actions button:active { background:var(--surface-soft); }
@@ -1182,7 +1183,7 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .ai-followup-bubble { max-width:88%; padding:9px 10px; border:1px solid var(--border-light); border-radius:12px 12px 12px 4px; background:var(--surface-soft); color:var(--ink); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
 .ai-followup-bubble.user-message { align-self:flex-end; border-color:var(--ink); border-radius:12px 12px 4px 12px; background:var(--ink); color:var(--surface); }
 .ai-followup-thinking { color:var(--muted); font-size:12px; }
-.ai-followup-composer { position:sticky; bottom:0; z-index:1; display:flex; align-items:flex-end; gap:8px; margin-top:10px; padding:10px 0 calc(10px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); border-top:1px solid var(--rule); background:var(--surface); }
+.ai-followup-composer { grid-row:3; position:relative; z-index:2; display:flex; align-items:flex-end; gap:8px; margin-top:10px; padding:10px 0 calc(10px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom,0px))); border-top:1px solid var(--rule); background:var(--surface); }
 .ai-followup-composer textarea { min-height:42px; resize:none; }
 
 @media (min-width:600px) {

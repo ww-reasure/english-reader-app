@@ -235,24 +235,24 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /id="wordTooltip" class="word-tooltip"/);
   assert.match(source, /bindExampleWordLookup\(\)/);
   assert.match(source, /cleanupExampleWordLookup\(\)/);
-  assert.match(source, /Tooltip\.attachAutoDismiss\(\)/);
-  assert.match(source, /Tooltip\.beginLookup\(e\.clientX, e\.clientY\)/);
-  assert.match(source, /Dictionary\.lookup\(word\)/);
-  assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:/s);
-  assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
-  assert.match(source, /data-word-study-word/);
+  assert.match(source, /bindLearningTextLookup\(\{/);
+  assert.match(source, /getContextSentence:/);
+  assert.match(source, /getTargetTrack:/);
   assert.match(source, /Tooltip\.hide\(\);/);
   assert.match(source, /invalidateCardRequests\(\)\s*\{\s*this\.cardSession\+\+;\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
   assert.match(source, /cleanup\(\)\s*\{\s*this\.invalidateCardRequests\(\);/s);
 });
 
 test('study example lookup can switch words after a tooltip is open and keeps sentence context', async () => {
-  const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
+  const [source, materials] = await Promise.all([
+    readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/word-study-materials.mjs', import.meta.url), 'utf8')
+  ]);
 
-  assert.match(source, /data-word-study-word/);
-  assert.match(source, /Tooltip\.show\(lookupId, e\.clientX, e\.clientY, data, false, \{\s*targetTrack:[\s\S]*?contextSentence:/s);
-  assert.match(source, /Tooltip\.showError\(lookupId, e\.clientX, e\.clientY/);
-  assert.doesNotMatch(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
+  assert.match(materials, /data-word-study-word/);
+  assert.match(source, /closeBeforeLookup:\s*false/);
+  assert.match(source, /getContextSentence:[\s\S]*?data-example-text/s);
+  assert.match(source, /getTargetTrack:/);
 });
 
 test('flashcard review telemetry is best effort and does not replace the two-stage flow', async () => {

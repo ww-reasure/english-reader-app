@@ -5,6 +5,7 @@ import { getExamRenderer } from '../exam/renderers/registry.mjs';
 import { SelectableTextActions } from '../exam/selectable-text-actions.mjs';
 import { Tooltip } from '../components/tooltip.js';
 import { Dictionary } from '../dictionary.js';
+import { bindLearningTextLookup } from '../components/reading-word-lookup.js';
 import { resolveAttemptExam } from '../exam/exam-context.mjs';
 import { esc } from '../helpers.js';
 
@@ -13,6 +14,13 @@ function formatDuration(durationMs) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, '0');
   return `${minutes}:${seconds}`;
+}
+
+function markResultLearningTextSurfaces(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('[data-selection-source="option_translations"], [data-selection-source="option_analysis"], [data-selection-source="question_translation"], [data-selection-source="evidence_translation"], [data-selection-source="user_translation"], [data-selection-source="reference_translation"]').forEach(node => node.setAttribute('data-word-lookup', 'disabled'));
+  root.querySelectorAll('[data-selection-source="question"]:not(button), [data-selection-source="passage"]:not(button), [data-selection-source="translation_source"]:not(button), [data-selection-source="location"], [data-selection-source="evidence"], [data-selection-source="explanation"], [data-selection-source="local_analysis"]').forEach(node => node.setAttribute('data-learning-text', 'click'));
+  root.querySelectorAll('.exam-original-options li').forEach(node => node.setAttribute('data-learning-text', 'longpress'));
 }
 
 export const ExamResultView = {
@@ -27,6 +35,8 @@ export const ExamResultView = {
   },
 
   cleanup() {
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = null;
     this.selectionActions?.destroy();
     this.selectionActions = null;
     this.examTutorDialog?.destroy();
@@ -185,6 +195,7 @@ export const ExamResultView = {
           if (question) this.examTutorDialog.open({ attempt, response, question, unit });
         });
       });
+      markResultLearningTextSurfaces(list);
       this.selectionActions?.destroy();
       this.selectionActions = new SelectableTextActions({
         root: list,
@@ -199,6 +210,7 @@ export const ExamResultView = {
       this.selectionActions.bind();
     };
     renderList();
+    this._wordLookupCleanup = bindLearningTextLookup({ root: container });
 
     container.querySelector('#examFilterAll').addEventListener('click', () => {
       this.filter = 'all';
@@ -312,6 +324,7 @@ export const ExamResultView = {
         const unit = unitByQuestion.get(button.dataset.question);
         if (question) this.examTutorDialog.open({ attempt, response: responseByKey.get(question.questionKey), question, unit });
       }));
+      markResultLearningTextSurfaces(list);
       this.selectionActions?.destroy();
       this.selectionActions = new SelectableTextActions({ root: list, onLookup: (text, rect) => this.lookupSelection(text, rect), onAskAI: (quote, _rect, selected) => {
         const key = selected?.anchorElement?.closest?.('.exam-result-item')?.dataset.question;
@@ -322,6 +335,7 @@ export const ExamResultView = {
       this.selectionActions.bind();
     };
     renderList();
+    this._wordLookupCleanup = bindLearningTextLookup({ root: container });
     container.querySelector('#examFilterAll').addEventListener('click', () => { this.filter = 'all'; container.querySelector('#examFilterAll').classList.add('is-active'); container.querySelector('#examFilterWrong').classList.remove('is-active'); renderList(); });
     container.querySelector('#examFilterWrong').addEventListener('click', () => { this.filter = 'wrong'; container.querySelector('#examFilterWrong').classList.add('is-active'); container.querySelector('#examFilterAll').classList.remove('is-active'); renderList(); });
     container.querySelector('#examRedoWhole').addEventListener('click', async () => {
@@ -357,11 +371,12 @@ export const ExamResultView = {
     list.innerHTML = questions.map((question, index) => {
       const response = responseByKey.get(question.questionKey);
       const label = `第 ${String(question.segmentKey || '').replace(/^S/i, '') || index + 1} 处`;
-      return `<article class="exam-result-item" data-question="${esc(question.questionKey)}"><div class="exam-result-row"><span class="exam-result-status">${response?.value?.text?.trim() ? '已填写' : '未填写'}</span><span class="exam-result-stem">${esc(label)}</span></div><div class="exam-result-detail">${esc(question.sourceText)}</div></article>`;
+      return `<article class="exam-result-item" data-question="${esc(question.questionKey)}"><div class="exam-result-row"><span class="exam-result-status">${response?.value?.text?.trim() ? '已填写' : '未填写'}</span><span class="exam-result-stem">${esc(label)}</span></div><div class="exam-result-detail" data-learning-text="click">${esc(question.sourceText)}</div></article>`;
     }).join('');
     this.services = services;
     this.attempt = attempt;
     this.container = container;
+    this._wordLookupCleanup = bindLearningTextLookup({ root: container });
     container.querySelector('#examRedoWhole').addEventListener('click', async () => {
       const next = await services.practiceService.startAttempt({ examId: attempt.examId, bankId: attempt.bankId, packageId: attempt.packageId, paperKey: attempt.paperKey, unitKey: attempt.unitKey, forceShuffle: true });
       location.hash = `#/exam/practice/${next.attemptId}`;
