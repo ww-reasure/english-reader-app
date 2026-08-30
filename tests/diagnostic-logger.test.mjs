@@ -205,6 +205,30 @@ test('collect remains exportable when primary persistence is stuck', async () =>
   assert.equal(result.events.some(event => event.event === 'review.rating_save_start'), true);
 });
 
+test('ordinary diagnostic persistence is coalesced and deferred until after the first paint scheduler', async () => {
+  const scheduled = [];
+  const batches = [];
+  const logger = createDiagnosticLogger({
+    storage: memoryStorage(),
+    schedulePersistence: callback => scheduled.push(callback)
+  });
+  logger.setPersistence({
+    append: async rows => batches.push(rows),
+    list: async () => [],
+    clear: async () => {}
+  });
+
+  logger.record('route.started');
+  logger.record('route.paint');
+
+  assert.equal(scheduled.length, 1, 'many first-frame events share one deferred flush');
+  assert.equal(batches.length, 0, 'IndexedDB logging does not run in the first-frame task');
+  scheduled.shift()();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].length, 2);
+});
+
 test('detailed records are capped without affecting ordinary event capture', () => {
   const logger = createDiagnosticLogger({
     storage: memoryStorage(),

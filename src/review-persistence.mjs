@@ -12,6 +12,7 @@ export const REVIEW_SESSION_EMERGENCY_PREFIX = 'english-reader:review-session-ch
 
 const DEFAULT_RETRY_DELAYS = Object.freeze([250, 1000, 3000]);
 const MAX_PENDING_RATINGS = 100;
+const RATING_INTENT_VERSION = 2;
 
 function clone(value) {
   if (value === undefined) return value;
@@ -48,22 +49,113 @@ function diagnosticLogger() {
   }
 }
 
+function ratingMetadata(source = {}, event = {}) {
+  const { rating, sessionDebt, occurredAt, source: _source, sawAnswer, metadata, ...legacyMetadata } = event || {};
+  const explicitMetadata = source?.metadata && typeof source.metadata === 'object' && !Array.isArray(source.metadata)
+    ? source.metadata
+    : metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : null;
+  const merged = { ...legacyMetadata, ...(explicitMetadata || {}) };
+  return Object.keys(merged).length ? clone(merged) : null;
+}
+
+function normalizeRatingIntent(row = {}) {
+  const source = row?.intent || row?.ratingIntent || {};
+  const event = row?.event || {};
+  const rating = [1, 3, 5].includes(Number(source.rating))
+    ? Number(source.rating)
+    : [1, 3, 5].includes(Number(event.rating)) ? Number(event.rating) : null;
+  if (rating === null) return null;
+  const metadata = ratingMetadata(source, event);
+  return {
+    version: RATING_INTENT_VERSION,
+    rating,
+    sessionDebt: Math.max(0, Math.trunc(Number(source.sessionDebt ?? event.sessionDebt) || 0)),
+    occurredAt: Number.isFinite(Number(source.occurredAt))
+      ? Number(source.occurredAt)
+      : Number.isFinite(Number(event.reviewedAt)) ? Number(event.reviewedAt) : Math.max(0, Number(row.queuedAt) || 0),
+    source: String(source.source || event.source || 'flashcard'),
+    sawAnswer: Boolean(source.sawAnswer ?? event.sawAnswer),
+    ...(metadata ? { metadata } : {})
+  };
+}
+
+function errorCodeFor(error) {
+  const explicit = String(error?.code || '').trim();
+  if (explicit) return explicit;
+  const name = String(error?.name || '');
+  const message = String(error?.message || '');
+  if (name === 'QuotaExceededError') return 'STORAGE_FULL';
+  if (name === 'BlockedError' || /blocked|阻塞/i.test(message)) return 'DB_BLOCKED';
+  if (name === 'AbortError' || name === 'TransactionInactiveError') return 'DB_TRANSACTION_ABORTED';
+  if (/不存在|missing/i.test(message)) return 'MISSING_WORD';
+  if (/corrupt|损坏/i.test(message)) return 'DATA_CORRUPT';
+  return 'UNKNOWN';
+}
+
+// An unreadable journal must never read as "nothing pending": the raw text is
+// kept as one quarantined evidence row so the result screen can explain the
+// failure and retry never executes the damaged payload as a rating.
+function quarantineRow(raw) {
+  return {
+    operationId: 'corrupt-journal',
+    attemptId: 'corrupt-journal',
+    wordId: Number.NaN,
+    corruptRaw: raw,
+    queuedAt: 0,
+    attempts: 0,
+    nextRetryAt: 0,
+    status: 'failed',
+    errorCode: 'DATA_CORRUPT'
+  };
+}
+
 function readJournal(storage) {
+  let raw = null;
   try {
-    const raw = storage?.getItem?.(REVIEW_PENDING_STORAGE_KEY);
-    const rows = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(rows)) return [];
-    return rows
-      .filter(row => row && row.operationId && row.attemptId && Number.isFinite(Number(row.wordId)))
-      .map(row => ({
-        ...row,
-        wordId: Number(row.wordId),
-        attempts: Math.max(0, Number(row.attempts) || 0),
-        status: row.status === 'failed' ? 'failed' : 'queued'
-      }));
+    raw = storage?.getItem?.(REVIEW_PENDING_STORAGE_KEY) ?? null;
   } catch {
     return [];
   }
+  if (raw == null || raw === '') return [];
+  let rows;
+  try {
+    rows = JSON.parse(raw);
+  } catch {
+    return [quarantineRow(raw)];
+  }
+  if (!Array.isArray(rows)) return [quarantineRow(raw)];
+  return rows
+    .map(row => {
+      // 数组里的每个元素都保留：数字、字符串、null 等非对象元素同样转成
+      // 隔离证据行，绝不能 filter 掉后把 journal 误读为空。
+      if (!row || typeof row !== 'object') {
+        return quarantineRow(typeof row === 'string' ? row : JSON.stringify(row));
+      }
+      const intent = normalizeRatingIntent(row);
+      // Identifiers are trimmed first, then validated: a blank-padded id is
+      // usable, but whitespace-only ids or a non-positive/non-integer wordId
+      // can never be replayed idempotently, so they stay as DATA_CORRUPT
+      // diagnostics instead of reaching the database layer.
+      const operationId = String(row.operationId ?? '').trim();
+      const attemptId = String(row.attemptId ?? '').trim();
+      const wordId = Number(row.wordId);
+      const hasStableIds = operationId !== '' && attemptId !== ''
+        && Number.isSafeInteger(wordId) && wordId > 0;
+      return {
+        ...row,
+        operationId: hasStableIds ? operationId : row.operationId,
+        attemptId: hasStableIds ? attemptId : row.attemptId,
+        wordId,
+        intent: hasStableIds ? intent : null,
+        attempts: Math.max(0, Number(row.attempts) || 0),
+        nextRetryAt: Math.max(0, Number(row.nextRetryAt) || 0),
+        errorCode: hasStableIds && intent ? String(row.errorCode || '').trim() : 'DATA_CORRUPT',
+        // Keep malformed historical entries in the journal.  They cannot be
+        // replayed safely, but deleting them would hide recoverable evidence
+        // and leave the result screen stuck without an explanation.
+        status: !hasStableIds || !intent || row.status === 'failed' ? 'failed' : 'queued'
+      };
+    });
 }
 
 function writeJournal(storage, rows) {
@@ -153,6 +245,13 @@ export function createReviewPersistence({
     : [...DEFAULT_RETRY_DELAYS];
 
   const execute = executeRating || (async operation => {
+    if (db?.applyReviewRatingIntent) {
+      return db.applyReviewRatingIntent(operation.wordId, operation.intent, {
+        attemptId: operation.attemptId,
+        expectedRevision: operation.expectedRevision,
+        correlationId: operation.correlationId
+      });
+    }
     if (!db?.settleSessionReview) throw new Error('缺少正式复习保存接口');
     return db.settleSessionReview(operation.wordId, operation.srsData, {
       ...(operation.event || {}),
@@ -177,7 +276,12 @@ export function createReviewPersistence({
   };
 
   let journal = readJournal(storage);
+  if (journal.length) {
+    try { writeJournal(storage, journal); } catch {}
+  }
   let ratingRunning = null;
+  let retryTimer = null;
+  let retryTimerAt = 0;
   let sessionRunning = null;
   let sessionRunningKey = null;
   let sessionSequence = 0;
@@ -199,7 +303,9 @@ export function createReviewPersistence({
       rating_queued: 'review.write_queued',
       rating_started: 'review.write_started',
       rating_completed: 'review.write_completed',
+      rating_retry_scheduled: 'review.retry_scheduled',
       rating_failed: 'review.write_failed',
+      rating_idle: 'review.write_idle',
       session_queued: 'review.session_save_queued',
       session_started: 'review.session_save_started',
       session_completed: 'review.session_save_completed',
@@ -217,18 +323,28 @@ export function createReviewPersistence({
           wordId: payload.wordId,
           key: payload.key,
           sequence: payload.sequence,
-          errorName: payload.errorName
+          errorName: payload.errorName,
+          errorCode: payload.errorCode,
+          nextRetryAt: payload.nextRetryAt
         }
       });
     }
   };
 
-  const ratingStatus = () => ({
-    pending: journal.length,
-    failed: journal.filter(row => row.status === 'failed').length,
-    running: Boolean(ratingRunning),
-    operationIds: journal.map(row => row.operationId)
-  });
+  const ratingStatus = () => {
+    const pendingRows = journal.filter(row => row.status !== 'failed');
+    return {
+      pending: journal.length,
+      failed: journal.filter(row => row.status === 'failed').length,
+      running: Boolean(ratingRunning),
+      operationIds: journal.map(row => row.operationId),
+      nextRetryAt: pendingRows.reduce((next, row) => {
+        const value = Math.max(0, Number(row.nextRetryAt) || 0);
+        return value && (!next || value < next) ? value : next;
+      }, 0),
+      errorCodes: [...new Set(journal.map(row => row.errorCode).filter(Boolean))]
+    };
+  };
 
   const sessionStatus = () => {
     const failed = [...sessionState.values()].filter(state => state === 'failed').length;
@@ -247,6 +363,24 @@ export function createReviewPersistence({
     });
   };
 
+  const scheduleRetryWake = () => {
+    const nowAt = safeNow(now);
+    const nextRetryAt = journal
+      .filter(row => row.status === 'queued' && Number(row.nextRetryAt) > nowAt)
+      .reduce((next, row) => !next || Number(row.nextRetryAt) < next ? Number(row.nextRetryAt) : next, 0);
+    if (!nextRetryAt) return;
+    // Keep at most one wake timer, but re-arm it whenever an operation becomes
+    // due earlier than the currently scheduled wake.
+    if (retryTimer !== null && retryTimerAt <= nextRetryAt) return;
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimerAt = nextRetryAt;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      retryTimerAt = 0;
+      scheduleRatings();
+    }, Math.max(0, nextRetryAt - nowAt));
+  };
+
   const scheduleSessions = () => {
     if (sessionRunning) return;
     queueMicrotask(() => {
@@ -256,11 +390,19 @@ export function createReviewPersistence({
 
   async function drainRatings() {
     if (ratingRunning) return ratingRunning;
-    ratingRunning = (async () => {
+    const run = (async () => {
       while (true) {
-        const row = journal.find(item => item.status !== 'failed');
-        if (!row) break;
+        const nowAt = safeNow(now);
+        const row = journal.find((item, index) => item.status === 'queued'
+          && Number(item.nextRetryAt || 0) <= nowAt
+          && !journal.slice(0, index).some(previous => previous.wordId === item.wordId));
+        if (!row) {
+          scheduleRetryWake();
+          break;
+        }
         const attempt = Math.max(0, Number(row.attempts) || 0);
+        row.status = 'running';
+        writeJournal(storage, journal);
         sessionState.set(`rating:${row.operationId}`, 'running');
         emit('rating_started', { operationId: row.operationId, attemptId: row.attemptId, wordId: row.wordId, correlationId: row.correlationId });
         try {
@@ -274,6 +416,9 @@ export function createReviewPersistence({
           const retryDelay = delays[attempt];
           if (retryDelay !== undefined) {
             row.status = 'queued';
+            row.errorCode = errorCodeFor(error);
+            row.lastErrorAt = safeNow(now);
+            row.nextRetryAt = row.lastErrorAt + retryDelay;
             writeJournal(storage, journal);
             emit('rating_retry_scheduled', {
               operationId: row.operationId,
@@ -281,11 +426,14 @@ export function createReviewPersistence({
               delayMs: retryDelay,
               wordId: row.wordId,
               correlationId: row.correlationId,
-              errorName: error?.name || 'Error'
+              errorName: error?.name || 'Error',
+              errorCode: row.errorCode,
+              nextRetryAt: row.nextRetryAt
             });
-            if (retryDelay) await new Promise(resolve => setTimeout(resolve, retryDelay));
           } else {
             row.status = 'failed';
+            row.errorCode = errorCodeFor(error);
+            row.lastErrorAt = safeNow(now);
             writeJournal(storage, journal);
             sessionState.set(`rating:${row.operationId}`, 'failed');
             emit('rating_failed', {
@@ -293,16 +441,24 @@ export function createReviewPersistence({
               attemptId: row.attemptId,
               wordId: row.wordId,
               correlationId: row.correlationId,
-              errorName: error?.name || 'Error'
+              errorName: error?.name || 'Error',
+              errorCode: row.errorCode
             });
             // Do not let one permanently failed word block other ratings.
           }
         }
       }
-    })().finally(() => {
+    })();
+    ratingRunning = run;
+    const finishDrain = () => {
+      if (ratingRunning !== run) return;
       ratingRunning = null;
-    });
-    return ratingRunning;
+      if (!journal.length) emit('rating_idle', ratingStatus());
+    };
+    // Consume both branches here; the scheduled caller still receives the
+    // original promise and reports unexpected drain failures.
+    void run.then(finishDrain, finishDrain);
+    return run;
   }
 
   async function drainSessions() {
@@ -352,6 +508,7 @@ export function createReviewPersistence({
   }
 
   function enqueueRating(operation = {}) {
+    const intent = normalizeRatingIntent({ ...operation, queuedAt: operation.queuedAt || safeNow(now) });
     const normalized = {
       ...clone(operation),
       operationId: String(operation.operationId || '').trim(),
@@ -359,10 +516,14 @@ export function createReviewPersistence({
       wordId: Number(operation.wordId),
       expectedRevision: Number.isFinite(Number(operation.expectedRevision)) ? Number(operation.expectedRevision) : undefined,
       queuedAt: Math.max(0, Number(operation.queuedAt) || safeNow(now)),
+      intent,
       attempts: 0,
+      nextRetryAt: 0,
       status: 'queued'
     };
-    if (!normalized.operationId || !normalized.attemptId || !Number.isFinite(normalized.wordId)) {
+    if (!normalized.operationId || !normalized.attemptId
+      || !(Number.isSafeInteger(normalized.wordId) && normalized.wordId > 0)
+      || !intent) {
       throw new TypeError('复习评分缺少可恢复标识');
     }
     if (journal.some(row => row.operationId === normalized.operationId || row.attemptId === normalized.attemptId)) {
@@ -446,13 +607,19 @@ export function createReviewPersistence({
       }
     };
 
-    while (safeNow(now) <= deadline) {
+    while (safeNow(now) <= deadline && Date.now() - wallClockStart <= timeout) {
       scheduleRatings();
       scheduleSessions();
       const running = [ratingRunning, sessionRunning].filter(Boolean);
       if (!running.length) {
-        const queued = journal.some(row => row.status !== 'failed') || [...sessionPending.values()].some(job => job.status !== 'failed');
-        if (!queued) break;
+        const nowAt = safeNow(now);
+        const ratingQueued = journal.some(row => row.status !== 'failed');
+        const ratingReady = journal.some((row, index) => row.status === 'queued'
+          && Number(row.nextRetryAt || 0) <= nowAt
+          && !journal.slice(0, index).some(previous => previous.wordId === row.wordId));
+        const sessionQueued = [...sessionPending.values()].some(job => job.status !== 'failed');
+        if (!ratingQueued && !sessionQueued) break;
+        if (ratingQueued && !ratingReady && !sessionQueued) break;
       } else {
         // A storage operation can remain pending forever on a locked or
         // broken IndexedDB connection. Do not make pagehide, correction, or
@@ -471,7 +638,9 @@ export function createReviewPersistence({
 
   async function replay() {
     if (journal.length) {
-      journal = journal.map(row => ({ ...row, status: 'queued', attempts: 0 }));
+      journal = journal.map(row => row.intent
+        ? { ...row, status: 'queued', attempts: 0, nextRetryAt: 0, errorCode: '' }
+        : { ...row, status: 'failed', errorCode: 'DATA_CORRUPT' });
       writeJournal(storage, journal);
       emit('pending_replayed', { count: journal.length });
     }

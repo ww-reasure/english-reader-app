@@ -11,6 +11,7 @@ async function loadDatabaseModule() {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
   const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace("import { getStemForm } from './helpers.js';", "const getStemForm = word => String(word || '').trim().toLowerCase();")
@@ -18,6 +19,7 @@ async function loadDatabaseModule() {
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
     .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
     .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
@@ -48,12 +50,12 @@ async function seedV21(name) {
   });
 }
 
-test('v21 to v22 adds readingProgress and completion id index without migrating readingStats', async () => {
+test('v21 to current schema adds readingProgress and completion id index without migrating readingStats', async () => {
   const name = `EnglishReaderProgressUpgrade-${process.pid}-${databaseSequence++}`;
   globalThis.indexedDB = indexedDB;
   await seedV21(name);
   const { DB } = await createDatabase(name);
-  assert.equal(DB.DB_VERSION, 22);
+  assert.equal(DB.DB_VERSION, 23);
   const db = await DB.open();
   assert.equal(db.objectStoreNames.contains('readingProgress'), true);
   const statsIndex = db.transaction('readingStats', 'readonly')

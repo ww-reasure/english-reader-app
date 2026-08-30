@@ -8,13 +8,13 @@ async function read(relativePath) {
 
 test('flashcard routes expose a mode chooser plus recall and context modes', async () => {
   const [router, shell, chooser] = await Promise.all([
-    read('../src/router.js'),
+    read('../src/router-routes.mjs'),
     read('../src/components/app-shell.js'),
     read('../src/views/review-mode.js')
   ]);
 
-  assert.match(router, /#\/flashcard\/recall/);
-  assert.match(router, /#\/flashcard\/context/);
+  assert.match(router, /hash === '#\/flashcard\/recall'/);
+  assert.match(router, /hash === '#\/flashcard\/context'/);
   assert.match(shell, /hash\.startsWith\('#\/flashcard'\)/);
   assert.match(chooser, /单词回忆/);
   assert.match(chooser, /语境识词/);

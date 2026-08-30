@@ -119,6 +119,24 @@ function assertCounts(counts, path, errors) {
   }
 }
 
+function assertTrackWords(words, { track, wordCount, path }, errors) {
+  if (!words || typeof words !== 'object' || Array.isArray(words)) {
+    errors.push(`${path} 缺失`);
+    return;
+  }
+  if (wordCount !== Object.keys(words).length) errors.push(`${path} 词条数量不一致`);
+  for (const [lemma, record] of Object.entries(words)) {
+    if (!WORD_PATTERN.test(lemma) || normalizeWord(lemma) !== lemma) errors.push(`${path}.${lemma} 词元无效`);
+    if (!['core', 'frequent', 'appeared', 'uncovered'].includes(record?.priorityTier)) {
+      errors.push(`${path}.${lemma}.priorityTier 无效`);
+    }
+    if (!finiteCount(record?.priorityScore) || record.priorityScore > 100) {
+      errors.push(`${path}.${lemma}.priorityScore 必须为 0-100`);
+    }
+    assertCounts(record?.counts, `${path}.${lemma}.counts`, errors);
+  }
+}
+
 export function assertExamCorpusIndexArtifact(artifact) {
   const errors = [];
   if (!artifact || typeof artifact !== 'object') errors.push('真题语料索引必须是对象');
@@ -131,21 +149,50 @@ export function assertExamCorpusIndexArtifact(artifact) {
     const meta = artifact?.tracks?.[track];
     const words = artifact?.words?.[track];
     if (!meta || typeof meta !== 'object') errors.push(`tracks.${track} 缺失`);
-    if (!words || typeof words !== 'object' || Array.isArray(words)) errors.push(`words.${track} 缺失`);
     if (meta && !finiteCount(meta.wordCount)) errors.push(`tracks.${track}.wordCount 必须是非负整数`);
-    if (words && meta?.wordCount !== Object.keys(words).length) errors.push(`tracks.${track}.wordCount 与词条数量不一致`);
-    for (const [lemma, record] of Object.entries(words || {})) {
-      if (!WORD_PATTERN.test(lemma) || normalizeWord(lemma) !== lemma) errors.push(`words.${track}.${lemma} 词元无效`);
-      if (!['core', 'frequent', 'appeared', 'uncovered'].includes(record?.priorityTier)) {
-        errors.push(`words.${track}.${lemma}.priorityTier 无效`);
-      }
-      if (!finiteCount(record?.priorityScore) || record.priorityScore > 100) {
-        errors.push(`words.${track}.${lemma}.priorityScore 必须为 0-100`);
-      }
-      assertCounts(record?.counts, `words.${track}.${lemma}.counts`, errors);
-    }
+    assertTrackWords(words, {
+      track,
+      wordCount: meta?.wordCount,
+      path: `words.${track}`
+    }, errors);
   }
   if (errors.length) throw new Error(`真题语料索引无效：${errors.join('；')}`);
+  return artifact;
+}
+
+export function assertExamCorpusIndexManifest(artifact) {
+  const errors = [];
+  if (!artifact || typeof artifact !== 'object') errors.push('真题语料索引清单必须是对象');
+  if (artifact?.schemaVersion !== 2) errors.push('schemaVersion 必须为 2');
+  if (!text(artifact?.corpusVersion)) errors.push('corpusVersion 缺失');
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(text(artifact?.generatedAt))) errors.push('generatedAt 必须是 ISO 时间');
+  assertSource(artifact?.source, errors);
+  for (const track of CORPUS_TRACKS) {
+    const meta = artifact?.tracks?.[track];
+    if (!meta || typeof meta !== 'object') {
+      errors.push(`tracks.${track} 缺失`);
+      continue;
+    }
+    if (!finiteCount(meta.wordCount)) errors.push(`tracks.${track}.wordCount 必须是非负整数`);
+    if (!text(meta.path)) errors.push(`tracks.${track}.path 缺失`);
+    if (!SHA256_PATTERN.test(text(meta.sha256))) errors.push(`tracks.${track}.sha256 必须是 SHA-256`);
+    if (!finiteCount(meta.byteSize)) errors.push(`tracks.${track}.byteSize 必须是非负整数`);
+  }
+  if (errors.length) throw new Error(`真题语料索引清单无效：${errors.join('；')}`);
+  return artifact;
+}
+
+export function assertExamCorpusTrackArtifact(artifact, { corpusVersion, track, wordCount } = {}) {
+  const errors = [];
+  if (artifact?.schemaVersion !== 1) errors.push('schemaVersion 必须为 1');
+  if (artifact?.corpusVersion !== corpusVersion) errors.push('corpusVersion 不匹配');
+  if (artifact?.track !== track) errors.push('track 不匹配');
+  assertTrackWords(artifact?.words, {
+    track,
+    wordCount,
+    path: `words.${track}`
+  }, errors);
+  if (errors.length) throw new Error(`真题语料轨道索引无效：${errors.join('；')}`);
   return artifact;
 }
 

@@ -48,6 +48,56 @@ function indexArtifact() {
   };
 }
 
+function shardedIndexManifest() {
+  const legacy = indexArtifact();
+  return {
+    schemaVersion: 2,
+    corpusVersion: legacy.corpusVersion,
+    generatedAt: legacy.generatedAt,
+    source: legacy.source,
+    scoring: legacy.scoring,
+    tracks: {
+      cet4: { ...legacy.tracks.cet4, wordCount: 1, path: 'exam-corpus-tracks/cet4.json', sha256: 'b'.repeat(64), byteSize: 100 },
+      cet6: { ...legacy.tracks.cet6, path: 'exam-corpus-tracks/cet6.json', sha256: 'c'.repeat(64), byteSize: 80 },
+      'kaoyan-general': { ...legacy.tracks['kaoyan-general'], path: 'exam-corpus-tracks/kaoyan-general.json', sha256: 'd'.repeat(64), byteSize: 120 }
+    }
+  };
+}
+
+function trackArtifact(track, words) {
+  return {
+    schemaVersion: 1,
+    corpusVersion: 'fixture.app.1',
+    track,
+    words
+  };
+}
+
+test('preloads only the selected score track and reuses it for lookup', async () => {
+  const manifest = shardedIndexManifest();
+  const author = indexArtifact().words['kaoyan-general'].author;
+  const responses = {
+    '/data/exam-corpus-index.json': manifest,
+    '/data/exam-corpus-tracks/cet4.json': trackArtifact('cet4', { author })
+  };
+  const calls = [];
+  const service = createExamCorpusService({
+    fetchFn: async url => {
+      calls.push(url);
+      return { ok: Boolean(responses[url]), async json() { return responses[url]; } };
+    }
+  });
+
+  assert.equal(typeof service.preload, 'function');
+  assert.equal(await service.preload('cet4'), true);
+  assert.equal((await service.lookup('author', 'cet4'))?.priorityScore, 80);
+  assert.equal((await service.lookup('author', 'cet4'))?.priorityScore, 80);
+  assert.deepEqual(calls, [
+    '/data/exam-corpus-index.json',
+    '/data/exam-corpus-tracks/cet4.json'
+  ]);
+});
+
 test('loads one score index and maps both graduate targets to the transparent shared frequency', async () => {
   const calls = [];
   const service = createExamCorpusService({

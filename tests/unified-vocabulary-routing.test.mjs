@@ -4,8 +4,9 @@ import test from 'node:test';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 
-const [routerSource, statsSource, appShellSource, chatSource, flashcardSource, contextReviewSource, reviewModeSource, readingSource, reportSource, capabilitiesSource] = await Promise.all([
+const [routerSource, routeSource, statsSource, appShellSource, chatSource, flashcardSource, contextReviewSource, reviewModeSource, readingSource, reportSource, capabilitiesSource] = await Promise.all([
   read('../src/router.js'),
+  read('../src/router-routes.mjs'),
   read('../src/views/stats.js'),
   read('../src/components/app-shell.js'),
   read('../src/views/chat.js'),
@@ -18,7 +19,7 @@ const [routerSource, statsSource, appShellSource, chatSource, flashcardSource, c
 ]);
 
 test('vocab is canonical and the legacy route normalizes without LearnWordsView', () => {
-  assert.match(routerSource, /hash === '#\/vocab'/);
+  assert.match(routeSource, /hash === '#\/vocab'/);
   assert.match(routerSource, /#\/learn-words/);
   assert.match(routerSource, /replaceState/);
   assert.doesNotMatch(routerSource, /LearnWordsView/);

@@ -62,11 +62,15 @@ export const App = {
   async init() {
     this.initDiagnostics();
     try {
-      // Initialize modules
-      await Config.initialize();
+      // Start the visible application from synchronous display settings. The
+      // native secret bridge and the single IndexedDB connection warm in
+      // parallel instead of sitting in front of the first route.
+      const configReady = Config.initialize();
+      const databaseReady = DB.open();
       Theme.init();
 
-      // Start router
+      // AppShell is persistent and can paint immediately while the async
+      // startup work above settles behind it.
       Router.init();
       this.reviewPersistence = getReviewPersistence(DB);
       void this.reviewPersistence.replay().catch(error => {
@@ -79,10 +83,24 @@ export const App = {
       this.initReviewPersistenceLifecycle();
       scheduleDailyReportPrune();
       scheduleCatalogPrewarm();
-      this._removeNativeNavigation = await installNativeNavigation(Router);
+      const nativeNavigationReady = installNativeNavigation(Router);
 
       // Initialize global event listeners
       this.initGlobalEvents();
+      const [configResult, databaseResult, nativeNavigationResult] = await Promise.allSettled([configReady, databaseReady, nativeNavigationReady]);
+      if (configResult.status === 'rejected') {
+        DiagnosticLogger.record('app.config_initialize_failed', {
+          category: 'app', level: 'warn', payload: { errorName: configResult.reason?.name || 'Error' }
+        });
+      }
+      if (databaseResult.status === 'rejected') {
+        DiagnosticLogger.record('app.db_preconnect_failed', {
+          category: 'db', level: 'warn', payload: { errorName: databaseResult.reason?.name || 'Error' }
+        });
+      }
+      if (nativeNavigationResult.status === 'fulfilled') {
+        this._removeNativeNavigation = nativeNavigationResult.value;
+      }
       if (Config.shouldShowApiOnboarding()) {
         setTimeout(() => {
           if (Config.shouldShowApiOnboarding()) Modal.showApiSettings({ onboarding: true });
@@ -140,6 +158,21 @@ export const App = {
         category: 'app',
         payload: { online: typeof navigator === 'undefined' ? null : navigator.onLine }
       });
+      if (typeof globalThis.PerformanceObserver === 'function'
+        && globalThis.PerformanceObserver.supportedEntryTypes?.includes?.('longtask')) {
+        this._performanceObserver = new globalThis.PerformanceObserver(list => {
+          list.getEntries().forEach(entry => {
+            if (entry.duration < 50) return;
+            DiagnosticLogger.record('performance.long_task', {
+              category: 'app',
+              level: 'warn',
+              durationMs: Math.round(entry.duration * 100) / 100,
+              payload: { startTime: Math.round(entry.startTime * 100) / 100 }
+            });
+          });
+        });
+        this._performanceObserver.observe({ type: 'longtask', buffered: true });
+      }
 
       window.addEventListener('error', event => {
         DiagnosticLogger.record('app.error', {

@@ -8,6 +8,7 @@ import { normalizeCloudArticleMetadata } from './cloud-article-metadata.mjs';
 import { localDayBounds, localDayKey } from './learning-day.mjs';
 import { ActivityType, importWordDedupeKey, normalizeLearningActivity } from './learning-activity.mjs';
 import { scheduleExternalReview } from './external-review-scheduler.mjs';
+import { settleSessionReview as settleReviewRatingIntent } from './recovery-scheduler.mjs';
 import {
   LIBRARY_SOURCE_VERSION,
   activateLibrarySource,
@@ -71,6 +72,12 @@ export function abortTransaction(tx, error) {
   return error;
 }
 
+function reviewPersistenceError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function clonePlain(value) {
   if (value === undefined) return value;
   if (typeof structuredClone === 'function') return structuredClone(value);
@@ -125,6 +132,19 @@ function diagnosticLogger() {
 // connection is removed by the lifecycle handlers below.
 const connectionCache = new Map();
 const openingConnections = new Map();
+const unifiedVocabularyMigrations = new Map();
+const unifiedVocabularySnapshots = new Map();
+const unifiedVocabularyRevisions = new Map();
+
+function vocabularyCacheKey(dbApi) {
+  return databaseCacheKey(dbApi.DB_NAME, dbApi.DB_VERSION);
+}
+
+function invalidateUnifiedVocabulary(dbApi) {
+  const key = vocabularyCacheKey(dbApi);
+  unifiedVocabularySnapshots.delete(key);
+  unifiedVocabularyRevisions.set(key, (unifiedVocabularyRevisions.get(key) || 0) + 1);
+}
 
 function databaseCacheKey(name, version) {
   return `${String(name)}:${Number(version)}`;
@@ -165,7 +185,7 @@ function attachConnectionLifecycle(connection, key) {
 
 export const DB = {
   DB_NAME: 'EnglishReader',
-  DB_VERSION: 22, // v22: additive resumable reading progress
+  DB_VERSION: 23, // v23: vocabulary metadata + bounded practice progress index
 
   // Open database connection with retry
   open(retries = 3, { diagnostics = true, correlationId = undefined } = {}) {
@@ -514,6 +534,77 @@ export const DB = {
           if (!store.indexNames.contains('completionId')) {
             store.createIndex('completionId', 'completionId', { unique: true });
           }
+        }
+
+        // v23: one small metadata store keeps the legacy vocabulary migration
+        // out of normal reads. The compound review index bounds practice
+        // progress by source, scope, and time in one transaction.
+        if (!db.objectStoreNames.contains('appMeta')) {
+          db.createObjectStore('appMeta', { keyPath: 'key' });
+        }
+        if (e.oldVersion < 23) {
+          const reviewEvents = e.target.transaction.objectStore('reviewEvents');
+          if (!reviewEvents.indexNames.contains('sourceScopeReviewedAt')) {
+            reviewEvents.createIndex('sourceScopeReviewedAt', ['source', 'practiceScope', 'reviewedAt']);
+          }
+
+          // Earlier exam rows duplicated the complete paper (including every
+          // passage and question) inside examPapers even though normalized
+          // examUnits/examQuestions stores already existed. That made the home
+          // overview clone the whole question bank on every read. Backfill the
+          // normalized rows once, preserve their hashes, then keep only the
+          // lightweight paper overview.
+          const paperStore = e.target.transaction.objectStore('examPapers');
+          const unitStore = e.target.transaction.objectStore('examUnits');
+          const questionStore = e.target.transaction.objectStore('examQuestions');
+          const paperCursor = paperStore.openCursor();
+          paperCursor.onsuccess = () => {
+            const cursor = paperCursor.result;
+            if (!cursor) return;
+            const row = cursor.value;
+            const content = row?.content;
+            if (content && Array.isArray(content.units)) {
+              for (const unit of content.units) {
+                const unitKey = `${row.bankId}:${unit.unitKey}`;
+                const unitRequest = unitStore.get(unitKey);
+                unitRequest.onsuccess = () => unitStore.put({
+                  ...unit,
+                  ...(unitRequest.result || {}),
+                  contentId: unitKey,
+                  examId: row.examId,
+                  bankId: row.bankId,
+                  packageId: row.packageId,
+                  packageVersion: row.packageVersion,
+                  paperKey: row.paperKey,
+                  unitKey: unit.unitKey,
+                  type: unit.type,
+                  displayTitle: unit.displayTitle,
+                  installedAt: row.installedAt
+                });
+                for (const question of Array.isArray(unit.questions) ? unit.questions : []) {
+                  const questionKey = `${row.bankId}:${question.questionKey}`;
+                  const questionRequest = questionStore.get(questionKey);
+                  questionRequest.onsuccess = () => questionStore.put({
+                    ...question,
+                    ...(questionRequest.result || {}),
+                    contentId: questionKey,
+                    examId: row.examId,
+                    bankId: row.bankId,
+                    packageId: row.packageId,
+                    packageVersion: row.packageVersion,
+                    paperKey: row.paperKey,
+                    unitKey: unit.unitKey,
+                    questionKey: question.questionKey,
+                    type: question.type,
+                    installedAt: row.installedAt
+                  });
+                }
+              }
+              const { content: _duplicatedContent, ...overview } = row;
+              cursor.update(overview);
+            }
+            cursor.continue();
+          };
         }
       };
 
@@ -933,7 +1024,7 @@ export const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('vocabulary', 'readwrite');
       const req = tx.objectStore('vocabulary').add({ ...wordData, createdAt: Date.now() });
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => { invalidateUnifiedVocabulary(this); resolve(req.result); };
       req.onerror = () => reject(req.error);
     });
   },
@@ -1041,7 +1132,7 @@ export const DB = {
       wordRequest.onerror = () => fail(wordRequest.error);
       tx.oncomplete = () => {
         if (failure) reject(failure);
-        else if (result) resolve(result);
+        else if (result) { invalidateUnifiedVocabulary(this); resolve(result); }
         else reject(new Error('收藏单词未完成'));
       };
       tx.onerror = () => reject(failure || tx.error || new Error('收藏单词失败'));
@@ -1060,7 +1151,9 @@ export const DB = {
   },
 
   async updateWordDefinition(id, fields) {
-    return updateRecordFields(await this.open(), 'vocabulary', id, fields);
+    const result = await updateRecordFields(await this.open(), 'vocabulary', id, fields);
+    invalidateUnifiedVocabulary(this);
+    return result;
   },
 
   async deleteWord(id) {
@@ -1068,7 +1161,7 @@ export const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('vocabulary', 'readwrite');
       tx.objectStore('vocabulary').delete(id);
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(); };
       tx.onerror = () => reject(tx.error);
     });
   },
@@ -1082,7 +1175,7 @@ export const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readwrite');
       const req = tx.objectStore('learnWords').add({ ...wordData, word: stemWord, reviewRevision: Math.max(0, Number(wordData.reviewRevision) || 0), createdAt: Date.now() });
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => { invalidateUnifiedVocabulary(this); resolve(req.result); };
       req.onerror = () => reject(req.error);
     });
   },
@@ -1154,6 +1247,34 @@ export const DB = {
     });
   },
 
+  async getLearnWordsByIds(ids = [], { includeArchived = false } = {}) {
+    const requestedIds = [...new Set((Array.isArray(ids) ? ids : [ids])
+      .map(id => Number(id))
+      .filter(id => Number.isSafeInteger(id) && id > 0))];
+    if (!requestedIds.length) return [];
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('learnWords', 'readonly');
+      const store = tx.objectStore('learnWords');
+      const found = new Map();
+      let failure = null;
+      for (const id of requestedIds) {
+        const req = store.get(id);
+        req.onsuccess = () => {
+          const row = req.result;
+          if (row && (includeArchived || row.archivedAt == null)) found.set(id, row);
+        };
+        req.onerror = () => {
+          failure = req.error;
+          try { tx.abort(); } catch {}
+        };
+      }
+      tx.oncomplete = () => resolve(requestedIds.map(id => found.get(id)).filter(Boolean));
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('批量读取学习词失败'));
+    });
+  },
+
   async getAllLearnWords({ includeArchived = false } = {}) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
@@ -1167,68 +1288,111 @@ export const DB = {
   },
 
   async ensureUnifiedVocabulary() {
-    const db = await this.open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['vocabulary', 'learnWords'], 'readwrite');
-      const savedStore = tx.objectStore('vocabulary');
-      const wordStore = tx.objectStore('learnWords');
-      const savedRequest = savedStore.getAll();
-      const wordsRequest = wordStore.getAll();
-      let savedRows = null;
-      let learnRows = null;
-      let applied = false;
-      let failure = null;
+    const cacheKey = vocabularyCacheKey(this);
+    if (unifiedVocabularyMigrations.has(cacheKey)) return unifiedVocabularyMigrations.get(cacheKey);
+    const migration = (async () => {
+      const db = await this.open();
+      const migrated = await new Promise((resolve, reject) => {
+        const tx = db.transaction('appMeta', 'readonly');
+        const req = tx.objectStore('appMeta').get('unified-vocabulary-v1');
+        req.onsuccess = () => resolve(Boolean(req.result?.completed));
+        req.onerror = () => reject(req.error);
+        tx.onerror = () => reject(tx.error || req.error);
+      });
+      if (migrated) return;
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['vocabulary', 'learnWords', 'appMeta'], 'readwrite');
+        const savedStore = tx.objectStore('vocabulary');
+        const wordStore = tx.objectStore('learnWords');
+        const metaStore = tx.objectStore('appMeta');
+        const markerRequest = metaStore.get('unified-vocabulary-v1');
+        let savedRows = null;
+        let learnRows = null;
+        let applied = false;
+        let failure = null;
 
-      const fail = error => {
-        failure = error || new Error('统一词库迁移失败');
-        try {
-          tx.abort();
-        } catch {}
-      };
-
-      const apply = () => {
-        if (applied || savedRows === null || learnRows === null) return;
-        applied = true;
-        try {
-          const plan = planLegacyVocabularyMigration({
-            learnWords: learnRows,
-            vocabulary: savedRows,
-            normalizeLemma: getStemForm
-          });
-          for (const row of plan.updates) wordStore.put(row);
-          for (const row of plan.inserts) wordStore.add(row);
-        } catch (error) {
-          fail(error);
-        }
-      };
-
-      savedRequest.onsuccess = () => {
-        savedRows = savedRequest.result || [];
-        apply();
-      };
-      savedRequest.onerror = () => fail(savedRequest.error);
-      wordsRequest.onsuccess = () => {
-        learnRows = wordsRequest.result || [];
-        apply();
-      };
-      wordsRequest.onerror = () => fail(wordsRequest.error);
-      tx.oncomplete = () => failure ? reject(failure) : resolve();
-      tx.onerror = () => reject(failure || tx.error);
-      tx.onabort = () => reject(failure || tx.error || new Error('统一词库迁移失败'));
+        const fail = error => {
+          failure = error || new Error('统一词库迁移失败');
+          try { tx.abort(); } catch {}
+        };
+        const apply = () => {
+          if (applied || savedRows === null || learnRows === null) return;
+          applied = true;
+          try {
+            const plan = planLegacyVocabularyMigration({
+              learnWords: learnRows,
+              vocabulary: savedRows,
+              normalizeLemma: getStemForm
+            });
+            for (const row of plan.updates) wordStore.put(row);
+            for (const row of plan.inserts) wordStore.add(row);
+            metaStore.put({ key: 'unified-vocabulary-v1', completed: true, updatedAt: Date.now() });
+          } catch (error) {
+            fail(error);
+          }
+        };
+        markerRequest.onsuccess = () => {
+          if (markerRequest.result?.completed) {
+            applied = true;
+            return;
+          }
+          const savedRequest = savedStore.getAll();
+          const wordsRequest = wordStore.getAll();
+          savedRequest.onsuccess = () => { savedRows = savedRequest.result || []; apply(); };
+          savedRequest.onerror = () => fail(savedRequest.error);
+          wordsRequest.onsuccess = () => { learnRows = wordsRequest.result || []; apply(); };
+          wordsRequest.onerror = () => fail(wordsRequest.error);
+        };
+        markerRequest.onerror = () => fail(markerRequest.error);
+        tx.oncomplete = () => failure ? reject(failure) : resolve();
+        tx.onerror = () => reject(failure || tx.error);
+        tx.onabort = () => reject(failure || tx.error || new Error('统一词库迁移失败'));
+      });
+      invalidateUnifiedVocabulary(this);
+    })();
+    const tracked = migration.catch(error => {
+      unifiedVocabularyMigrations.delete(cacheKey);
+      throw error;
     });
+    unifiedVocabularyMigrations.set(cacheKey, tracked);
+    return tracked;
   },
 
   async getUnifiedVocabulary() {
+    return (await this.getUnifiedVocabularySnapshot()).data;
+  },
+
+  async getUnifiedVocabularySnapshot({ force = false } = {}) {
+    const cacheKey = vocabularyCacheKey(this);
     await this.ensureUnifiedVocabulary();
-    const [learnWords, vocabulary] = await Promise.all([
-      this.getAllLearnWords(),
-      this.getAllWords()
-    ]);
-    return projectUnifiedVocabulary({
-      learnWords,
-      vocabulary,
-      normalizeLemma: getStemForm
+    if (!force && unifiedVocabularySnapshots.has(cacheKey)) return unifiedVocabularySnapshots.get(cacheKey);
+    const db = await this.open();
+    const revision = unifiedVocabularyRevisions.get(cacheKey) || 0;
+    const data = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['vocabulary', 'learnWords'], 'readonly');
+      const savedRequest = tx.objectStore('vocabulary').getAll();
+      const wordsRequest = tx.objectStore('learnWords').getAll();
+      let savedRows = null;
+      let learnRows = null;
+      let failure = null;
+      const finish = () => {
+        if (savedRows === null || learnRows === null) return;
+        resolve(projectUnifiedVocabulary({
+          learnWords: learnRows.filter(word => word?.archivedAt == null),
+          vocabulary: [...savedRows].reverse(),
+          normalizeLemma: getStemForm
+        }));
+      };
+      savedRequest.onsuccess = () => { savedRows = savedRequest.result || []; finish(); };
+      wordsRequest.onsuccess = () => { learnRows = wordsRequest.result || []; finish(); };
+      savedRequest.onerror = () => { failure = savedRequest.error; };
+      wordsRequest.onerror = () => { failure = wordsRequest.error; };
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('统一词库读取失败'));
     });
+    const snapshot = Object.freeze({ data, revision, refreshedAt: Date.now() });
+    if ((unifiedVocabularyRevisions.get(cacheKey) || 0) === revision) unifiedVocabularySnapshots.set(cacheKey, snapshot);
+    return snapshot;
   },
 
   async removeReadingVocabularySource(wordId, { occurredAt = Date.now() } = {}) {
@@ -1272,7 +1436,10 @@ export const DB = {
         apply();
       };
       savedRequest.onerror = () => fail(savedRequest.error);
-      tx.oncomplete = () => failure ? reject(failure) : resolve();
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else { invalidateUnifiedVocabulary(this); resolve(); }
+      };
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('取消收藏失败'));
     });
@@ -1299,7 +1466,7 @@ export const DB = {
           reject(request.error);
         };
       }
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(); };
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error('移出词库失败'));
     });
@@ -1315,14 +1482,16 @@ export const DB = {
         if (request.result) store.put(activateLibrarySource(request.result, source, occurredAt));
       };
       request.onerror = () => reject(request.error);
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(); };
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error('恢复词库来源失败'));
     });
   },
 
   async updateLearnWordDefinition(id, fields) {
-    return updateRecordFields(await this.open(), 'learnWords', id, fields);
+    const result = await updateRecordFields(await this.open(), 'learnWords', id, fields);
+    invalidateUnifiedVocabulary(this);
+    return result;
   },
 
   async deleteLearnWord(id) {
@@ -1330,7 +1499,7 @@ export const DB = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('learnWords', 'readwrite');
       tx.objectStore('learnWords').delete(id);
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(); };
       tx.onerror = () => reject(tx.error);
     });
   },
@@ -1349,7 +1518,7 @@ export const DB = {
           store.put(word);
         }
       };
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(); };
       tx.onerror = () => reject(tx.error);
     });
   },
@@ -1397,7 +1566,7 @@ export const DB = {
           ...event
         });
       };
-      tx.oncomplete = () => resolve(updatedWord);
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(updatedWord); };
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('复习记录保存失败'));
     });
@@ -1470,7 +1639,7 @@ export const DB = {
         failure = wordRequest.error;
         tx.abort();
       };
-      tx.oncomplete = () => resolve(updatedWord);
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(updatedWord); };
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('评分更正失败'));
     });
@@ -1767,7 +1936,7 @@ export const DB = {
 
       tx.oncomplete = () => {
         if (failure) reject(failure);
-        else resolve(result);
+        else { invalidateUnifiedVocabulary(this); resolve(result); }
       };
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('导入信号保存失败'));
@@ -2006,6 +2175,158 @@ export const DB = {
 
   // V2 会话结算：正式复习评分统一入口。按 recovery 状态机更新 learnWords，
   // 并在同一事务写入带 sessionDebt / recoveryStage 的 reviewEvents。
+  async applyReviewRatingIntent(id, intent = {}, options = {}) {
+    const db = await this.open(3, { correlationId: options?.correlationId });
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['learnWords', 'reviewEvents'], 'readwrite');
+      const words = tx.objectStore('learnWords');
+      const events = tx.objectStore('reviewEvents');
+      let updatedWord = null;
+      let failure = null;
+      const attemptId = String(options.attemptId || intent.attemptId || '').trim();
+      const expectedRevision = options.expectedRevision;
+      const rating = [1, 3, 5].includes(Number(intent.rating)) ? Number(intent.rating) : null;
+      const sessionDebt = Math.max(0, Math.trunc(Number(intent.sessionDebt) || 0));
+      const reviewedAt = Number.isFinite(Number(intent.occurredAt)) ? Number(intent.occurredAt) : Date.now();
+      const metadata = intent.metadata && typeof intent.metadata === 'object' && !Array.isArray(intent.metadata)
+        ? { ...intent.metadata }
+        : {};
+      let word = null;
+      let wordReady = false;
+      let attemptReady = !attemptId;
+      let existingAttempt = null;
+
+      const fail = (code, message) => {
+        failure = abortTransaction(tx, reviewPersistenceError(code, message));
+      };
+      const finishReadPhase = () => {
+        if (!wordReady || !attemptReady) return;
+        if (!word) {
+          fail('MISSING_WORD', '学习词不存在');
+          return;
+        }
+        if (existingAttempt) {
+          updatedWord = { ...word };
+          return;
+        }
+        if (rating === null) {
+          fail('INVALID_RATING', '复习评分需要 1 / 3 / 5 的有效评分');
+          return;
+        }
+
+        const currentRevision = Math.max(0, Number(word.reviewRevision) || 0);
+        const conflictResolved = expectedRevision !== undefined && Number(expectedRevision) !== currentRevision;
+        // The user has already made a durable, explicit selection in the
+        // journal.  A stale UI revision must therefore reapply that intent to
+        // the current record, never overwrite it with a stale schedule.
+        const srsData = settleReviewRatingIntent(word, rating, sessionDebt, reviewedAt);
+        updatedWord = { ...word, ...srsData, reviewRevision: currentRevision + 1 };
+        delete updatedWord.expectedRevision;
+        words.put(updatedWord);
+        events.add({
+          ...metadata,
+          wordId: id,
+          reviewedAt,
+          rating,
+          source: intent.source || 'flashcard',
+          sawAnswer: Boolean(intent.sawAnswer),
+          previousInterval: Number(word.interval) || 0,
+          nextInterval: Number(srsData.interval) || 0,
+          previousState: word.state || (!word.reviewCount ? 'new' : 'legacy'),
+          nextState: srsData.state || 'legacy',
+          schedulerVersion: 2,
+          reviewRevision: currentRevision + 1,
+          sessionDebt,
+          recoveryStage: Number(srsData.recoveryStage) || 0,
+          recoveryTarget: Number(srsData.recoveryTarget) || 0,
+          lastDebt: Number(srsData.lastDebt) || 0,
+          intentVersion: 2,
+          expectedRevision: expectedRevision ?? null,
+          conflictResolved,
+          correlationId: options.correlationId,
+          ...(attemptId ? { attemptId } : {})
+        });
+      };
+
+      const wordRequest = words.get(id);
+      wordRequest.onsuccess = () => {
+        word = wordRequest.result;
+        wordReady = true;
+        finishReadPhase();
+      };
+      wordRequest.onerror = () => {
+        failure = wordRequest.error;
+        tx.abort();
+      };
+      if (attemptId && events.indexNames.contains('attemptId')) {
+        const attemptRequest = events.index('attemptId').get(attemptId);
+        attemptRequest.onsuccess = () => {
+          existingAttempt = attemptRequest.result || null;
+          attemptReady = true;
+          finishReadPhase();
+        };
+        attemptRequest.onerror = () => {
+          failure = attemptRequest.error;
+          tx.abort();
+        };
+      }
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(updatedWord); };
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || reviewPersistenceError('DB_TRANSACTION_ABORTED', '复习记录保存失败'));
+    });
+  },
+
+  async getPracticeReviewEventsBatch(requests = []) {
+    const normalized = (Array.isArray(requests) ? requests : [])
+      .map(request => ({
+        practiceScope: String(request?.practiceScope || ''),
+        from: numericValue(request?.from),
+        to: numericValue(request?.to),
+        wordIds: new Set((request?.wordIds || []).map(Number).filter(Number.isFinite))
+      }))
+      .filter(request => request.practiceScope);
+    if (!normalized.length) return {};
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('reviewEvents', 'readonly');
+      const index = tx.objectStore('reviewEvents').index('sourceScopeReviewedAt');
+      const result = {};
+      let pending = normalized.length;
+      let failure = null;
+      const finish = () => {
+        pending -= 1;
+        if (pending === 0 && !failure) resolve(result);
+      };
+      for (const request of normalized) {
+        const range = globalThis.IDBKeyRange && request.from !== null && request.to !== null
+          ? globalThis.IDBKeyRange.bound(
+            ['practice-flashcard', request.practiceScope, request.from],
+            ['practice-flashcard', request.practiceScope, request.to],
+            false,
+            true
+          )
+          : null;
+        const query = range ? index.getAll(range) : index.getAll();
+        query.onsuccess = () => {
+          result[request.practiceScope] = (query.result || [])
+            .filter(event => event?.source === 'practice-flashcard' && event?.practiceScope === request.practiceScope)
+            .filter(event => request.from === null || Number(event.reviewedAt) >= request.from)
+            .filter(event => request.to === null || Number(event.reviewedAt) < request.to)
+            .filter(event => !request.wordIds.size || request.wordIds.has(Number(event.wordId)))
+            .sort((left, right) => (Number(left.reviewedAt) - Number(right.reviewedAt)) || (Number(left.id) - Number(right.id)))
+            .map(clonePlain);
+          finish();
+        };
+        query.onerror = () => {
+          failure = query.error;
+          try { tx.abort(); } catch {}
+        };
+      }
+      tx.onerror = () => reject(failure || tx.error);
+      tx.onabort = () => reject(failure || tx.error || new Error('专项复习进度批量读取失败'));
+    });
+  },
+
   async settleSessionReview(id, srsData, event = {}, options = {}) {
     const db = await this.open(3, { correlationId: event?.correlationId });
     return new Promise((resolve, reject) => {
@@ -2092,7 +2413,7 @@ export const DB = {
           tx.abort();
         };
       }
-      tx.oncomplete = () => resolve(updatedWord);
+      tx.oncomplete = () => { invalidateUnifiedVocabulary(this); resolve(updatedWord); };
       tx.onerror = () => reject(failure || tx.error);
       tx.onabort = () => reject(failure || tx.error || new Error('复习记录保存失败'));
     });

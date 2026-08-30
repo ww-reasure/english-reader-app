@@ -121,3 +121,18 @@ test('incomplete reading only describes progress as saved after a successful che
   assert.match(prompt, /继续阅读/);
   assert.match(prompt, /checkpointFailed\s*\?/);
 });
+
+test('reading commits the article body before vocabulary, lexicon, and progress enhancement work', async () => {
+  const source = await readReadingView();
+  const renderStart = source.indexOf('async render(container, articleId)');
+  const renderEnd = source.indexOf('_recordReadingLookup(', renderStart);
+  const render = source.slice(renderStart, renderEnd);
+  const bodyCommit = render.indexOf('container.innerHTML = `');
+  const enhancementStart = render.indexOf('_startPostPaintEnhancements(');
+
+  assert.ok(bodyCommit >= 0, 'the article body is committed by render');
+  assert.ok(enhancementStart > bodyCommit, 'post-paint enhancement starts only after the article DOM commit');
+  assert.doesNotMatch(render.slice(0, bodyCommit), /await DB\.getAllLearnWords\(\)/, 'vocabulary does not block the article body');
+  assert.doesNotMatch(render.slice(0, bodyCommit), /await this\._loadReadingProgress\(/, 'progress recovery does not block the article body');
+  assert.match(render, /void this\._startPostPaintEnhancements\(/, 'enhancement runs independently of the first render promise');
+});

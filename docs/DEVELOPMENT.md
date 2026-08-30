@@ -44,8 +44,7 @@
 │   └── dict-5000.json      # 精简词典（19000+ 词，1.1MB）
 ├── android/                # Capacitor Android 项目
 │   ├── app/src/main/java/  # Java 源码
-│   │   ├── MainActivity.java
-│   │   └── TtsBridge.java  # Android 原生 TTS 桥接
+│   │   └── MainActivity.java
 │   ├── build.gradle
 │   └── ...
 ├── package.json            # npm 配置
@@ -147,13 +146,9 @@ const DIFFICULTY_RULES = {
 2. **Free Dictionary API**：在线查询 + 真人发音
 3. **AI 翻译**：兜底方案
 
-### 5. 语音发音 (tts.js)
+### 5. 语音发音 (audio-cache.js)
 
-三级降级策略：
-
-1. **真人录音**：Free Dictionary API 音频 URL
-2. **Google TTS**：在线合成
-3. **设备 TTS**：Android 原生 TTS（通过 TtsBridge 桥接）
+发音只使用词典提供的真人录音双源与本地音频缓存；不初始化或回退到系统合成语音。
 
 ## 代码规范
 

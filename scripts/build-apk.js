@@ -55,23 +55,6 @@ function withAndroidNamespace(buildGradle, namespace) {
   return buildGradle.replace(/android\s*\{/, match => `${match}\n    namespace '${namespace}'`);
 }
 
-function ensureLegacyTextToSpeechNamespace() {
-  const pluginRoot = path.resolve(__dirname, '..', 'node_modules', '@capacitor-community', 'text-to-speech', 'android');
-  const buildGradlePath = path.join(pluginRoot, 'build.gradle');
-  const manifestPath = path.join(pluginRoot, 'src', 'main', 'AndroidManifest.xml');
-  if (!fs.existsSync(buildGradlePath) || !fs.existsSync(manifestPath)) return false;
-
-  const manifest = fs.readFileSync(manifestPath, 'utf8');
-  const namespace = manifest.match(/\bpackage\s*=\s*["']([^"']+)["']/)?.[1];
-  if (!namespace) return false;
-
-  const current = fs.readFileSync(buildGradlePath, 'utf8');
-  const updated = withAndroidNamespace(current, namespace);
-  if (updated === current) return false;
-  fs.writeFileSync(buildGradlePath, updated, 'utf8');
-  return true;
-}
-
 function getGradleApkPath() {
   return path.join(getAndroidProjectDirectory(), 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 }
@@ -122,7 +105,6 @@ async function buildApk({ flavor = PRIVATE_QA_FLAVOR } = {}) {
     expectedVersion: releaseMetadata.version,
     expectedVersionCode: releaseMetadata.versionCode
   });
-  ensureLegacyTextToSpeechNamespace();
   const { command, args } = getGradleCommand();
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -183,7 +165,6 @@ if (require.main === module) {
 module.exports = {
   assertBuildReleaseMetadata,
   buildApk,
-  ensureLegacyTextToSpeechNamespace,
   getAndroidProjectDirectory,
   getGradleApkPath,
   getGradleCommand,

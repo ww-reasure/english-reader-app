@@ -212,7 +212,7 @@ export const ReadingView = {
     }
   },
 
-  async _loadReadingProgress(article) {
+  async _loadReadingProgress(article, { isCurrent = () => true } = {}) {
     this.readingProgress = null;
     this.persistedGuideVisited = new Set();
     this.sessionGuideVisited = new Set();
@@ -237,6 +237,7 @@ export const ReadingView = {
         payload: { articleId: article.id, message: String(error?.message || error) }
       });
     }
+    if (!isCurrent()) return false;
 
     const completionMarker = this._getReadingCompletionMarker(article.id);
     if (completionMarker) {
@@ -249,6 +250,7 @@ export const ReadingView = {
       } else {
         try {
           await DB.deleteReadingProgress(article.id);
+          if (!isCurrent()) return false;
           this._clearReadingCompletionPending({ articleId: article.id });
           stored = null;
         } catch (error) {
@@ -268,6 +270,7 @@ export const ReadingView = {
     if (stored?.status === 'completed_pending_cleanup') {
       try {
         await DB.deleteReadingProgress(article.id);
+        if (!isCurrent()) return false;
         this._clearReadingCompletionPending({ articleId: article.id });
         stored = null;
       } catch (error) {
@@ -292,6 +295,7 @@ export const ReadingView = {
     if (stored && !progress && stored.contentFingerprint && stored.contentFingerprint !== bodyFingerprint) {
       try {
         await DB.deleteReadingProgress(article.id);
+        if (!isCurrent()) return false;
       } catch (error) {
         diagnosticLogger()?.record('reading.progress_delete_failed', {
           category: 'reading',
@@ -300,6 +304,8 @@ export const ReadingView = {
         });
       }
     }
+
+    if (!isCurrent()) return false;
 
     this.readingProgress = progress;
     this.persistedGuideVisited = new Set(progress?.guide?.visitedIndexes || []);
@@ -315,7 +321,7 @@ export const ReadingView = {
       // snapshot before its cleanup succeeds.  The article remains viewable,
       // and retryReadingProgressCleanup() can operate without a session.
       this.readingProgressSession = null;
-      return;
+      return true;
     }
     this.readingProgressSession = createReadingProgressSession({
       articleId: article.id,
@@ -356,6 +362,75 @@ export const ReadingView = {
         payload: { articleId: article.id, message: String(error?.message || error) }
       });
     }
+    return isCurrent();
+  },
+
+  _isRenderCurrent(session, articleId, container) {
+    return session === this.wordMarkingSession
+      && this.articleData?.id === articleId
+      && this.container === container;
+  },
+
+  _scheduleAfterFirstPaint(callback) {
+    const frame = globalThis.requestAnimationFrame;
+    if (typeof frame === 'function') {
+      frame(() => frame(callback));
+      return;
+    }
+    globalThis.setTimeout?.(callback, 0);
+  },
+
+  async _startPostPaintEnhancements({ article, container, session, learnWordsPromise }) {
+    const isCurrent = () => this._isRenderCurrent(session, article.id, container);
+    if (!isCurrent()) return;
+
+    const progressTask = this._loadReadingProgress(article, { isCurrent }).then(loaded => {
+      if (!loaded || !isCurrent()) return;
+      const resumeHost = container.querySelector?.('[data-reading-resume-host]');
+      if (resumeHost) resumeHost.innerHTML = this._renderResumeCard();
+      this.autoStartTimer();
+    });
+
+    const vocabularyTask = (async () => {
+      let learnWords = [];
+      try {
+        learnWords = await learnWordsPromise;
+      } catch (error) {
+        diagnosticLogger()?.record('reading.vocabulary_read_failed', {
+          category: 'reading',
+          level: 'error',
+          payload: { articleId: article.id, message: String(error?.message || error) }
+        });
+      }
+      if (!isCurrent()) return;
+      this.learningWords = learnWords;
+      learnWords.forEach(word => {
+        const stem = getStemForm(String(word.word || '').toLowerCase());
+        this.learningWordsMap.set(stem, word);
+        if (this.reviewMode) this.reviewWordsMap.set(stem, word);
+      });
+      if (this.reviewMode || this.wordMarkingEnabled) {
+        const exactWords = learnWords.map(word => ({
+          ...word,
+          stem: getStemForm(String(word.word || '').toLowerCase())
+        }));
+        const exactIndex = await buildExactWordFormIndex(exactWords, {
+          loadCore: readingLexiconLoader.loadCore
+        });
+        if (!isCurrent()) return;
+        this.learningWordFormIndex = exactIndex;
+        this.reviewWordFormIndex = exactIndex;
+        this._rerenderEnglishParagraphs();
+      }
+    })();
+
+    await Promise.allSettled([progressTask, vocabularyTask]);
+    if (!isCurrent()) return;
+    AudioCache.preloadWords(article.content).catch(() => {});
+    diagnosticLogger()?.record('reading.enhancements_ready', {
+      category: 'reading',
+      payload: { articleId: article.id, vocabularyCount: this.learningWords.length }
+    });
   },
 
   _renderResumeCard() {
@@ -763,6 +838,10 @@ export const ReadingView = {
   },
 
   async cleanup({ skipProgressCheckpoint = false } = {}) {
+    // Invalidate post-paint vocabulary/progress work before releasing any
+    // resources. Late work from an abandoned article must not bind itself to
+    // the next route or to a newly opened article.
+    this.wordMarkingSession += 1;
     this.closeReadingActions();
     this.closeSentenceGuide({ restoreReading: false, checkpoint: false });
     let progressCheckpointFailed = false;
@@ -835,6 +914,17 @@ export const ReadingView = {
   async render(container, articleId) {
     await this.cleanup();
     this.container = container;
+    const session = ++this.wordMarkingSession;
+    const learnWordsPromise = (typeof DB.getUnifiedVocabularySnapshot === 'function'
+      ? DB.getUnifiedVocabularySnapshot().then(snapshot => snapshot.data)
+      : DB.getAllLearnWords()).catch(error => {
+      diagnosticLogger()?.record('reading.vocabulary_read_failed', {
+        category: 'reading',
+        level: 'error',
+        payload: { articleId, message: String(error?.message || error) }
+      });
+      return [];
+    });
     const renderSpan = diagnosticLogger()?.beginSpan('reading.render', {
       category: 'reading',
       correlationId: `reading-render:${articleId || 'unknown'}:${Date.now()}`,
@@ -848,7 +938,6 @@ export const ReadingView = {
     this.learningWords = [];
     this.learningWordFormIndex = new Map();
     this.reviewWordFormIndex = new Map();
-    this.wordMarkingSession += 1;
     this.wordMarkingEnabled = Config.get('reading_word_marking') === 'true';
     this.englishParagraphs = [];
     this.guideSentences = [];
@@ -910,27 +999,6 @@ export const ReadingView = {
       return;
     }
 
-    // Normal reading may optionally mark only existing new/learning words;
-    // review reading keeps its mandatory markers and rating behavior.
-    const learnWords = await DB.getAllLearnWords();
-    this.learningWords = learnWords;
-    learnWords.forEach(w => {
-      const stem = getStemForm(w.word.toLowerCase());
-      this.learningWordsMap.set(stem, w);
-      if (this.reviewMode) this.reviewWordsMap.set(stem, w);
-    });
-    if (this.reviewMode || this.wordMarkingEnabled) {
-      const exactWords = learnWords.map(word => ({
-        ...word,
-        stem: getStemForm(String(word.word || '').toLowerCase())
-      }));
-      const exactIndex = await buildExactWordFormIndex(exactWords, {
-        loadCore: readingLexiconLoader.loadCore
-      });
-      this.learningWordFormIndex = exactIndex;
-      this.reviewWordFormIndex = exactIndex;
-    }
-
     const enParas = this._splitParas(article.content);
     this.englishParagraphs = enParas;
     this.paragraphTranslations = this._getParagraphTranslations(article, enParas);
@@ -943,7 +1011,6 @@ export const ReadingView = {
         sourceStart: segment.start,
         sourceEnd: segment.end
       })));
-    await this._loadReadingProgress(article);
     const articleTrack = resolveArticleTrack(article);
 
     let parasHTML = '';
@@ -986,7 +1053,7 @@ export const ReadingView = {
           </div>
           <div class="reading-hint">${this.reviewMode ? '复习标记词：点击后记录你的掌握程度' : '点击单词查释义；选中句子可以请求 AI 分析'}</div>
         </header>
-        ${this._renderResumeCard()}
+        <div data-reading-resume-host>${this._renderResumeCard()}</div>
         <div class="reading-layout" data-reading-layout="article">
           <section class="reading-content-pane" data-reading-pane="content" aria-label="文章正文">
             <div id="articleBody" class="article-body">${parasHTML}</div>
@@ -1004,14 +1071,13 @@ export const ReadingView = {
 
     this.initInteractions();
     this._bindViewportLifecycle();
-    AudioCache.preloadWords(article.content).catch(() => {});
-
-    // Auto-start timer
-    this.autoStartTimer();
     renderSpan?.end({ payload: { articleId: article.id, wordCount: article.wordCount || 0, paragraphCount: enParas.length } });
     diagnosticLogger()?.record('reading.rendered', {
       category: 'reading',
       payload: { articleId: article.id, wordCount: article.wordCount || 0, paragraphCount: enParas.length, reviewMode: this.reviewMode }
+    });
+    this._scheduleAfterFirstPaint(() => {
+      void this._startPostPaintEnhancements({ article, container, session, learnWordsPromise });
     });
   },
 
@@ -1913,6 +1979,23 @@ export const ReadingView = {
       wpm,
       readingQualification: { qualifiesForCalibration: readingQualification.qualified }
     };
+    if (this.readingActivityCompletionPending) {
+      // Keep the checkpoint and its stable completionId until the completed-day
+      // activity is durable.  A restart can then replay the already-idempotent
+      // completion facts and retry the activity write before progress cleanup.
+      this.readingProgressFinalizing = false;
+      completeSpan?.end({
+        payload: {
+          qualified: true,
+          activityCompletionPending: true,
+          elapsedMs: cumulativeActiveSeconds,
+          wordCount,
+          completionId
+        }
+      });
+      this._showReadingActivitySaveFailure();
+      return;
+    }
     const cleanupSucceeded = await this._retryReadingProgressCleanup({ showFailure: false });
     if (!cleanupSucceeded) {
       completeSpan?.end({ payload: { qualified: true, cleanupPending: true, elapsedMs: cumulativeActiveSeconds, wordCount, completionId } });

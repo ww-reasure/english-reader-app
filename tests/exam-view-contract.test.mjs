@@ -30,7 +30,7 @@ test('submitted attempts open a read-only explanation mode in the shared practic
   const [practiceSource, resultSource, routerSource, detailSource] = await Promise.all([
     readFile(new URL('../src/views/exam-practice.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/exam-result.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/router.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/router-routes.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../src/exam/renderers/result-detail.mjs', import.meta.url), 'utf8')
   ]);
   assert.match(practiceSource, /renderSubmittedExplanation/);

@@ -223,12 +223,32 @@ test('builds a versioned score index and per-track example shards without splitt
     exampleRecords: examples
   });
 
-  assert.equal(built.indexArtifact.words.cet4.author.priorityLabel, '真题高频核心');
-  assert.equal(built.indexArtifact.words['kaoyan-general'].author.examTrack, undefined);
-  assert.equal(built.indexArtifact.words['kaoyan-general'].author.cefrReported, 'B1');
-  assert.equal(built.indexArtifact.words.cet4.author.dictionaryLevel, undefined);
+  assert.equal(built.trackArtifacts.cet4.words.author.priorityLabel, '真题高频核心');
+  assert.equal(built.trackArtifacts['kaoyan-general'].words.author.examTrack, undefined);
+  assert.equal(built.trackArtifacts['kaoyan-general'].words.author.cefrReported, 'B1');
+  assert.equal(built.trackArtifacts.cet4.words.author.dictionaryLevel, undefined);
   assert.deepEqual(built.shards['kaoyan-general-a'].items.author.map(item => item.examTrack), ['kaoyan1']);
   assert.equal(built.exampleManifest.shards['kaoyan-general-a'].recordCount, 1);
+});
+
+test('builds a small score manifest with one independently loadable artifact per track', () => {
+  const count = { sentenceTotal: 10, passage: 8, questionStem: 2, other: 0, papers: 4, years: 3 };
+  const built = buildExamCorpusArtifacts({
+    manifest: sourceManifest(),
+    manifestSha256: 'a'.repeat(64),
+    wordRecords: [
+      word('author', 'cet4', count),
+      word('author', 'cet6', count),
+      word('author', 'kaoyan-general', count)
+    ],
+    exampleRecords: []
+  });
+
+  assert.equal(built.indexArtifact.schemaVersion, 2);
+  assert.equal(built.indexArtifact.words, undefined);
+  assert.equal(built.indexArtifact.tracks.cet4.path, 'exam-corpus-tracks/cet4.json');
+  assert.equal(built.trackArtifacts.cet4.track, 'cet4');
+  assert.equal(built.trackArtifacts.cet4.words.author.priorityScore, 100);
 });
 
 test('ships the validated v3 corpus and includes its reproducible build in release preflight', () => {
@@ -239,12 +259,22 @@ test('ships the validated v3 corpus and includes its reproducible build in relea
 
   const index = JSON.parse(readFileSync(resolve('public/data/exam-corpus-index.json'), 'utf8'));
   const examples = JSON.parse(readFileSync(resolve('public/data/exam-examples/manifest.json'), 'utf8'));
+  assert.equal(index.schemaVersion, 2);
+  assert.equal(index.words, undefined);
   assert.equal(index.source.sourceVersion, '2026-07-29-v3');
   assert.deepEqual(Object.fromEntries(Object.entries(index.tracks).map(([track, meta]) => [track, meta.wordCount])), {
     cet4: 3161,
     cet6: 3639,
     'kaoyan-general': 2384
   });
+  for (const track of ['cet4', 'cet6', 'kaoyan-general']) {
+    const meta = index.tracks[track];
+    const artifact = JSON.parse(readFileSync(resolve('public/data', meta.path), 'utf8'));
+    assert.equal(artifact.corpusVersion, index.corpusVersion);
+    assert.equal(artifact.track, track);
+    assert.equal(Object.keys(artifact.words).length, meta.wordCount);
+    assert.ok(meta.byteSize > 0);
+  }
   assert.deepEqual(examples.audit, {
     inputRecords: 70383,
     acceptedRecords: 70083,

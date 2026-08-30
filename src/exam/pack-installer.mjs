@@ -48,11 +48,11 @@ async function buildExamPackRecords(pack) {
       title: paper.title,
       sourceType: paper.sourceType,
       contentHash: paperHashByKey.get(paper.paperKey),
-      content: paper,
       installedAt
     });
     for (const unit of paper.units) {
       records.examUnits.push({
+        ...unit,
         contentId: `${paper.bankId}:${unit.unitKey}`,
         bankId: paper.bankId,
         packageId: manifest.packageId,
@@ -66,6 +66,7 @@ async function buildExamPackRecords(pack) {
       });
       for (const question of unit.questions) {
         records.examQuestions.push({
+          ...question,
           contentId: `${paper.bankId}:${question.questionKey}`,
           bankId: paper.bankId,
           packageId: manifest.packageId,

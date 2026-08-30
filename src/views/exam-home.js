@@ -22,6 +22,23 @@ const TYPE_CARDS_BY_EXAM = {
   ]
 };
 
+let privatePackInstallPromise = null;
+
+function ensurePrivatePacks(services, { force = false } = {}) {
+  if (!shouldInstallPrivateExamPacks(import.meta.env.MODE)) {
+    return Promise.resolve({ installed: [], failures: [] });
+  }
+  if (force) privatePackInstallPromise = null;
+  if (!privatePackInstallPromise) {
+    privatePackInstallPromise = installPrivateExamPacks({ openDb: services.openDb })
+      .catch(error => {
+        privatePackInstallPromise = null;
+        throw error;
+      });
+  }
+  return privatePackInstallPromise;
+}
+
 async function loadVisiblePapers(services, records) {
   return Promise.all(records.map(async record => {
     const examId = resolveExamIdForBank(record.bankId) || 'kaoyan_en1';
@@ -52,18 +69,19 @@ async function getAttemptProgress(stateRepository, attempt) {
 }
 
 export const ExamHomeView = {
+  _preloadedDashboard: null,
+  _container: null,
+  _bankId: null,
+  _bankSwitcher: null,
+
   cleanup() {
     this._cleanupHandlers?.forEach(remove => remove());
     this._cleanupHandlers = [];
   },
 
-  async render(container, bankId = null) {
-    this.cleanup();
-    container.innerHTML = '<div class="exam-loading-state" role="status"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i><span>正在准备真题…</span></div>';
+  async _loadDashboard(bankId = null, { forcePackInstall = false } = {}) {
     const services = createExamServices();
-    const packLoad = shouldInstallPrivateExamPacks(import.meta.env.MODE)
-      ? await installPrivateExamPacks({ openDb: services.openDb })
-      : { installed: [], failures: [] };
+    const packLoad = await ensurePrivatePacks(services, { force: forcePackInstall });
     const [records, banks, attempts] = await Promise.all([
       listAcrossExams(examId => services.contentRepository.listPapers({ examId })),
       listAcrossExams(examId => services.contentRepository.listBanks({ examId })),
@@ -101,6 +119,95 @@ export const ExamHomeView = {
     const recentUnit = primaryResume?.unit || recentPaper?.units.find(item => item.type === 'reading_mcq') || recentPaper?.units[0];
     const recentLabel = primaryResume?.label || (recentPaper ? `${recentPaper.year} · ${unitLabel(recentUnit, { examId: activeExamId })}` : '还没有练习记录');
     const typeCards = TYPE_CARDS_BY_EXAM[activeExamId] || TYPE_CARDS_BY_EXAM.kaoyan_en1;
+    return {
+      packLoad,
+      bankOptions,
+      activeBankId,
+      activeBankLabel,
+      activeExamId,
+      dueCount,
+      primaryResume,
+      recentLabel,
+      typeCards
+    };
+  },
+
+  async preloadData() {
+    this._preloadedDashboard = await this._loadDashboard();
+    return this._preloadedDashboard;
+  },
+
+  _restoreBankSwitcher() {
+    const dashboard = this._container?.querySelector?.('.exam-dashboard');
+    if (dashboard && this._bankSwitcher && this._bankSwitcher.parentElement !== dashboard) {
+      dashboard.prepend(this._bankSwitcher);
+    }
+  },
+
+  _bindEvents(container, bankId) {
+    this.cleanup();
+    const handlers = [];
+    const add = (target, event, handler) => {
+      target?.addEventListener(event, handler);
+      if (target) handlers.push(() => target.removeEventListener(event, handler));
+    };
+    const bankPicker = container.querySelector('#examBankPicker');
+    const headerActions = document.querySelector('.app-header-actions');
+    this._bankSwitcher = bankPicker?.closest('label') || null;
+    if (this._bankSwitcher && headerActions) {
+      headerActions.removeAttribute('aria-hidden');
+      headerActions.replaceChildren(this._bankSwitcher);
+    }
+    container.querySelectorAll('[data-resume]').forEach(button => add(button, 'click', () => {
+      location.hash = `#/exam/practice/${button.dataset.resume}`;
+    }));
+    add(container.querySelector('[data-retry-private-packs]'), 'click', () => this.render(container, bankId, { forcePackInstall: true }));
+    add(bankPicker, 'change', event => {
+      persistActiveBankId(event.target.value);
+      this.render(container, event.target.value);
+    });
+    this._cleanupHandlers = handlers;
+  },
+
+  deactivate() {
+    this.cleanup();
+    this._restoreBankSwitcher();
+  },
+
+  activate(container) {
+    if (container) this._container = container;
+    this._bindEvents(this._container, this._bankId);
+  },
+
+  dispose() {
+    this.deactivate();
+    this._container = null;
+    this._bankSwitcher = null;
+    this._preloadedDashboard = null;
+  },
+
+  async render(container, bankId = null, { forcePackInstall = false } = {}) {
+    this.cleanup();
+    this._container = container;
+    this._bankId = bankId;
+    let dashboard;
+    if (!bankId && !forcePackInstall) {
+      dashboard = this._preloadedDashboard || await this._loadDashboard();
+    } else {
+      dashboard = await this._loadDashboard(bankId, { forcePackInstall });
+    }
+    this._preloadedDashboard = null;
+    const {
+      packLoad,
+      bankOptions,
+      activeBankId,
+      activeBankLabel,
+      activeExamId,
+      dueCount,
+      primaryResume,
+      recentLabel,
+      typeCards
+    } = dashboard;
 
     container.innerHTML = `
       <div class="exam-home exam-dashboard">
@@ -125,17 +232,6 @@ export const ExamHomeView = {
          ${renderExamBottomNav('exam')}
       </div>`;
 
-    const handlers = [];
-    const add = (target, event, handler) => { target?.addEventListener(event, handler); if (target) handlers.push(() => target.removeEventListener(event, handler)); };
-    const bankPicker = container.querySelector('#examBankPicker');
-    const headerActions = document.querySelector('.app-header-actions');
-    if (bankPicker && headerActions) {
-      headerActions.removeAttribute('aria-hidden');
-      headerActions.replaceChildren(bankPicker.closest('label') || bankPicker);
-    }
-    container.querySelectorAll('[data-resume]').forEach(button => add(button, 'click', () => { location.hash = `#/exam/practice/${button.dataset.resume}`; }));
-    add(container.querySelector('[data-retry-private-packs]'), 'click', () => this.render(container, bankId));
-    add(bankPicker, 'change', event => { persistActiveBankId(event.target.value); this.render(container, event.target.value); });
-    this._cleanupHandlers = handlers;
+    this._bindEvents(container, bankId);
   }
 };

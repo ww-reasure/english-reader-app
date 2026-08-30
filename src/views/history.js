@@ -10,10 +10,21 @@ import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 export const HistoryView = {
   filterMode: 'all', // all | favorites
   difficultyFilter: '',
+  container: null,
+  articles: [],
+  _preloadedArticles: null,
+
+  async preloadData() {
+    this._preloadedArticles = await DB.getAllArticles();
+    return this._preloadedArticles;
+  },
 
   // Render history view
   async render(container) {
-    const articles = await DB.getAllArticles();
+    this.container = container;
+    const articles = this._preloadedArticles || await DB.getAllArticles();
+    this._preloadedArticles = null;
+    this.articles = articles;
     const favoritesCount = articles.filter(a => a.favorite).length;
 
     let cards = '';
@@ -76,7 +87,8 @@ export const HistoryView = {
   },
 
   applyFilters() {
-    document.querySelectorAll('.article-card-history').forEach(card => {
+    const root = typeof this.container?.querySelectorAll === 'function' ? this.container : document;
+    root?.querySelectorAll?.('.article-card-history').forEach(card => {
       const matchDiff = !this.difficultyFilter || card.dataset.difficulty === this.difficultyFilter;
       const matchFav = this.filterMode !== 'favorites' || card.dataset.favorite === '1';
       card.style.display = (matchDiff && matchFav) ? '' : 'none';
@@ -95,12 +107,27 @@ export const HistoryView = {
     this.applyFilters();
   },
 
+  activate(container) {
+    if (container) this.container = container;
+    this.applyFilters();
+  },
+
+  deactivate() {},
+
+  dispose() {
+    this.container = null;
+    this.articles = [];
+    this._preloadedArticles = null;
+  },
+
   // Toggle favorite
   async toggleFav(id, btn) {
     const article = await DB.getArticle(id);
     if (!article) return;
     const newFav = article.favorite ? 0 : 1;
     await DB.updateArticle(id, { favorite: newFav });
+    const cached = this.articles.find(article => Number(article.id) === Number(id));
+    if (cached) cached.favorite = newFav;
     btn.innerHTML = newFav
       ? '<i class="fa-solid fa-star" aria-hidden="true"></i>'
       : '<i class="fa-regular fa-star" aria-hidden="true"></i>';
@@ -113,8 +140,8 @@ export const HistoryView = {
     if (!confirm('确定要删除这篇文章吗？')) return;
     await DB.deleteArticle(id);
     btn.closest('.article-card-history').remove();
-    const articles = await DB.getAllArticles();
-    const favoritesCount = articles.filter(article => article.favorite).length;
+    this.articles = this.articles.filter(article => Number(article.id) !== Number(id));
+    const favoritesCount = this.articles.filter(article => article.favorite).length;
     const favoriteOption = document.querySelector('.history-filters select:last-child option[value="favorites"]');
     if (favoriteOption) favoriteOption.textContent = `收藏 (${favoritesCount})`;
   }

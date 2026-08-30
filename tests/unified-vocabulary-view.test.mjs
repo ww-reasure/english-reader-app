@@ -6,7 +6,7 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 const source = await read('../src/views/vocabulary.js');
 
 test('unified page reads canonical rows and exposes the selected hierarchy', () => {
-  assert.match(source, /DB\.getUnifiedVocabulary\(\)/);
+  assert.match(source, /DB\.getUnifiedVocabularySnapshot\(\)/);
   assert.match(source, /我的词汇/);
   assert.match(source, /全部单词/);
   assert.match(source, /导入单词/);
@@ -83,9 +83,15 @@ function createDb() {
     return Promise.resolve(rows.filter(row => row.archivedAt == null).map(row => structuredClone(row)));
   };
   getUnifiedVocabulary.mock = { calls: [] };
+  const getUnifiedVocabularySnapshot = async (...args) => ({
+    data: await getUnifiedVocabulary(...args),
+    revision: getUnifiedVocabulary.mock.calls.length,
+    refreshedAt: Date.now()
+  });
   return {
     rows,
     getUnifiedVocabulary,
+    getUnifiedVocabularySnapshot,
     async removeReadingVocabularySource(id) {
       const row = rows.find(item => item.id === Number(id));
       if (!row) return;
@@ -106,6 +112,7 @@ async function loadView(db) {
   const viewSource = await read('../src/views/vocabulary.js');
   const practiceUrl = new URL('../src/review-practice.mjs', import.meta.url).href;
   const libraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
+  const windowUrl = new URL('../src/vocabulary-window.mjs', import.meta.url).href;
   const adapted = viewSource
     .replace("import { DB } from '../db.js';", 'const DB = globalThis.__unifiedVocabularyTestDB;')
     .replace("import { Dictionary } from '../dictionary.js';", 'const Dictionary = { lookup: async () => null };')
@@ -115,7 +122,8 @@ async function loadView(db) {
     .replace("import { WordStudyDetail } from '../components/word-study-detail.js';", 'const WordStudyDetail = { open() {} };')
     .replace("import { SpacedRepetition } from '../spaced-repetition.js';", "const SpacedRepetition = { getDueCount: words => words.filter(word => word.isDue).length, getStatusDisplay: word => ({ label: word.status || '新词' }) };")
     .replace("from '../review-practice.mjs'", `from '${practiceUrl}'`)
-    .replace("from '../vocabulary-library.mjs'", `from '${libraryUrl}'`);
+    .replace("from '../vocabulary-library.mjs'", `from '${libraryUrl}'`)
+    .replace("from '../vocabulary-window.mjs'", `from '${windowUrl}'`);
   globalThis.__unifiedVocabularyTestDB = db;
   globalThis.window = {};
   globalThis.document = createDocument();

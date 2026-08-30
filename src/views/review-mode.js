@@ -1,5 +1,7 @@
 import { DB } from '../db.js';
 import { ReviewQueue } from '../review-queue.js';
+import { Config } from '../config.js';
+import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 
 const RECALL_LIMIT = 20;
 const CONTEXT_LIMIT = 10;
@@ -9,10 +11,12 @@ export const ReviewModeView = {
 
   async render(container) {
     this.container = container;
-    const [dueSummary, allWords] = await Promise.all([
-      ReviewQueue.getDueSummary({ recallLimit: RECALL_LIMIT, contextLimit: CONTEXT_LIMIT }),
-      DB.getAllLearnWords()
-    ]);
+    const allWords = await DB.getAllLearnWords();
+    const dueSummary = await ReviewQueue.getDueSummary({
+      recallLimit: RECALL_LIMIT,
+      contextLimit: CONTEXT_LIMIT,
+      words: allWords
+    });
     const candidateCount = dueSummary.candidateCount;
     const totalCount = allWords.length;
 
@@ -42,6 +46,9 @@ export const ReviewModeView = {
         </div>
         <p class="review-mode-footnote"><i class="fa-solid fa-link" aria-hidden="true"></i> 共用同一复习队列 · 结果分别统计 · 薄弱词统一进入巩固阅读</p>
       </main>`;
+    const preloadExamTrack = () => { void ExamCorpus.preload(Config.get('exam_level')); };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(preloadExamTrack, { timeout: 1200 });
+    else setTimeout(preloadExamTrack, 0);
   },
 
   cleanup() {

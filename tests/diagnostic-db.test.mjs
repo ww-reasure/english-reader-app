@@ -12,6 +12,7 @@ async function loadDatabaseModule(getStemFormSource = null) {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
   const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
@@ -22,6 +23,7 @@ async function loadDatabaseModule(getStemFormSource = null) {
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
     .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
     .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }

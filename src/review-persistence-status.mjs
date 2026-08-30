@@ -12,6 +12,11 @@ export function summarizeReviewPersistenceStatus(status = {}) {
   const pending = number(rating.pending ?? rating.queued);
   const failed = number(rating.failed);
   const running = Boolean(rating.running);
+  const nextRetryAt = number(rating.nextRetryAt);
+  const errorCodes = Array.isArray(rating.errorCodes)
+    ? [...new Set(rating.errorCodes.map(value => String(value || '').trim()).filter(Boolean))]
+    : [];
+  const diagnostics = errorCodes.length ? { errorCodes } : {};
 
   if (failed > 0) {
     return {
@@ -20,18 +25,25 @@ export function summarizeReviewPersistenceStatus(status = {}) {
       failed,
       running,
       message: `还有 ${pending} 条复习记录待同步`,
-      retryable: true
+      retryable: true,
+      ...diagnostics
     };
   }
 
-  if (pending > 0 || running) {
+  // A completion notification is emitted just after the last durable write.
+  // During that tiny hand-off an older subscriber can still observe
+  // `running: true`, but zero pending records are already fully saved.
+  if (pending > 0) {
     return {
       state: 'saving',
       pending,
       failed,
       running,
-      message: `正在保存 ${pending} 条复习记录…`,
-      retryable: false
+      message: !running && nextRetryAt > 0
+        ? `已安全保存到本机，后台处理中（${pending}）`
+        : `正在保存 ${pending} 条复习记录…`,
+      retryable: false,
+      ...diagnostics
     };
   }
 

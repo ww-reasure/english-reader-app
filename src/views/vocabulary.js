@@ -18,9 +18,11 @@ import {
   clearPracticeScopeDone,
   createPracticeSession,
   getPracticeProgress,
+  getPracticeProgressBatch,
   getPracticeScopeStatus,
   resolvePracticeScope
 } from '../review-practice.mjs';
+import { createVocabularyWindow } from '../vocabulary-window.mjs';
 
 const SOURCE_FILTERS = Object.freeze(['all', 'reading', 'import']);
 const STATUS_FILTERS = Object.freeze(['all', 'new', 'learning', 'review', 'stable']);
@@ -66,9 +68,19 @@ export const VocabularyView = {
   filterOpen: false,
   actionsMenuOpen: false,
   selectedWordIds: new Set(),
+  practiceSummary: null,
+  filteredRows: [],
+  _preloadedSnapshot: null,
   _libraryChangedHandler: null,
   _documentClickHandler: null,
   _documentKeydownHandler: null,
+  _scrollHandler: null,
+  _scrollFrame: null,
+
+  async preloadData() {
+    this._preloadedSnapshot = await DB.getUnifiedVocabularySnapshot();
+    return this._preloadedSnapshot;
+  },
 
   async render(container) {
     this.container = container;
@@ -77,10 +89,13 @@ export const VocabularyView = {
       payload: { sourceFilter: this.sourceFilter, statusFilter: this.statusFilter }
     });
     try {
-      this.rows = await DB.getUnifiedVocabulary();
+      const snapshot = this._preloadedSnapshot || await DB.getUnifiedVocabularySnapshot();
+      this._preloadedSnapshot = null;
+      this.rows = snapshot.data;
+      this.practiceSummary = await this.loadPracticeSummary();
       this.bindLibraryEvents();
       this.bindPageEvents();
-      await this.renderPage();
+      this.renderPage();
       span?.end({ payload: { wordCount: this.rows.length } });
     } catch (error) {
       span?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
@@ -88,15 +103,8 @@ export const VocabularyView = {
     }
   },
 
-  async renderPage() {
-    if (!this.container) return;
+  async loadPracticeSummary() {
     const now = Date.now();
-    const rows = selectUnifiedVocabulary(this.rows, {
-      query: this.searchQuery,
-      source: this.sourceFilter,
-      status: this.statusFilter,
-      sort: this.sortMode
-    });
     const snapshotDb = { getAllLearnWords: async () => this.rows };
     const [todayScope, recentScope] = await Promise.all([
       resolvePracticeScope({ db: snapshotDb, scope: 'today_added', now }),
@@ -112,22 +120,42 @@ export const VocabularyView = {
       currentWordIds: recentScope.words.map(word => word.id),
       now
     });
-    const [todayProgress, recentProgress] = await Promise.all([
-      getPracticeProgress({
-        db: DB,
-        scope: 'today_added',
-        wordIds: todayScope.words.map(word => word.id),
-        now,
-        legacyCompletedWordIds: todayStatus.reviewedIds
-      }),
-      getPracticeProgress({
-        db: DB,
-        scope: 'recent_added',
-        wordIds: recentScope.words.map(word => word.id),
-        now,
-        legacyCompletedWordIds: recentStatus.reviewedIds
-      })
-    ]);
+    const progress = await getPracticeProgressBatch({
+      db: DB,
+      now,
+      scopes: [
+        { scope: 'today_added', wordIds: todayScope.words.map(word => word.id), legacyCompletedWordIds: todayStatus.reviewedIds },
+        { scope: 'recent_added', wordIds: recentScope.words.map(word => word.id), legacyCompletedWordIds: recentStatus.reviewedIds }
+      ]
+    });
+    return {
+      todayScope,
+      recentScope,
+      todayStatus,
+      recentStatus,
+      todayProgress: progress.today_added,
+      recentProgress: progress.recent_added
+    };
+  },
+
+  renderPage() {
+    if (!this.container) return;
+    const rows = selectUnifiedVocabulary(this.rows, {
+      query: this.searchQuery,
+      source: this.sourceFilter,
+      status: this.statusFilter,
+      sort: this.sortMode
+    });
+    this.filteredRows = rows;
+    const {
+      todayScope = { skipped: 0 },
+      recentScope = { skipped: 0 },
+      todayStatus = { reviewedIds: [], newIds: [] },
+      recentStatus = { reviewedIds: [], newIds: [] },
+      todayProgress = null,
+      recentProgress = null
+    } = this.practiceSummary || {};
+    const window = createVocabularyWindow(rows, { scrollTop: 0, viewportHeight: this.container.clientHeight || 720 });
     const dueCount = SpacedRepetition.getDueCount(this.rows);
     const totalCount = this.rows.length;
     const hasFilters = this.sourceFilter !== 'all' || this.statusFilter !== 'all' || this.sortMode !== 'recent';
@@ -197,13 +225,46 @@ export const VocabularyView = {
 
         ${this.renderManagementBar(rows)}
         <div class="vocab-unified-list vocab-list" data-vocab-grid="vocab">
-          ${rows.length ? rows.map(row => this.renderRow(row)).join('') : '<div class="empty-state vocab-unified-empty">没有符合条件的词汇。</div>'}
+          ${this.renderWindowHtml(window)}
         </div>
       </section>`;
+    this.bindWindowEvents();
     diagnosticLogger()?.record('vocab.rendered', {
       category: 'vocabulary',
       payload: { totalCount, visibleCount: rows.length, sourceFilter: this.sourceFilter, statusFilter: this.statusFilter }
     });
+  },
+
+  renderWindowHtml(window) {
+    if (!window.totalCount) return '<div class="empty-state vocab-unified-empty">没有符合条件的词汇。</div>';
+    return `<div class="vocab-window-spacer" style="height:${window.topSpacer}px" aria-hidden="true"></div>${window.rows.map(row => this.renderRow(row)).join('')}<div class="vocab-window-spacer" style="height:${window.bottomSpacer}px" aria-hidden="true"></div>`;
+  },
+
+  renderWordWindow({ reset = false } = {}) {
+    const list = this.container?.querySelector?.('[data-vocab-grid="vocab"]');
+    if (!list) return;
+    const scrollTarget = this.container;
+    const relativeTop = reset ? 0 : Math.max(0, Number(scrollTarget.scrollTop || 0) - Number(list.offsetTop || 0));
+    const window = createVocabularyWindow(this.filteredRows, {
+      scrollTop: relativeTop,
+      viewportHeight: scrollTarget.clientHeight || 720
+    });
+    list.innerHTML = this.renderWindowHtml(window);
+    const count = this.container.querySelector?.('.vocab-unified-count');
+    if (count) count.textContent = `共 ${this.rows.length} 个单词${this.filteredRows.length !== this.rows.length ? ` · 当前 ${this.filteredRows.length} 个` : ''}`;
+  },
+
+  bindWindowEvents() {
+    if (this._scrollHandler) this.container?.removeEventListener?.('scroll', this._scrollHandler);
+    this._scrollHandler = () => {
+      if (this._scrollFrame) return;
+      const schedule = globalThis.requestAnimationFrame || (callback => globalThis.setTimeout(callback, 0));
+      this._scrollFrame = schedule(() => {
+        this._scrollFrame = null;
+        this.renderWordWindow();
+      });
+    };
+    this.container?.addEventListener?.('scroll', this._scrollHandler, { passive: true });
   },
 
   renderSourceTab(value, label) {
@@ -371,11 +432,31 @@ export const VocabularyView = {
     if (this._libraryChangedHandler) document.removeEventListener('word-library-changed', this._libraryChangedHandler);
     if (this._documentClickHandler) document.removeEventListener('click', this._documentClickHandler);
     if (this._documentKeydownHandler) document.removeEventListener('keydown', this._documentKeydownHandler);
+    if (this._scrollHandler) this.container?.removeEventListener?.('scroll', this._scrollHandler);
+    if (this._scrollFrame && typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(this._scrollFrame);
     this._libraryChangedHandler = null;
     this._documentClickHandler = null;
     this._documentKeydownHandler = null;
+    this._scrollHandler = null;
+    this._scrollFrame = null;
     this.actionsMenuOpen = false;
     this.container = null;
+  },
+
+  deactivate() {
+    if (this._documentClickHandler) document.removeEventListener('click', this._documentClickHandler);
+    if (this._documentKeydownHandler) document.removeEventListener('keydown', this._documentKeydownHandler);
+    if (this._scrollHandler) this.container?.removeEventListener?.('scroll', this._scrollHandler);
+  },
+
+  activate() {
+    this.bindPageEvents();
+    this.bindWindowEvents();
+    this.renderWordWindow();
+  },
+
+  dispose() {
+    return this.cleanup();
   },
 
   async setSourceFilter(value) {
@@ -393,9 +474,15 @@ export const VocabularyView = {
     await this.renderPage();
   },
 
-  async setSearchQuery(value) {
+  setSearchQuery(value) {
     this.searchQuery = String(value || '');
-    await this.renderPage();
+    this.filteredRows = selectUnifiedVocabulary(this.rows, {
+      query: this.searchQuery,
+      source: this.sourceFilter,
+      status: this.statusFilter,
+      sort: this.sortMode
+    });
+    this.renderWordWindow({ reset: true });
   },
 
   speakWord(word) {

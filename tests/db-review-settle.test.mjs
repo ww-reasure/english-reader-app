@@ -11,6 +11,7 @@ async function loadDatabaseModule() {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
   const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
@@ -21,6 +22,7 @@ async function loadDatabaseModule() {
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
     .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
     .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
@@ -79,6 +81,46 @@ test('settleSessionReview 拒绝 revision 不一致的评分', async () => {
     DB.settleSessionReview(wordId, { recoveryStage: 1 }, { rating: 5, expectedRevision: 9 }),
     /已在另一种复习方式中更新/
   );
+});
+
+test('applyReviewRatingIntent 安全重放过期 revision 的明确评分且 attemptId 幂等', async () => {
+  const { DB } = await createDatabase();
+  const wordId = await DB.saveLearnWord({
+    word: 'replayable', interval: 7, reviewCount: 3, state: 'review', reviewRevision: 1
+  });
+  await DB.settleSessionReview(wordId, {
+    interval: 12, reviewCount: 4, state: 'review', nextReview: 2000
+  }, { rating: 5, source: 'context-review', expectedRevision: 1, attemptId: 'other-mode' });
+
+  const intent = {
+    version: 2,
+    rating: 1,
+    sessionDebt: 2,
+    occurredAt: 1000,
+    source: 'flashcard',
+    metadata: { sessionId: 'review-session-1', weakestQuality: 1 }
+  };
+  const first = await DB.applyReviewRatingIntent(wordId, intent, {
+    expectedRevision: 1,
+    attemptId: 'stale-explicit-rating'
+  });
+  const replay = await DB.applyReviewRatingIntent(wordId, intent, {
+    expectedRevision: 1,
+    attemptId: 'stale-explicit-rating'
+  });
+
+  assert.equal(first.reviewRevision, 3);
+  assert.equal(first.recoveryStage, 2);
+  assert.equal(first.interval, 12, '意图基于最新词状态重算，而不是覆盖为旧快照');
+  assert.equal(replay.reviewRevision, 3);
+  const events = await DB.getReviewEventsForWord(wordId);
+  assert.equal(events.length, 2);
+  const event = events.find(item => item.attemptId === 'stale-explicit-rating');
+  assert.equal(event.intentVersion, 2);
+  assert.equal(event.conflictResolved, true);
+  assert.equal(event.rating, 1);
+  assert.equal(event.sessionId, 'review-session-1');
+  assert.equal(event.weakestQuality, 1);
 });
 
 test('settleSessionReview 不把界面临时 expectedRevision 写进词条', async () => {

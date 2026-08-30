@@ -25,19 +25,6 @@ function copyDir(src, dest, relativeRoot = src, shouldCopy = () => true) {
   }
 }
 
-// Custom plugin to copy src/ JS files to output (non-module)
-function copySrcPlugin() {
-  return {
-    name: 'copy-src',
-    writeBundle() {
-      const srcDir = resolve(__dirname, 'src');
-      const outDir = resolve(__dirname, 'www/src');
-      if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-      copyDir(srcDir, outDir);
-    }
-  };
-}
-
 function releaseArtifactPlugin({ flavor }) {
   const includePrivatePacks = flavor === 'private-qa';
   return {
@@ -73,7 +60,7 @@ export default defineConfig(({ command, mode }) => {
         input: resolve(__dirname, 'index.html'),
       },
     },
-    plugins: [copySrcPlugin(), releaseArtifactPlugin({ flavor })],
+    plugins: [releaseArtifactPlugin({ flavor })],
     server: {
       port: 3000,
       // Worktree dev servers resolve npm packages from the parent repository's

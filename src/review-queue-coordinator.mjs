@@ -9,8 +9,9 @@ export class ReviewQueueCoordinator {
     this.now = now;
   }
 
-  async getDueWords({ limit = 20, targetTrack = '' } = {}) {
-    const words = (await this.db.getAllLearnWords()).filter(word => word?.archivedAt == null);
+  async getDueWords({ limit = 20, targetTrack = '', words: wordSnapshot = null } = {}) {
+    const sourceWords = Array.isArray(wordSnapshot) ? wordSnapshot : await this.db.getAllLearnWords();
+    const words = sourceWords.filter(word => word?.archivedAt == null);
     const scored = await Promise.all(words.map(async (word, index) => ({
       word,
       index,
@@ -39,8 +40,9 @@ export class ReviewQueueCoordinator {
       }));
   }
 
-  async getDueSummary({ targetTrack = '', recallLimit = 20, contextLimit = 10 } = {}) {
-    const words = (await this.db.getAllLearnWords()).filter(word => word?.archivedAt == null);
+  async getDueSummary({ targetTrack = '', recallLimit = 20, contextLimit = 10, words: wordSnapshot = null } = {}) {
+    const sourceWords = Array.isArray(wordSnapshot) ? wordSnapshot : await this.db.getAllLearnWords();
+    const words = sourceWords.filter(word => word?.archivedAt == null);
     const now = this.now();
     const isRecovery = word => Math.max(0, Math.trunc(Number(word?.recoveryStage) || 0)) > 0;
     const isDue = word => isRecovery(word) || (!word?.nextReview || Number(word.nextReview) <= now);

@@ -56,11 +56,28 @@ test('result save status distinguishes saving, failed, and fully saved states', 
   );
 });
 
-test('result status treats a running writer as saving even before a queued count is visible', () => {
+test('result status treats zero pending writes as saved even if a stale running flag remains', () => {
   const status = summarizeReviewPersistenceStatus({ rating: { pending: 0, failed: 0, running: true } });
 
-  assert.equal(status.state, 'saving');
-  assert.equal(status.message, '正在保存 0 条复习记录…');
+  assert.equal(status.state, 'saved');
+  assert.equal(status.message, '复习记录已全部保存');
+});
+
+test('result status explains that a queued retry is already durable on this device', () => {
+  assert.deepEqual(
+    summarizeReviewPersistenceStatus({
+      rating: { pending: 2, failed: 0, running: false, nextRetryAt: Date.now() + 1000, errorCodes: ['DB_BLOCKED'] }
+    }),
+    {
+      state: 'saving',
+      pending: 2,
+      failed: 0,
+      running: false,
+      message: '已安全保存到本机，后台处理中（2）',
+      retryable: false,
+      errorCodes: ['DB_BLOCKED']
+    }
+  );
 });
 
 test('a result page can observe pending ratings become fully saved without changing the UI contract', async () => {
@@ -118,7 +135,8 @@ test('failed result-page saves remain visible and retryFailed can recover them',
     failed: 1,
     running: false,
     message: '还有 1 条复习记录待同步',
-    retryable: true
+    retryable: true,
+    errorCodes: ['UNKNOWN']
   });
 
   shouldFail = false;
@@ -155,4 +173,16 @@ test('practice result does not expose or flush formal review persistence status'
   const resultSource = source.slice(resultStart, source.indexOf('\n  invalidateCardRequests()', resultStart));
   assert.match(resultSource, /!isPractice[\s\S]*data-review-persistence-status/);
   assert.match(resultSource, /if \(!isPractice\)[\s\S]*reviewPersistence\?\.flush/);
+});
+
+test('the flashcard result page exposes stable error codes instead of raw errors', async () => {
+  const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
+  const start = source.indexOf('updateResultPersistenceStatus() {');
+  assert.ok(start >= 0, 'updateResultPersistenceStatus must exist');
+  const end = source.indexOf('async retryResultPersistence', start);
+  const section = source.slice(start, end);
+
+  assert.match(section, /summary\.errorCodes/);
+  assert.doesNotMatch(section, /\.stack/);
+  assert.doesNotMatch(section, /errorName/);
 });

@@ -24,21 +24,40 @@ export const StatsView = {
   examOverview: null,
   examProvider: null,
   _abortController: null,
+  _preloadedModel: null,
+
+  async _loadDashboardModel() {
+    const [articles, learnWords, readingStats] = await Promise.all([
+      DB.getAllArticles(), DB.getAllLearnWords(), DB.getAllReadingStats()
+    ]);
+    const readingModel = this.buildReadingModel({ articles, learnWords, readingStats });
+    const examProvider = createExamLearningOverviewProvider({ services: createExamServices() });
+    let examOverview;
+    try {
+      examOverview = await examProvider.getOverview({
+        year: this.selectedExamYear,
+        bankId: this.selectedExamBank || null
+      });
+    } catch (error) {
+      console.warn('Unable to load exam learning overview', error);
+      examOverview = this.emptyExamOverview();
+    }
+    return { readingModel, examProvider, examOverview };
+  },
+
+  async preloadData() {
+    this._preloadedModel = await this._loadDashboardModel();
+    return this._preloadedModel;
+  },
 
   async render(container) {
     this.cleanup();
     this.container = container;
-    const [articles, learnWords, readingStats] = await Promise.all([
-      DB.getAllArticles(), DB.getAllLearnWords(), DB.getAllReadingStats()
-    ]);
-    this.readingModel = this.buildReadingModel({ articles, learnWords, readingStats });
-    this.examProvider = createExamLearningOverviewProvider({ services: createExamServices() });
-    try {
-      this.examOverview = await this.examProvider.getOverview({ year: this.selectedExamYear, bankId: this.selectedExamBank || null });
-    } catch (error) {
-      console.warn('Unable to load exam learning overview', error);
-      this.examOverview = this.emptyExamOverview();
-    }
+    const model = this._preloadedModel || await this._loadDashboardModel();
+    this._preloadedModel = null;
+    this.readingModel = model.readingModel;
+    this.examProvider = model.examProvider;
+    this.examOverview = model.examOverview;
 
     container.innerHTML = `
       <section class="app-standard-page stats-container profile-dashboard" aria-labelledby="profileContentTitle">
@@ -223,6 +242,24 @@ export const StatsView = {
   cleanup() {
     this._abortController?.abort();
     this._abortController = null;
+  },
+
+  deactivate() {
+    this.cleanup();
+  },
+
+  activate(container) {
+    if (container) this.container = container;
+    this.bindEvents();
+  },
+
+  dispose() {
+    this.cleanup();
+    this.container = null;
+    this.readingModel = null;
+    this.examOverview = null;
+    this.examProvider = null;
+    this._preloadedModel = null;
   },
 
   emptyExamOverview() {

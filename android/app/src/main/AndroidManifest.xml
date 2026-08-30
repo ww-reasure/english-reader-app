@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
+        android:name=".EnglishReaderApplication"
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -42,10 +43,4 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Android 11+ 必须声明 TTS 服务查询，否则系统 TTS 引擎不可用 -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-    </queries>
 </manifest>

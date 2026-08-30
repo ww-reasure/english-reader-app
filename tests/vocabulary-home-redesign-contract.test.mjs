@@ -60,5 +60,5 @@ test('back headers use app history with an explicit route fallback instead of op
   assert.equal(AppShell.getRouteMeta('#/exam/review').backFallback, '#/exam');
   assert.equal(AppShell.getRouteMeta('#/flashcard').backFallback, '#/vocab');
   assert.equal(AppShell.getRouteMeta('#/reading/42').backFallback, '#/reading-list');
-  assert.match(source, /window\.Router\?\.back\?\.\(meta\.backFallback\)/);
+  assert.match(source, /window\.Router\?\.back\?\.\(currentMeta\.backFallback\)/);
 });

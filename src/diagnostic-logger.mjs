@@ -1,5 +1,5 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PERSISTENCE_OPERATION_TIMEOUT_MS = 250;
+const PERSISTENCE_OPERATION_TIMEOUT_MS = 100;
 
 export const DIAGNOSTIC_LOG_SCHEMA_VERSION = 1;
 
@@ -194,6 +194,21 @@ export function createDiagnosticLogger(options = {}) {
   const slowOperationMs = options.slowOperationMs ?? DIAGNOSTIC_CONSTANTS.SLOW_OPERATION_MS;
   const pendingOperationMs = options.pendingOperationMs ?? DIAGNOSTIC_CONSTANTS.PENDING_OPERATION_MS;
   const panicMaxEntries = options.panicMaxEntries ?? DIAGNOSTIC_CONSTANTS.PANIC_MAX_ENTRIES;
+  const schedulePersistence = typeof options.schedulePersistence === 'function'
+    ? options.schedulePersistence
+    : callback => {
+      if (typeof globalThis?.requestIdleCallback === 'function') {
+        globalThis.requestIdleCallback(callback, { timeout: 1000 });
+        return;
+      }
+      const frame = globalThis?.requestAnimationFrame;
+      if (typeof frame === 'function') {
+        frame(() => frame(callback));
+        return;
+      }
+      const timer = globalThis?.setTimeout?.(callback, 16);
+      timer?.unref?.();
+    };
 
   let sequence = 0;
   let events = [];
@@ -201,6 +216,7 @@ export function createDiagnosticLogger(options = {}) {
   let persistence = null;
   let persistenceQueue = [];
   let flushPromise = null;
+  let flushScheduled = false;
   let detailState = { until: null, count: 0 };
   let detailStopReason = null;
   let lastError = null;
@@ -296,15 +312,12 @@ export function createDiagnosticLogger(options = {}) {
   }
 
   function scheduleFlush() {
-    const enqueue = globalThis?.queueMicrotask;
-    if (typeof enqueue === 'function') {
-      enqueue(() => { void flush(); });
-      return;
-    }
-    if (typeof globalThis?.setTimeout === 'function') {
-      const timer = globalThis.setTimeout(() => { void flush(); }, 0);
-      timer?.unref?.();
-    }
+    if (flushScheduled) return;
+    flushScheduled = true;
+    schedulePersistence(() => {
+      flushScheduled = false;
+      void flush();
+    });
   }
 
   function record(eventName, recordOptions = {}) {

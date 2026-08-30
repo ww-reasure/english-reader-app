@@ -20,28 +20,30 @@ test('the app shell keeps a named navigation toggle and navigation landmark for 
   assert.match(source, /<nav aria-label="主要导航">/);
 });
 
-test('tablet breakpoints reserve safe-area gutters and make the drawer persistent', async () => {
+test('tablet breakpoints reserve safe-area gutters and make the drawer persistent only on rail routes', async () => {
   const css = await read('../css/style.css');
   const tablet = mediaBlock(css, 'min-width: 600px) and (max-width: 839px');
   const wide = mediaBlock(css, 'min-width: 840px');
 
   assert.match(css, /safe-area-inset-left/);
   assert.match(css, /safe-area-inset-right/);
-  assert.match(tablet, /\.app-drawer\s*\{[^}]*position:relative/s);
-  assert.match(tablet, /\.app-menu-button\s*\{[^}]*display:none/s);
-  assert.match(tablet, /\.app-drawer-backdrop\s*\{[^}]*display:none/s);
+  assert.match(tablet, /\.app-shell--rail \.app-drawer\s*\{[^}]*position:relative/s);
+  assert.match(tablet, /\.app-shell--rail \.app-menu-button\s*\{[^}]*display:none/s);
+  assert.match(tablet, /\.app-shell--rail \.app-drawer-backdrop\s*\{[^}]*display:none/s);
   assert.match(tablet, /grid-template-columns:/);
   assert.match(wide, /grid-template-columns:/);
 });
 
-test('tablet standard surfaces use two columns and wide tablets expand to three', async () => {
+test('tablet library grids follow remaining content width instead of forcing narrow cards', async () => {
   const css = await read('../css/style.css');
-  const tablet = mediaBlock(css, 'min-width: 600px) and (max-width: 839px');
-  const wide = mediaBlock(css, 'min-width: 840px');
+  const narrow = mediaBlock(css, 'min-width: 600px) and (max-width: 719px');
+  const tablet = mediaBlock(css, 'min-width: 720px) and (max-width: 1199px');
+  const wide = mediaBlock(css, 'min-width: 1200px');
 
-  for (const selector of ['.article-list', '.vocab-list', '.stats-grid', '.report-stats-grid']) {
+  for (const selector of ['.article-list', '.vocab-list']) {
+    assert.match(narrow, new RegExp(`${selector.replace('.', '\\.') }[^}]*grid-template-columns:\\s*minmax\\(0,1fr\\)`, 's'), `${selector} should remain one column on narrow portrait tablets`);
     assert.match(tablet, new RegExp(`${selector.replace('.', '\\.') }[^}]*repeat\\(2`, 's'), `${selector} should be two columns on tablets`);
-    assert.match(wide, new RegExp(`${selector.replace('.', '\\.') }[^}]*repeat\\(3`, 's'), `${selector} should be three columns on wide tablets`);
+    assert.match(wide, new RegExp(`${selector.replace('.', '\\.') }[^}]*repeat\\(3`, 's'), `${selector} should use three columns only when the canvas is genuinely wide`);
   }
 });
 

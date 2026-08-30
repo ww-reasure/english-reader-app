@@ -1,7 +1,8 @@
 import {
   assertExamCorpusIndexArtifact,
+  assertExamCorpusIndexManifest,
+  assertExamCorpusTrackArtifact,
   corpusTrackForTarget,
-  createExamCorpusIndex,
   ExamCorpusTracks
 } from './exam-corpus.mjs';
 
@@ -33,18 +34,35 @@ export function createExamCorpusService({ fetchFn = globalThis.fetch, dataUrl = 
   if (typeof fetchFn !== 'function') throw new TypeError('真题语料服务需要 fetchFn');
   const baseUrl = String(dataUrl || '/data').replace(/\/$/, '');
   let indexArtifactPromise;
-  let indexPromise;
   let exampleManifestPromise;
+  const trackPromises = new Map();
   const shardPromises = new Map();
 
   async function loadIndexArtifact() {
-    indexArtifactPromise ||= fetchJson(fetchFn, `${baseUrl}/exam-corpus-index.json`).then(assertExamCorpusIndexArtifact);
+    indexArtifactPromise ||= fetchJson(fetchFn, `${baseUrl}/exam-corpus-index.json`).then(value => (
+      value?.schemaVersion === 2
+        ? assertExamCorpusIndexManifest(value)
+        : assertExamCorpusIndexArtifact(value)
+    ));
     return indexArtifactPromise;
   }
 
-  async function loadIndex() {
-    indexPromise ||= loadIndexArtifact().then(createExamCorpusIndex);
-    return indexPromise;
+  async function loadTrack(track) {
+    if (!track) return {};
+    if (trackPromises.has(track)) return trackPromises.get(track);
+    const promise = loadIndexArtifact().then(async artifact => {
+      if (artifact.schemaVersion === 1) return artifact.words?.[track] || {};
+      const meta = artifact.tracks?.[track];
+      if (!meta?.path) throw new Error(`真题词频轨道不存在：${track}`);
+      const trackArtifact = await fetchJson(fetchFn, `${baseUrl}/${meta.path}`);
+      return assertExamCorpusTrackArtifact(trackArtifact, {
+        corpusVersion: artifact.corpusVersion,
+        track,
+        wordCount: meta.wordCount
+      }).words;
+    });
+    trackPromises.set(track, promise);
+    return promise;
   }
 
   async function loadExampleManifest() {
@@ -72,9 +90,23 @@ export function createExamCorpusService({ fetchFn = globalThis.fetch, dataUrl = 
   return Object.freeze({
     loadIndexArtifact,
 
-    async lookup(word, targetTrack) {
+    async preload(targetTrack) {
+      const track = corpusTrackForTarget(targetTrack);
+      if (!track) return false;
       try {
-        return (await loadIndex()).lookup(word, targetTrack);
+        await loadTrack(track);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    async lookup(word, targetTrack) {
+      const lemma = normalizeWord(word);
+      const track = corpusTrackForTarget(targetTrack);
+      if (!lemma || !track) return null;
+      try {
+        return (await loadTrack(track))[lemma] || null;
       } catch {
         return null;
       }
@@ -84,10 +116,11 @@ export function createExamCorpusService({ fetchFn = globalThis.fetch, dataUrl = 
       const lemma = normalizeWord(word);
       if (!lemma) return {};
       try {
-        const index = await loadIndex();
         const values = {};
-        for (const track of ExamCorpusTracks) {
-          const record = index.lookup(lemma, track);
+        const tracks = await Promise.all(ExamCorpusTracks.map(loadTrack));
+        for (let index = 0; index < ExamCorpusTracks.length; index += 1) {
+          const track = ExamCorpusTracks[index];
+          const record = tracks[index]?.[lemma];
           if (record) values[track] = record;
         }
         return values;

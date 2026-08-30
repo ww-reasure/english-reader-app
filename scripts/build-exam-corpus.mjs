@@ -7,7 +7,8 @@ import readline from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
-  assertExamCorpusIndexArtifact,
+  assertExamCorpusIndexManifest,
+  assertExamCorpusTrackArtifact,
   calculateTrackPriorities,
   ExamCorpusTracks
 } from '../src/exam-corpus.mjs';
@@ -326,9 +327,33 @@ export function buildExamCorpusArtifacts({ manifest, manifestSha256, wordRecords
     };
   }
 
+  const corpusVersion = `${manifest.datasetVersion}.app.1`;
+  const trackArtifacts = {};
+  for (const track of ExamCorpusTracks) {
+    const artifact = {
+      schemaVersion: 1,
+      corpusVersion,
+      track,
+      words: wordOutput[track]
+    };
+    assertExamCorpusTrackArtifact(artifact, {
+      corpusVersion,
+      track,
+      wordCount: trackOutput[track].wordCount
+    });
+    const bytes = Buffer.from(`${JSON.stringify(artifact)}\n`, 'utf8');
+    trackArtifacts[track] = artifact;
+    trackOutput[track] = {
+      ...trackOutput[track],
+      path: `exam-corpus-tracks/${track}.json`,
+      sha256: digest(bytes),
+      byteSize: bytes.byteLength
+    };
+  }
+
   const indexArtifact = {
-    schemaVersion: 1,
-    corpusVersion: `${manifest.datasetVersion}.app.1`,
+    schemaVersion: 2,
+    corpusVersion,
     generatedAt: new Date(manifest.generatedAt).toISOString(),
     source: {
       id: SOURCE_ID,
@@ -343,10 +368,9 @@ export function buildExamCorpusArtifacts({ manifest, manifestSha256, wordRecords
       questionStemWeight: 0.2,
       components: { weightedFrequency: 0.65, paperCoverage: 0.2, yearCoverage: 0.15 }
     },
-    tracks: trackOutput,
-    words: wordOutput
+    tracks: trackOutput
   };
-  assertExamCorpusIndexArtifact(indexArtifact);
+  assertExamCorpusIndexManifest(indexArtifact);
 
   const shardMeta = {};
   for (const [key, shard] of Object.entries(shards)) {
@@ -364,7 +388,7 @@ export function buildExamCorpusArtifacts({ manifest, manifestSha256, wordRecords
     selectedRecordCount: Object.values(shardMeta).reduce((total, row) => total + row.recordCount, 0),
     shards: shardMeta
   };
-  return { indexArtifact, exampleManifest, shards, exampleAudit };
+  return { indexArtifact, trackArtifacts, exampleManifest, shards, exampleAudit };
 }
 
 async function readGzipJsonLines(path) {
@@ -404,7 +428,12 @@ export async function buildExamCorpusFromDirectory({ sourceDir, outputDir } = {}
     exampleRecords
   });
   const exampleDir = resolve(outputDir, 'exam-examples');
+  const trackDir = resolve(outputDir, 'exam-corpus-tracks');
   await mkdir(exampleDir, { recursive: true });
+  await mkdir(trackDir, { recursive: true });
+  for (const [track, artifact] of Object.entries(built.trackArtifacts)) {
+    await writeJson(resolve(trackDir, `${track}.json`), artifact);
+  }
   await writeJson(resolve(outputDir, 'exam-corpus-index.json'), built.indexArtifact);
   for (const [key, shard] of Object.entries(built.shards)) {
     const bytes = Buffer.from(`${JSON.stringify(shard)}\n`, 'utf8');

@@ -40,3 +40,12 @@ test('review mode documents shared candidates and separate recall/context limits
   assert.match(mode, /20/);
   assert.match(mode, /10/);
 });
+
+test('review mode reuses one vocabulary snapshot and preloads only the selected exam track', async () => {
+  const mode = await read('../src/views/review-mode.js');
+
+  assert.match(mode, /ExamCorpus/);
+  assert.match(mode, /Config/);
+  assert.match(mode, /getDueSummary\(\{[^}]*words:\s*allWords/s);
+  assert.match(mode, /ExamCorpus\.preload\(Config\.get\('exam_level'\)/);
+});

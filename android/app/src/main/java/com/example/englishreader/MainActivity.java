@@ -1,42 +1,43 @@
 package com.example.englishreader;
 
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends BridgeActivity {
-    private TtsBridge ttsBridge;
+    private static final String STARTUP_BRIDGE_NAME = "StartupMetricsBridge";
+    private final AtomicBoolean fullyDrawnReported = new AtomicBoolean(false);
+    private StartupMetricsBridge startupMetricsBridge;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ttsBridge = new TtsBridge(this);
-        // 尽早注入——super.onCreate 后 bridge 已创建
-        injectNow();
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-        // 兜底：如果 onCreate 时 WebView 还没好，onResume 再试
-        injectNow();
-    }
-
-    private void injectNow() {
-        try {
-            if (this.bridge == null) return;
-            WebView webView = this.bridge.getWebView();
-            if (webView == null) return;
-            webView.addJavascriptInterface(ttsBridge, "TtsBridge");
-        } catch (Exception ignored) {}
+        WebView webView = this.bridge == null ? null : this.bridge.getWebView();
+        if (webView != null) {
+            startupMetricsBridge = new StartupMetricsBridge();
+            webView.addJavascriptInterface(startupMetricsBridge, STARTUP_BRIDGE_NAME);
+        }
     }
 
     @Override
     public void onDestroy() {
+        if (this.bridge != null && this.bridge.getWebView() != null) {
+            this.bridge.getWebView().removeJavascriptInterface(STARTUP_BRIDGE_NAME);
+        }
+        startupMetricsBridge = null;
         super.onDestroy();
-        if (ttsBridge != null) {
-            ttsBridge.destroy();
-            ttsBridge = null;
+    }
+
+    private final class StartupMetricsBridge {
+        @JavascriptInterface
+        public void reportFullyDrawn() {
+            runOnUiThread(() -> {
+                if (fullyDrawnReported.compareAndSet(false, true)) {
+                    MainActivity.this.reportFullyDrawn();
+                }
+            });
         }
     }
 }

@@ -3,21 +3,22 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 test('router registers #/exam while keeping #/chat as the home route', async () => {
-  const source = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(source, /import \{ ExamHomeView \}/);
-  assert.match(source, /import \{ ExamCatalogView \}/);
-  assert.match(source, /import \{ ExamHistoryView \}/);
-  assert.match(source, /import \{ ExamPracticeView \}/);
-  assert.match(source, /import \{ ExamResultView \}/);
-  assert.match(source, /case hash === '#\/exam'/);
-  assert.match(source, /import \{ ExamReviewView \}/);
-  assert.match(source, /case hash === '#\/exam\/review'/);
-  assert.match(source, /exam\/catalog/);
-  assert.match(source, /case hash === '#\/exam\/history'/);
-  assert.ok(source.includes('exam\\/practice'));
-  assert.ok(source.includes('exam\\/result'));
-  assert.match(source, /await this\.cleanupCurrentView\(\)/);
-  assert.match(source, /case hash === '#\/chat'/);
+  const [source, routes] = await Promise.all([
+    readFile(new URL('../src/router.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/router-routes.mjs', import.meta.url), 'utf8')
+  ]);
+  assert.doesNotMatch(source, /from ['"]\.\/views\//);
+  assert.match(source, /createNavigationController/);
+  assert.match(routes, /routeKey: 'chat'/);
+  assert.match(routes, /routeKey: 'exam-home'/);
+  assert.match(routes, /routeKey: 'exam-catalog'/);
+  assert.match(routes, /routeKey: 'exam-history'/);
+  assert.match(routes, /routeKey: 'exam-practice'/);
+  assert.match(routes, /routeKey: 'exam-result'/);
+  assert.match(routes, /routeKey: 'exam-review'/);
+  assert.match(routes, /const safeDecode = value =>/);
+  assert.match(routes, /safeDecode\(attemptId/);
+  assert.match(source, /navigation\.navigate\(hash\)/);
 });
 
 test('Review Center groups by unit and allows autonomous review with full details', async () => {
@@ -41,8 +42,8 @@ test('app shell maps practice and result routes to the exam drawer', async () =>
 });
 
 test('exam catalog and history routes remain inside the exam navigation', async () => {
-  const source = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(source, /ExamCatalogView/);
-  assert.match(source, /ExamHistoryView/);
-  assert.match(source, /decodeURIComponent\(type/);
+  const source = await readFile(new URL('../src/router-routes.mjs', import.meta.url), 'utf8');
+  assert.match(source, /routeKey: 'exam-catalog'/);
+  assert.match(source, /routeKey: 'exam-history'/);
+  assert.match(source, /safeDecode\(/);
 });

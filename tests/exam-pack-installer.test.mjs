@@ -61,6 +61,7 @@ async function loadDatabaseModule() {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
   const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
@@ -71,6 +72,7 @@ async function loadDatabaseModule() {
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
     .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
     .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
@@ -89,6 +91,12 @@ test('installs idempotently and upgrades with stable record keys', async () => {
   assert.equal(installed.status, 'installed');
   assert.equal(installed.packageId, 'synthetic.kaoyan.en1');
   assert.equal((await repository.listPapers({ examId: 'kaoyan_en1' })).length, 1);
+  assert.equal((await getAll(db, 'examPapers'))[0].content, undefined, 'paper overview rows must not duplicate the complete question payload');
+  assert.equal((await repository.getFullPaper({
+    examId: 'kaoyan_en1',
+    bankId: 'synthetic_kaoyan_bank',
+    paperKey: pack.papers[0].paperKey
+  })).units.length, 1, 'full papers are reconstructed only when a concrete paper is opened');
   assert.equal((await repository.listUnits({ examId: 'kaoyan_en1' })).length, 1);
   assert.equal((await repository.listQuestions({ examId: 'kaoyan_en1' })).length, 2);
 

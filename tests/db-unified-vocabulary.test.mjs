@@ -15,6 +15,7 @@ async function loadDatabaseModule(moduleId) {
   const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
   const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
   const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
   const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
@@ -25,6 +26,7 @@ async function loadDatabaseModule(moduleId) {
     .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
     .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
     .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
     .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}#${moduleId}`);
 }
@@ -64,6 +66,52 @@ test('migration creates a canonical word when only vocabulary exists', async () 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].word, 'constraint');
   assert.equal(rows[0].librarySources.reading.active, true);
+});
+
+test('unified vocabulary snapshot migrates once, reuses memory, and invalidates after a write', async () => {
+  const { DB } = await createDatabase();
+  await DB.saveWord({ word: 'derive', translation: '获得', createdAt: 20 });
+  await DB.saveLearnWord({ word: 'derive', interval: 30, createdAt: 10 });
+  const connection = await DB.open();
+  const nativeTransaction = connection.transaction.bind(connection);
+  const transactions = [];
+  connection.transaction = (stores, mode) => {
+    transactions.push({ stores: Array.isArray(stores) ? [...stores] : [stores], mode: mode || 'readonly' });
+    return nativeTransaction(stores, mode);
+  };
+
+  const first = await DB.getUnifiedVocabularySnapshot();
+  const afterFirst = transactions.length;
+  const second = await DB.getUnifiedVocabularySnapshot();
+
+  assert.equal(first.data.length, 1);
+  assert.strictEqual(second, first, 'an unchanged vocabulary returns the exact cached snapshot');
+  assert.equal(transactions.length, afterFirst, 'the cached read opens no new transaction');
+  assert.ok(transactions.some(entry => entry.mode === 'readwrite'), 'the legacy migration may write on its first run');
+
+  await DB.saveLearnWord({ word: 'retain', interval: 0 });
+  const third = await DB.getUnifiedVocabularySnapshot();
+  assert.ok(third.revision > first.revision);
+  assert.equal(third.data.length, 2);
+});
+
+test('getLearnWordsByIds reads one transaction and preserves requested order without duplicates', async () => {
+  const { DB } = await createDatabase();
+  const firstId = await DB.saveLearnWord({ word: 'first' });
+  const secondId = await DB.saveLearnWord({ word: 'second' });
+  const connection = await DB.open();
+  const nativeTransaction = connection.transaction.bind(connection);
+  let learnWordTransactions = 0;
+  connection.transaction = (stores, mode) => {
+    const names = Array.isArray(stores) ? stores : [stores];
+    if (names.length === 1 && names[0] === 'learnWords' && (mode || 'readonly') === 'readonly') learnWordTransactions += 1;
+    return nativeTransaction(stores, mode);
+  };
+
+  const rows = await DB.getLearnWordsByIds([secondId, 999999, firstId, secondId]);
+
+  assert.deepEqual(rows.map(row => row.id), [secondId, firstId]);
+  assert.equal(learnWordTransactions, 1);
 });
 
 async function seedDualSourceWord({ interval = 0, reviewRevision = 0 } = {}) {

@@ -144,16 +144,12 @@ test('every private exam pack entry point applies the shared installation migrat
   }
 });
 
-test('all private-pack pages render a visible loading state before awaiting pack installation', async () => {
-  const sources = await Promise.all([
-    read('src/views/exam-home.js'),
-    read('src/views/exam-catalog.js'),
-    read('src/views/exam-history.js')
-  ]);
-  for (const source of sources) {
-    assert.match(source, /正在准备真题/);
-    assert.match(source, /installPrivateExamPacks/);
-  }
+test('the keep-alive exam home does not replace cached content with a loading page', async () => {
+  const homeSource = await read('src/views/exam-home.js');
+  assert.doesNotMatch(homeSource, /exam-loading-state|正在准备真题/);
+  assert.match(homeSource, /ensurePrivatePacks/);
+  assert.match(homeSource, /preloadData/);
+  assert.match(homeSource, /installPrivateExamPacks/);
 });
 
 test('all private-pack pages expose a retry action when a pack cannot be updated', async () => {
@@ -169,9 +165,10 @@ test('all private-pack pages expose a retry action when a pack cannot be updated
 });
 
 test('router shows a recoverable page instead of leaving the app outlet blank when rendering fails', async () => {
-  const source = await read('src/router.js');
+  const source = await read('src/router-navigation.mjs');
 
-  assert.match(source, /try\s*\{\s*await view\.render\(/);
+  assert.match(source, /const renderClaim = \(async \(\) => view\.render\(outlet, \.\.\.route\.args\)\)\(\);/);
+  assert.match(source, /try\s*\{\s*await renderClaim;/);
   assert.match(source, /route-render-error/);
   assert.match(source, /页面暂时无法打开/);
 });

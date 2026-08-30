@@ -277,6 +277,41 @@ export async function getPracticeProgress({
   };
 }
 
+export async function getPracticeProgressBatch({ db, scopes = [], now = Date.now() } = {}) {
+  const requested = (Array.isArray(scopes) ? scopes : [])
+    .map(item => ({
+      scope: item?.scope,
+      wordIds: normalizeIds(item?.wordIds),
+      legacyCompletedWordIds: normalizeIds(item?.legacyCompletedWordIds)
+    }))
+    .filter(item => PRACTICE_SCOPES.includes(item.scope));
+  if (!requested.length) return {};
+  if (typeof db?.getPracticeReviewEventsBatch !== 'function') {
+    const pairs = await Promise.all(requested.map(async item => [
+      item.scope,
+      await getPracticeProgress({ db, now, ...item })
+    ]));
+    return Object.fromEntries(pairs);
+  }
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY_MS;
+  const eventsByScope = await db.getPracticeReviewEventsBatch(requested.map(item => ({
+    practiceScope: item.scope,
+    from: item.scope === 'recent_added' ? Number(now) - RECENT_ADDED_DAYS * DAY_MS : dayStart,
+    to: dayEnd,
+    wordIds: item.wordIds
+  })));
+  const pairs = await Promise.all(requested.map(async item => [
+    item.scope,
+    await getPracticeProgress({
+      db: { getPracticeReviewEvents: async () => eventsByScope?.[item.scope] || [] },
+      now,
+      ...item
+    })
+  ]));
+  return Object.fromEntries(pairs);
+}
+
 /**
  * 解析专项复习词集。
  *

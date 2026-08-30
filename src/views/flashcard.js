@@ -51,6 +51,7 @@ import { settleSessionReview } from '../recovery-scheduler.mjs';
 import { ActivityType } from '../learning-activity.mjs';
 import { localDayKey } from '../learning-day.mjs';
 import { StudySessionTimer } from '../study-session-timer.mjs';
+import { createReviewSessionMetrics, mergeTodayReviewedWord } from '../review-session-metrics.mjs';
 import { WordPhrases } from '../components/word-phrases.js';
 import { WordSimilar } from '../components/word-similar.js';
 import { renderExamCorpusDetail, selectExamCorpusPresentation } from '../components/exam-corpus-presentation.mjs';
@@ -120,6 +121,7 @@ export const FlashcardView = {
   skippedCount: 0,
   reviewedWords: [],       // Current session
   reviewedWordIds: new Set(),
+  reviewMetrics: createReviewSessionMetrics(),
   recoverySummary: { fragile: 0, relearning: 0, difficult: 0, reducedStages: 0, stubborn: 0 },
   reviewState: createReviewState(),
   studyTab: 'examples',
@@ -199,10 +201,43 @@ export const FlashcardView = {
     if (idx === -1) {
       today.push(wordData);
     } else {
-      // 同词再次评分: 用最新 quality 覆盖(否则巩固词集会用陈旧评分)
-      today[idx] = { ...today[idx], ...wordData };
+      today[idx] = mergeTodayReviewedWord(today[idx], wordData);
     }
     this.saveTodayWords(today);
+  },
+
+  recordAcceptedRating(word, quality, attempt) {
+    this.reviewMetrics.recordRating({ attemptId: attempt.id, wordId: word.id, quality });
+    this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
+    this.reviewedWordIds.add(Number(word.id));
+    const wordData = {
+      word: word.word,
+      translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
+      quality,
+      attemptId: attempt.id,
+      ...this.reviewMetrics.getWordResult(word.id)
+    };
+    this.reviewedWords.push(wordData);
+    this.addTodayWord(wordData);
+  },
+
+  recordCorrectedRating(word, attempt) {
+    this.reviewMetrics.recordRating({ attemptId: attempt.id, wordId: word.id, quality: 1 });
+    this.ratingCounts[5] = Math.max(0, (this.ratingCounts[5] || 0) - 1);
+    this.ratingCounts[1] = (this.ratingCounts[1] || 0) + 1;
+    this.reviewedWordIds.add(Number(word.id));
+    const reviewed = this.reviewedWords.find(item => item.attemptId === attempt.id);
+    if (reviewed) Object.assign(reviewed, {
+      quality: 1,
+      ...this.reviewMetrics.getWordResult(word.id)
+    });
+    this.addTodayWord({
+      word: word.word,
+      translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
+      quality: 1,
+      attemptId: attempt.id,
+      ...this.reviewMetrics.getWordResult(word.id)
+    });
   },
 
   resetReviewTelemetry() {
@@ -213,6 +248,7 @@ export const FlashcardView = {
     this.reviewTimer = null;
     this.reviewSummarySaved = false;
     this.ratingCorrelationId = '';
+    this.reviewMetrics = createReviewSessionMetrics();
   },
 
   updatePracticeProgress() {
@@ -264,7 +300,10 @@ export const FlashcardView = {
     }
     const summary = summarizeReviewPersistenceStatus(this.reviewPersistence?.getStatus?.());
     statusNode.dataset.status = summary.state;
-    statusNode.innerHTML = `<span>${summary.message}</span>${summary.retryable ? ' <button class="review-persistence-retry" type="button">重试</button>' : ''}`;
+    const errorCodeBadge = summary.errorCodes?.length
+      ? `<span class="review-persistence-codes">错误码 ${esc(summary.errorCodes.join('、'))}</span>`
+      : '';
+    statusNode.innerHTML = `<span>${summary.message}</span>${errorCodeBadge}${summary.retryable ? ' <button class="review-persistence-retry" type="button">重试</button>' : ''}`;
     const retryButton = statusNode.querySelector?.('.review-persistence-retry');
     retryButton?.addEventListener('click', () => { void this.retryResultPersistence(); });
   },
@@ -327,6 +366,7 @@ export const FlashcardView = {
     if (status === 'partial' && !hasActivity) return;
 
     const occurredAt = Date.now();
+    const metrics = this.reviewMetrics.summary();
     try {
       await DB.saveLearningActivity({
         id: `review-session-summary:${this.reviewSessionId}`,
@@ -341,9 +381,9 @@ export const FlashcardView = {
           status,
           durationMs,
           counts: {
-            known: numberOrZero(this.ratingCounts[5]),
-            uncertain: numberOrZero(this.ratingCounts[3]),
-            unknown: numberOrZero(this.ratingCounts[1]),
+            known: metrics.known,
+            uncertain: metrics.uncertain,
+            unknown: metrics.unknown,
             skipped: numberOrZero(this.skippedCount)
           },
           completedWordIds,
@@ -381,11 +421,8 @@ export const FlashcardView = {
       const expectedWordIds = [...new Set((session.expectedWordIds?.length ? session.expectedWordIds : currentWordIds)
         .map(id => Number(id)).filter(Number.isFinite))];
       const currentSet = new Set(currentWordIds);
-      const loadedWords = [];
-      for (const wordId of expectedWordIds) {
-        const word = await DB.findLearnWordById(wordId);
-        if (word) loadedWords.push({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) });
-      }
+      const loadedWords = (await DB.getLearnWordsByIds(expectedWordIds))
+        .map(word => ({ ...word, expectedRevision: Math.max(0, Number(word.reviewRevision) || 0) }));
       this.practiceMissingCount = expectedWordIds.length - loadedWords.length;
       this.practiceWordIds = expectedWordIds.filter(id => loadedWords.some(word => Number(word.id) === id));
       if (!loadedWords.length) {
@@ -424,7 +461,7 @@ export const FlashcardView = {
       }
     }
     const allWords = practiceWords ?? await DB.getAllLearnWords();
-    const dueWords = practiceWords ?? await ReviewQueue.getDueWords();
+    const dueWords = practiceWords ?? await ReviewQueue.getDueWords({ words: allWords });
     this.wordCache = new Map(allWords.map(word => [Number(word.id), { ...word, expectedRevision: Math.max(0, Number(word.expectedRevision ?? word.reviewRevision) || 0) }]));
     let persistedSession = null;
     if (!requestedScope) {
@@ -432,6 +469,14 @@ export const FlashcardView = {
         ? DB.getReviewSession(ACTIVE_SESSION_KEY).catch(() => null)
         : null);
     }
+    this.reviewMetrics = createReviewSessionMetrics({
+      // 练习续练的结果页只统计本次实际展示的词；整组完成进度仍由
+      // practiceCompletedWordIds/practiceWordIds 单独维护。
+      originalWordIds: this.practiceScope
+        ? practiceWords.map(word => word.id)
+        : dueWords.map(word => word.id),
+      snapshot: persistedSession?.reviewSessionMetrics || null
+    });
 
     if (dueWords.length === 0) {
       const totalWords = allWords.length;
@@ -508,7 +553,10 @@ export const FlashcardView = {
     try {
       const result = this.reviewPersistence?.enqueueSession({
         key: ACTIVE_SESSION_KEY,
-        snapshot: this.sessionQueue.snapshot()
+        snapshot: {
+          ...this.sessionQueue.snapshot(),
+          reviewSessionMetrics: this.reviewMetrics.snapshot()
+        }
       });
       if (!result) throw new Error('复习会话后台保存不可用');
       span?.end({ payload: { ok: true, queued: true, sequence: result.sequence } });
@@ -651,14 +699,15 @@ export const FlashcardView = {
     const word = this.words[this.currentIndex];
     const statusInfo = SpacedRepetition.getStatusDisplay(word);
     const isPractice = Boolean(this.practiceScope);
-    const total = isPractice ? this.practiceWordIds.length : this.words.length;
+    const metrics = this.reviewMetrics.summary();
+    const total = isPractice ? this.practiceWordIds.length : metrics.total;
     const completed = isPractice
       ? Math.min(total, this.practiceCompletedWordIds.size)
-      : this.currentIndex;
+      : metrics.mastered;
     const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
     const countLabel = isPractice
       ? `${completed} / ${total}`
-      : `${this.currentIndex + 1} / ${this.words.length}`;
+      : `已学会 ${metrics.mastered} / ${metrics.total}`;
     return `
       <div class="flashcard-progress-block">
       <div class="flashcard-progress">
@@ -1259,6 +1308,7 @@ export const FlashcardView = {
       baseline: { ...word },
       initialQuality: quality
     };
+    let sessionResultRecorded = false;
     if (this.practiceScope) {
       const practiceSpan = logger?.beginSpan('review.practice_transaction', {
         category: 'review',
@@ -1351,6 +1401,10 @@ export const FlashcardView = {
         }
       }
       if (this.sessionQueue) {
+        // Count the accepted rating before a weak answer takes the reinsert
+        // path below. The queue controls exposures; metrics control results.
+        this.recordAcceptedRating(word, quality, attempt);
+        sessionResultRecorded = true;
         this.persistCurrentSession();
         if (outcome.reinserted) {
           this.reviewState = finishRating(this.reviewState);
@@ -1360,6 +1414,7 @@ export const FlashcardView = {
         }
       }
     }
+    if (!sessionResultRecorded) this.recordAcceptedRating(word, quality, attempt);
     this.ratingAttempt = attempt;
     this.pendingKnowledgeEvidence = {
       word: word.word,
@@ -1369,19 +1424,6 @@ export const FlashcardView = {
       contextId: `flashcard-card:${this.cardSession}`
     };
 
-    this.ratingCounts[quality] = (this.ratingCounts[quality] || 0) + 1;
-    this.reviewedWordIds.add(Number(word.id));
-
-    const wordData = {
-      word: word.word,
-      translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
-      quality,
-      attemptId: attempt.id
-    };
-    this.reviewedWords.push(wordData);
-
-    // Persist to today's words
-    this.addTodayWord(wordData);
     return { persistence: persistenceMode };
   },
 
@@ -1424,6 +1466,7 @@ export const FlashcardView = {
         this.wordCache.set(Number(word.id), { ...word });
         if (this.sessionQueue) {
           const outcome = this.sessionQueue.rate(word.id, 1, { expectedRevision: word.expectedRevision });
+          this.recordCorrectedRating(word, attempt);
           this.persistCurrentSession();
           if (outcome.reinserted) {
             this.reviewState = finishRatingCorrection(this.reviewState);
@@ -1435,17 +1478,7 @@ export const FlashcardView = {
       }
       if (session !== this.cardSession) return;
 
-      this.ratingCounts[5] = Math.max(0, (this.ratingCounts[5] || 0) - 1);
-      this.ratingCounts[1] = (this.ratingCounts[1] || 0) + 1;
-      this.reviewedWordIds.add(Number(word.id));
-      const reviewed = this.reviewedWords.find(item => item.attemptId === attempt.id);
-      if (reviewed) reviewed.quality = 1;
-      this.addTodayWord({
-        word: word.word,
-        translation: getSavableTranslation(word) || getSavableTranslation({ translation: this.currentTranslation }),
-        quality: 1,
-        attemptId: attempt.id
-      });
+      if (!this.sessionQueue) this.recordCorrectedRating(word, attempt);
       if (this.pendingKnowledgeEvidence?.attemptId === attempt.id) {
         this.pendingKnowledgeEvidence = {
           ...this.pendingKnowledgeEvidence,
@@ -1510,16 +1543,17 @@ export const FlashcardView = {
     });
     void this.persistReviewSummary('completed', practiceCompleted);
     if (practiceCompleted) this.practiceScope = '';
-    const total = this.ratingCounts[1] + this.ratingCounts[3] + this.ratingCounts[5];
-    const accuracy = total > 0 ? Math.round((this.ratingCounts[5] + this.ratingCounts[3]) / total * 100) : 0;
+    const metrics = this.reviewMetrics.summary();
+    const total = metrics.total;
+    const accuracy = metrics.masteryRate;
     const practiceRemaining = isPractice
       ? this.practiceWordIds.filter(id => !this.practiceCompletedWordIds.has(Number(id))).length
       : 0;
     // Today's accumulated words (across multiple review sessions)
     const todayWords = this.loadTodayWords();
     const todayTotal = todayWords.length;
-    const todayForgot = todayWords.filter(w => w.quality === 1).map(w => w.word);
-    const todayFuzzy = todayWords.filter(w => w.quality === 3).map(w => w.word);
+    const todayForgot = todayWords.filter(w => (w.weakestQuality ?? w.quality) === 1).map(w => w.word);
+    const todayFuzzy = todayWords.filter(w => (w.weakestQuality ?? w.quality) === 3).map(w => w.word);
     const todayReinforce = [...todayForgot, ...todayFuzzy];
     const canGenerate = todayTotal >= 3;
 
@@ -1539,30 +1573,30 @@ export const FlashcardView = {
               <span class="flashcard-result-label">总复习</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:var(--success)">${this.ratingCounts[5]}</span>
+              <span class="flashcard-result-num" style="color:var(--success)">${metrics.known}</span>
               <span class="flashcard-result-label">认识</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:var(--warning)">${this.ratingCounts[3]}</span>
+              <span class="flashcard-result-num" style="color:var(--warning)">${metrics.uncertain}</span>
               <span class="flashcard-result-label">模糊</span>
             </div>
             <div class="flashcard-result-stat">
-              <span class="flashcard-result-num" style="color:var(--danger)">${this.ratingCounts[1]}</span>
+              <span class="flashcard-result-num" style="color:var(--danger)">${metrics.unknown}</span>
               <span class="flashcard-result-label">忘记</span>
             </div>
           </div>
           <div class="flashcard-result-accuracy">
-            正确率：${accuracy}%
+            本轮学会率：${accuracy}%
           </div>
           <p class="flashcard-result-hint">
-            ${accuracy >= 80 ? '💪 表现很好！继续保持。' : accuracy >= 50 ? '📖 还需要多复习，加油！' : '🔄 建议降低复习难度，循序渐进。'}
+            ${accuracy >= 80 ? '💪 表现很好！继续保持。' : accuracy >= 50 ? '📖 还需要多复习，加油！' : '🔄 建议降低复习难度，循序渐进。'}结果按每个词本轮最弱一次评分归类；学会以至少一次“认识”为准。
           </p>
 
           ${!isPractice ? '<div class="review-persistence-status" data-review-persistence-status data-status="saving" role="status" aria-live="polite"></div>' : ''}
 
-          ${todayTotal > this.reviewedWords.length ? `
+          ${todayTotal > metrics.rated ? `
           <div class="flashcard-result-today">
-            📅 今日累计复习：<strong>${todayTotal}</strong> 个单词（本轮 ${this.reviewedWords.length} 个）
+            📅 今日累计复习：<strong>${todayTotal}</strong> 个单词（本轮 ${metrics.rated} 个）
           </div>` : ''}
 
           ${!isPractice && canGenerate ? `
@@ -1659,7 +1693,7 @@ export const FlashcardView = {
 
     let words;
     if (mode === 'weak') {
-      words = todayWords.filter(w => w.quality <= 3).map(w => w.word);
+      words = todayWords.filter(w => (w.weakestQuality ?? w.quality) <= 3).map(w => w.word);
     } else {
       words = todayWords.map(w => w.word);
     }
