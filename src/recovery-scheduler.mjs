@@ -61,7 +61,10 @@ export function settleSessionReview(word = {}, rating, sessionDebt = 0, now = Da
   const quality = [1, 3, 5].includes(Number(rating)) ? Number(rating) : 5;
   const debt = Math.max(0, Math.trunc(Number(sessionDebt) || 0));
   const currentStage = Math.max(0, Math.trunc(Number(word.recoveryStage) || 0));
-  const base = { ...word };
+  // expectedRevision is a view/session CAS token, not part of the learnWords
+  // record. Keep it out of every schedule object so a UI snapshot can never
+  // become stale persistent state.
+  const { expectedRevision: _expectedRevision, ...base } = word || {};
 
   if (quality !== 5) {
     // 模糊/忘记：进入（或维持）recovery，目标 = max(现有 stage, debt 对应目标)

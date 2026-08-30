@@ -4,8 +4,8 @@
  * Scope 决定“复习哪些词”，练习模式绝不更新正式 SRS 计划：
  * nextReview / interval / state / easeFactor / reviewCount / reviewRevision 全部保持不变。
  *
- * 词集来源只认 vocabulary 表的 createdAt（收藏进单词本的时间），
- * 但最终只练习 learnWords 里存在的词（按小写词形匹配）。
+ * 词集来源只认 learnWords 中的 active canonical rows，收藏与导入通过 source
+ * metadata 共用同一个练习身份。
  */
 
 export const PRACTICE_SCOPES = Object.freeze(['today_added', 'recent_added', 'manual']);
@@ -13,13 +13,27 @@ export const RECENT_ADDED_DAYS = 7;
 export const PRACTICE_SESSION_KEY = 'review-practice-session-v1';
 export const PRACTICE_DONE_PREFIX = 'review-practice-done-v2:';
 export const PRACTICE_DONE_LEGACY_PREFIX = 'review-practice-done-v1:';
-
-const lower = word => String(word || '').trim().toLowerCase();
+export const PRACTICE_DONE_VERSION = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function startOfDay(now) {
   const date = new Date(now);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
+}
+
+function normalizeIds(wordIds) {
+  return [...new Set((wordIds || []).map(id => Number(id)).filter(Number.isFinite))];
+}
+
+const addedAtOf = word => Number(word?.libraryAddedAt ?? word?.createdAt) || 0;
+
+function defaultStorage(name) {
+  try {
+    return globalThis?.[name] || null;
+  } catch {
+    return null;
+  }
 }
 
 function localDateKey(now = Date.now()) {
@@ -33,175 +47,278 @@ function doneStorageKey(scope) {
   return `${PRACTICE_DONE_PREFIX}${scope}`;
 }
 
+function normalizeDoneRecord(scope, value) {
+  if (!value || !Array.isArray(value.wordIds)) return null;
+  if (value.version !== undefined && ![1, PRACTICE_DONE_VERSION].includes(Number(value.version))) return null;
+  if (value.scope && value.scope !== scope) return null;
+  const completedAt = Number(value.completedAt) || 0;
+  if (!completedAt) return null;
+  return {
+    version: PRACTICE_DONE_VERSION,
+    scope,
+    wordIds: normalizeIds(value.wordIds),
+    completedAt
+  };
+}
+
 function isDoneRecordValid(scope, record, now) {
-  const completedAt = Number(record?.completedAt) || 0;
-  if (!completedAt) return false;
+  if (!record || record.completedAt > now) return false;
   if (scope === 'today_added') {
-    // 今日新增按本地日期重置：只有当天完成的一轮才算有效
-    return localDateKey(completedAt) === localDateKey(now);
+    return localDateKey(record.completedAt) === localDateKey(now);
   }
   if (scope === 'recent_added') {
-    // 最近 7 天是滚动窗口：7 天内完成过的词不再自动出现，过期后整窗重新开放
-    return now - completedAt <= RECENT_ADDED_DAYS * 24 * 60 * 60 * 1000;
+    return now - record.completedAt <= RECENT_ADDED_DAYS * 24 * 60 * 60 * 1000;
   }
   return false;
 }
 
-/**
- * 把旧版“带日期键”的完成标记迁移到 v2 单键（只发生一次）。
- * 同一范围存在多个旧键时取 completedAt 最新的一条。
- */
-function migrateLegacyDone(scope) {
-  const legacyKeys = [];
-  for (let index = 0; index < localStorage.length; index++) {
-    const key = localStorage.key(index);
-    if (key && key.startsWith(`${PRACTICE_DONE_LEGACY_PREFIX}${scope}:`)) legacyKeys.push(key);
+function listStorageKeys(storage) {
+  if (!storage) return [];
+  try {
+    const keys = [];
+    const length = Math.max(0, Number(storage.length) || 0);
+    for (let index = 0; index < length; index++) {
+      const key = storage.key(index);
+      if (typeof key === 'string') keys.push(key);
+    }
+    return keys;
+  } catch {
+    return [];
   }
-  if (!legacyKeys.length) return null;
-  let best = null;
-  for (const key of legacyKeys) {
+}
+
+function migrateLegacyDone(scope, storage) {
+  const prefix = `${PRACTICE_DONE_LEGACY_PREFIX}${scope}:`;
+  const candidates = [];
+  for (const key of listStorageKeys(storage).filter(item => item.startsWith(prefix))) {
     try {
-      const parsed = JSON.parse(localStorage.getItem(key));
-      if (!Array.isArray(parsed?.wordIds)) continue;
-      const candidate = {
-        wordIds: parsed.wordIds.map(id => Number(id)).filter(Number.isFinite),
-        completedAt: Number(parsed.completedAt) || 0
-      };
-      if (!best || candidate.completedAt > best.completedAt) best = candidate;
+      const parsed = JSON.parse(storage.getItem(key));
+      const record = normalizeDoneRecord(scope, parsed);
+      if (record) candidates.push({ key, record });
     } catch {
-      // 损坏的旧键直接丢弃
+      // 损坏的旧键不是完成证据，也不阻塞其他有效旧键迁移。
     }
   }
-  if (!best) {
-    for (const key of legacyKeys) localStorage.removeItem(key);
-    return null;
-  }
+  if (!candidates.length) return null;
+  candidates.sort((left, right) => right.record.completedAt - left.record.completedAt);
+  const best = candidates[0].record;
   try {
-    localStorage.setItem(doneStorageKey(scope), JSON.stringify(best));
-    for (const key of legacyKeys) localStorage.removeItem(key);
+    storage.setItem(doneStorageKey(scope), JSON.stringify(best));
+    for (const candidate of candidates) storage.removeItem(candidate.key);
   } catch {
-    // 迁移失败时保留旧键，下次读取再试
+    // 写入失败时保留旧键，下次仍可读取和重试迁移。
   }
   return best;
 }
 
 /**
- * 记录某个时间范围专项复习完成了一轮，并与已有记录做并集累积。
- *
- * 完成后同一天内入口不再直接开始，避免“复习了还能再复习同一批词”；
- * 用户仍可通过“再来一轮”主动重新进入。manual 每次勾选都是新批次，不锁定。
- * today_added 标记在次日失效；recent_added 标记在 7 天后失效。
- *
- * @param {'today_added'|'recent_added'} scope
- * @param {object} [options]
- * @param {number[]} [options.wordIds] 本轮实际练习的 learnWords id，用于展示已复习词数
- * @param {number} [options.now] 时间戳，测试可注入
+ * 记录一个时间范围已完成的 learnWords id。manual 是一次性词集，不建立完成锁。
  */
-export function markPracticeScopeDone(scope, { wordIds = [], now = Date.now() } = {}) {
-  if (scope === 'manual' || !PRACTICE_SCOPES.includes(scope)) return;
-  const previous = readPracticeScopeDone(scope, { now })?.wordIds || [];
-  const merged = [...new Set([...previous, ...(wordIds || []).map(id => Number(id)).filter(Number.isFinite)])];
+export function markPracticeScopeDone(scope, {
+  wordIds = [],
+  now = Date.now(),
+  storage
+} = {}) {
+  if (scope === 'manual' || !PRACTICE_SCOPES.includes(scope)) return null;
+  const targetStorage = storage === undefined ? defaultStorage('localStorage') : storage;
+  if (!targetStorage) return null;
+  const previous = readPracticeScopeDone(scope, { now, storage: targetStorage });
   const payload = {
-    wordIds: merged,
-    completedAt: now
+    version: PRACTICE_DONE_VERSION,
+    scope,
+    wordIds: normalizeIds([...(previous?.wordIds || []), ...wordIds]),
+    completedAt: Number(now) || Date.now()
   };
   try {
-    localStorage.setItem(doneStorageKey(scope), JSON.stringify(payload));
+    targetStorage?.setItem(doneStorageKey(scope), JSON.stringify(payload));
   } catch {
-    // localStorage 不可用时静默降级：入口不锁定，行为与旧版一致
+    // 存储不可用时保持旧行为：不锁入口，也绝不影响专项练习本身。
+    return null;
   }
+  return payload;
 }
 
 /**
- * 读取当前有效的完成记录（过期或损坏返回 null）。
- *
- * @param {'today_added'|'recent_added'} scope
- * @param {object} [options]
- * @param {number} [options.now] 时间戳，测试可注入
- * @returns {{ wordIds: number[], completedAt: number } | null}
+ * 读取仍在有效窗口内的 v2 完成记录，并兼容 main 曾使用的 v1 日期键。
  */
-export function readPracticeScopeDone(scope, { now = Date.now() } = {}) {
+export function readPracticeScopeDone(scope, {
+  now = Date.now(),
+  storage
+} = {}) {
   if (scope === 'manual' || !PRACTICE_SCOPES.includes(scope)) return null;
+  const targetStorage = storage === undefined ? defaultStorage('localStorage') : storage;
+  if (!targetStorage) return null;
   let raw = null;
   try {
-    raw = localStorage.getItem(doneStorageKey(scope));
+    raw = targetStorage.getItem(doneStorageKey(scope));
   } catch {
     return null;
   }
   if (!raw) {
-    // 兼容旧版“范围:日期”键，迁移成功后视为有效
-    try {
-      const migrated = migrateLegacyDone(scope);
-      if (migrated && isDoneRecordValid(scope, migrated, now)) return migrated;
-    } catch {
-      return null;
-    }
-    return null;
+    const migrated = migrateLegacyDone(scope, targetStorage);
+    return isDoneRecordValid(scope, migrated, now) ? migrated : null;
   }
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.wordIds)) return null;
-    const record = {
-      wordIds: parsed.wordIds.map(id => Number(id)).filter(Number.isFinite),
-      completedAt: Number(parsed.completedAt) || 0
-    };
+    const record = normalizeDoneRecord(scope, parsed);
     if (!isDoneRecordValid(scope, record, now)) return null;
+    // 接受 main 早期无 version/scope 的 v2 内容，并尽力升级为明确版本。
+    if (parsed.version !== PRACTICE_DONE_VERSION || parsed.scope !== scope) {
+      try {
+        targetStorage.setItem(doneStorageKey(scope), JSON.stringify(record));
+      } catch {}
+    }
     return record;
   } catch {
     return null;
   }
 }
 
-/**
- * 清除完成标记（测试或显式重置用），同时清理旧版键。
- */
-export function clearPracticeScopeDone(scope, { now = Date.now() } = {}) {
+export function clearPracticeScopeDone(scope, { storage } = {}) {
   if (scope === 'manual' || !PRACTICE_SCOPES.includes(scope)) return;
+  const targetStorage = storage === undefined ? defaultStorage('localStorage') : storage;
   try {
-    localStorage.removeItem(doneStorageKey(scope));
-    for (let index = localStorage.length - 1; index >= 0; index--) {
-      const key = localStorage.key(index);
-      if (key && key.startsWith(`${PRACTICE_DONE_LEGACY_PREFIX}${scope}:`)) {
-        localStorage.removeItem(key);
-      }
+    targetStorage?.removeItem(doneStorageKey(scope));
+    const prefix = `${PRACTICE_DONE_LEGACY_PREFIX}${scope}:`;
+    for (const key of listStorageKeys(targetStorage).filter(item => item.startsWith(prefix))) {
+      targetStorage.removeItem(key);
     }
   } catch {
-    // 忽略不可用存储
+    // 清理失败只会让入口保持原状态，不影响用户数据或 SRS。
   }
 }
 
-/**
- * 计算某个范围入口的复习状态（三态渲染的判定依据）。
- *
- * @param {object} options
- * @param {'today_added'|'recent_added'|'manual'} options.scope
- * @param {number[]} options.currentWordIds 当前范围可练习的 learnWords id（去重）
- * @param {number} [options.now] 时间戳，测试可注入
- * @returns {{ done: boolean, reviewedIds: number[], newIds: number[] }}
- *   done=true 表示已全部复习完（锁定态）；有新词时 done=false 且 newIds 为未复习词。
- */
-export function getPracticeScopeStatus({ scope, currentWordIds = [], now = Date.now() } = {}) {
-  const current = [...new Set((currentWordIds || []).map(id => Number(id)).filter(Number.isFinite))];
+export function getPracticeScopeStatus({
+  scope,
+  currentWordIds = [],
+  now = Date.now(),
+  storage
+} = {}) {
+  const current = normalizeIds(currentWordIds);
   if (scope === 'manual' || !PRACTICE_SCOPES.includes(scope)) {
-    return { done: false, reviewedIds: [], newIds: current };
+    return { done: false, hasCompletion: false, reviewedIds: [], newIds: current };
   }
-  const record = readPracticeScopeDone(scope, { now });
+  const record = readPracticeScopeDone(scope, { now, storage });
   if (!record) {
-    return { done: false, reviewedIds: [], newIds: current };
+    return { done: false, hasCompletion: false, reviewedIds: [], newIds: current };
   }
-  const reviewedSet = new Set(record.wordIds);
-  const reviewedIds = current.filter(id => reviewedSet.has(id));
-  const newIds = current.filter(id => !reviewedSet.has(id));
-  return { done: newIds.length === 0, reviewedIds, newIds };
+  const reviewed = new Set(record.wordIds);
+  const reviewedIds = current.filter(id => reviewed.has(id));
+  const newIds = current.filter(id => !reviewed.has(id));
+  return {
+    done: current.length > 0 && newIds.length === 0,
+    hasCompletion: true,
+    reviewedIds,
+    newIds
+  };
+}
+
+/**
+ * 从 practice-flashcard reviewEvents 推导一个专项词集在其有效时间窗口内的进度。
+ *
+ * today_added 只统计当前本地日，recent_added 统计与其范围定义一致的
+ * 最近 RECENT_ADDED_DAYS 天；同一个词在窗口内写入多次也只计一次。
+ * legacyCompletedWordIds 仅用于兼容早期整组完成标记，不会替代事件读取。
+ */
+export async function getPracticeProgress({
+  db,
+  scope,
+  wordIds = [],
+  now = Date.now(),
+  legacyCompletedWordIds = []
+} = {}) {
+  const current = normalizeIds(wordIds);
+  const dateKey = localDateKey(now);
+  const empty = {
+    scope,
+    dateKey,
+    completedWordIds: [],
+    completedCount: 0,
+    totalCount: current.length,
+    remainingCount: current.length,
+    done: false
+  };
+  if (!PRACTICE_SCOPES.includes(scope) || !current.length) return empty;
+
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY_MS;
+  const from = scope === 'recent_added'
+    ? Number(now) - RECENT_ADDED_DAYS * DAY_MS
+    : dayStart;
+
+  let events = [];
+  if (typeof db?.getPracticeReviewEvents === 'function') {
+    events = await db.getPracticeReviewEvents({
+      practiceScope: scope,
+      from,
+      to: dayEnd,
+      wordIds: current
+    });
+  }
+  const completed = new Set(normalizeIds(legacyCompletedWordIds));
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.source !== 'practice-flashcard' || event.practiceScope !== scope) continue;
+    const reviewedAt = Number(event.reviewedAt);
+    if (!Number.isFinite(reviewedAt)
+      || reviewedAt < from
+      || reviewedAt >= dayEnd) continue;
+    const wordId = Number(event.wordId);
+    if (Number.isFinite(wordId)) completed.add(wordId);
+  }
+  const completedWordIds = current.filter(id => completed.has(id));
+  return {
+    scope,
+    dateKey,
+    completedWordIds,
+    completedCount: completedWordIds.length,
+    totalCount: current.length,
+    remainingCount: current.length - completedWordIds.length,
+    done: current.length > 0 && completedWordIds.length === current.length
+  };
+}
+
+export async function getPracticeProgressBatch({ db, scopes = [], now = Date.now() } = {}) {
+  const requested = (Array.isArray(scopes) ? scopes : [])
+    .map(item => ({
+      scope: item?.scope,
+      wordIds: normalizeIds(item?.wordIds),
+      legacyCompletedWordIds: normalizeIds(item?.legacyCompletedWordIds)
+    }))
+    .filter(item => PRACTICE_SCOPES.includes(item.scope));
+  if (!requested.length) return {};
+  if (typeof db?.getPracticeReviewEventsBatch !== 'function') {
+    const pairs = await Promise.all(requested.map(async item => [
+      item.scope,
+      await getPracticeProgress({ db, now, ...item })
+    ]));
+    return Object.fromEntries(pairs);
+  }
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY_MS;
+  const eventsByScope = await db.getPracticeReviewEventsBatch(requested.map(item => ({
+    practiceScope: item.scope,
+    from: item.scope === 'recent_added' ? Number(now) - RECENT_ADDED_DAYS * DAY_MS : dayStart,
+    to: dayEnd,
+    wordIds: item.wordIds
+  })));
+  const pairs = await Promise.all(requested.map(async item => [
+    item.scope,
+    await getPracticeProgress({
+      db: { getPracticeReviewEvents: async () => eventsByScope?.[item.scope] || [] },
+      now,
+      ...item
+    })
+  ]));
+  return Object.fromEntries(pairs);
 }
 
 /**
  * 解析专项复习词集。
  *
  * @param {object} options
- * @param {object} options.db            实现 getAllWords / getAllLearnWords 的存储
+ * @param {object} options.db            实现 getAllLearnWords 的存储
  * @param {'today_added'|'recent_added'|'manual'} options.scope
- * @param {number[]} [options.wordIds]    manual 时传 vocabulary 记录 id
+ * @param {number[]} [options.wordIds]    manual 时传 canonical learnWords 记录 id
  * @param {number} [options.days]         recent_added 的天数（默认 7）
  * @param {number} [options.now]          当前时间戳，测试可注入
  * @returns {Promise<{ words: object[], skipped: number, scope: string }>}
@@ -210,51 +327,41 @@ export async function resolvePracticeScope({ db, scope, wordIds = [], days = REC
   if (!PRACTICE_SCOPES.includes(scope)) {
     throw new TypeError(`不支持的专项复习范围: ${scope}`);
   }
-  const [savedWords, learnWords] = await Promise.all([
-    db.getAllWords(),
-    db.getAllLearnWords()
-  ]);
-  const libraryByWord = new Map();
-  for (const word of learnWords || []) {
-    const key = lower(word?.word);
-    if (key && !libraryByWord.has(key)) libraryByWord.set(key, word);
-  }
-
-  let candidates = [];
-  if (scope === 'manual') {
-    const ids = new Set((wordIds || []).map(id => Number(id)).filter(Number.isFinite));
-    candidates = (savedWords || []).filter(word => ids.has(Number(word.id)));
-  } else if (scope === 'today_added') {
-    const boundary = startOfDay(now);
-    candidates = (savedWords || []).filter(word => Number(word.createdAt) >= boundary);
-  } else {
-    const boundary = now - Number(days) * 24 * 60 * 60 * 1000;
-    candidates = (savedWords || []).filter(word => Number(word.createdAt) >= boundary);
-  }
-
-  const words = [];
+  const allWords = await db.getAllLearnWords();
   const seen = new Set();
-  let skipped = 0;
-  for (const saved of candidates) {
-    const libraryWord = libraryByWord.get(lower(saved?.word));
-    if (!libraryWord) {
-      skipped++;
-      continue;
-    }
-    const id = Number(libraryWord.id);
-    if (!seen.has(id)) {
-      seen.add(id);
-      words.push({ ...libraryWord });
-    }
+  const activeWords = (allWords || []).filter(word => {
+    if (!word || word.archivedAt != null) return false;
+    const key = Number.isFinite(Number(word.id))
+      ? `id:${Number(word.id)}`
+      : `word:${String(word.word || '').trim().toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (scope === 'manual') {
+    const requested = new Set(normalizeIds(wordIds));
+    const words = activeWords
+      .filter(word => requested.has(Number(word.id)))
+      .map(word => ({ ...word }));
+    return { words, skipped: requested.size - words.length, scope };
   }
-  return { words, skipped, scope };
+
+  const candidates = scope === 'today_added'
+    ? activeWords.filter(word => addedAtOf(word) >= startOfDay(now) && addedAtOf(word) <= Number(now))
+    : activeWords.filter(word => addedAtOf(word) >= Number(now) - Number(days) * 24 * 60 * 60 * 1000);
+  return { words: candidates.map(word => ({ ...word })), skipped: 0, scope };
 }
 
-export function createPracticeSession({ scope, wordIds = [], skipped = 0 }) {
+export function createPracticeSession({ scope, wordIds = [], expectedWordIds = wordIds, skipped = 0, reviewAll = false }) {
+  const selectedIds = normalizeIds(wordIds);
+  const expectedIds = normalizeIds(expectedWordIds);
   const session = {
     scope,
-    wordIds: (wordIds || []).map(id => Number(id)).filter(Number.isFinite),
+    wordIds: selectedIds,
+    expectedWordIds: expectedIds.length ? expectedIds : selectedIds,
     skipped: Number(skipped) || 0,
+    reviewAll: Boolean(reviewAll),
     createdAt: Date.now()
   };
   try {
@@ -278,10 +385,15 @@ export function readPracticeSession() {
     if (!PRACTICE_SCOPES.includes(parsed?.scope)) return null;
     const wordIds = Array.isArray(parsed.wordIds) ? parsed.wordIds.map(id => Number(id)).filter(Number.isFinite) : [];
     if (!wordIds.length) return null;
+    const expectedWordIds = Array.isArray(parsed.expectedWordIds)
+      ? normalizeIds(parsed.expectedWordIds)
+      : wordIds;
     return {
       scope: parsed.scope,
       wordIds,
+      expectedWordIds: expectedWordIds.length ? expectedWordIds : wordIds,
       skipped: Number(parsed.skipped) || 0,
+      reviewAll: Boolean(parsed.reviewAll),
       createdAt: Number(parsed.createdAt) || 0
     };
   } catch {
@@ -289,10 +401,34 @@ export function readPracticeSession() {
   }
 }
 
-export function clearPracticeSession() {
+export function clearPracticeSession({ storage } = {}) {
+  const targetStorage = storage === undefined ? defaultStorage('sessionStorage') : storage;
   try {
-    sessionStorage.removeItem(PRACTICE_SESSION_KEY);
+    targetStorage?.removeItem(PRACTICE_SESSION_KEY);
   } catch {
     // 忽略不可用存储
   }
+}
+
+/**
+ * 仅当每个有效词都至少成功写入一次练习评分时结算。空词集和部分完成都保留会话。
+ */
+export function finalizePracticeSession({
+  scope,
+  expectedWordIds = [],
+  completedWordIds = [],
+  now = Date.now(),
+  storage,
+  sessionStorage
+} = {}) {
+  if (!PRACTICE_SCOPES.includes(scope)) return false;
+  const expected = normalizeIds(expectedWordIds);
+  if (!expected.length) return false;
+  const completed = new Set(normalizeIds(completedWordIds));
+  if (!expected.every(id => completed.has(id))) return false;
+  markPracticeScopeDone(scope, { wordIds: expected, now, storage });
+  clearPracticeSession({
+    storage: sessionStorage === undefined ? defaultStorage('sessionStorage') : sessionStorage
+  });
+  return true;
 }

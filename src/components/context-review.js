@@ -2,11 +2,13 @@ import { API } from '../api.js';
 import { Config } from '../config.js';
 import { DB } from '../db.js';
 import { getSavableTranslation } from './definition-trust.mjs';
-import { createContextReviewService, makeContextReviewCacheKey, validateGeneratedContextReviewSentence } from './context-review.mjs';
+import { createContextReviewService } from './context-review.mjs';
+import { createContextReviewGenerator, makeContextReviewCacheKey } from './context-review-runtime.mjs';
 import { ReviewQueue } from '../review-queue.js';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
+import { getReviewPersistence } from '../review-persistence.mjs';
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const normalize = value => String(value || '').trim().toLocaleLowerCase('en-US');
 const safeJson = value => {
   try { return JSON.parse(value); } catch { return null; }
@@ -18,55 +20,38 @@ async function getCachedExamples(word) {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-async function loadCached({ words = [], targetTrack = '' } = {}) {
+async function loadCached({ words = [], sourceTrack = '', targetTrack = '' } = {}) {
+  const requestedTrack = normalize(sourceTrack || targetTrack);
+  const itemTrack = item => normalize(item?.sourceTrack || item?.targetTrack || item?.examTrack);
   const rows = [];
   for (const word of words) {
-    const candidates = await DB.getContextReviewSentencesForWord(word.id, 8);
-    const preferred = candidates.filter(item => item.targetTrack === targetTrack);
-    rows.push(...preferred, ...candidates.filter(item => item.targetTrack !== targetTrack));
+    const candidates = await DB.getContextReviewSentencesForWord(word.id, 16);
+    rows.push(...candidates.filter(item => itemTrack(item) === requestedTrack));
   }
   return rows;
 }
 
 async function saveCached(items = []) {
   const now = Date.now();
-  const rows = items.map(item => ({
+  const cacheable = items.filter(item => item?.difficultyStatus !== 'offline-fallback');
+  const rows = cacheable.map(item => ({
     ...item,
     key: item.key || makeContextReviewCacheKey(item),
     cacheVersion: CACHE_VERSION,
     savedAt: item.savedAt || now,
     lastUsedAt: item.lastUsedAt || 0
   }));
-  rows.forEach((row, index) => Object.assign(items[index], row));
+  rows.forEach((row, index) => Object.assign(cacheable[index], row));
   return DB.saveContextReviewSentences(rows);
 }
 
-async function generateBatch(words, { targetTrack = '', difficultyProfile = null, signal = null } = {}) {
-  if (!words.length || !Config.hasApiKey()) return [];
-  const rows = words.map(word => ({
-    wordId: word.id,
-    lemma: normalize(word.word),
-    senses: Array.isArray(word.definitionSenses)
-      ? word.definitionSenses.slice(0, 6).map((sense, index) => ({ index, pos: sense.pos || '', glossZh: sense.glossZh || '' }))
-      : [{ index: 0, pos: word.pos || '', glossZh: getSavableTranslation(word) || '' }]
-  }));
-  const response = await API.fetch('/chat/completions', {
-    messages: [
-      {
-        role: 'system',
-        content: `你是英语语境复习材料编辑。仅返回 JSON {"items":[{"wordId":1,"lemma":"word","targetForm":"word","sentence":"...","translationZh":"...","senseIndex":0}]}。每个输入词生成一句 9-22 词的自然英文句子；句中必须使用输入的 lemma 原形，targetForm 与 lemma 完全相同。不得在英文句中写中文、括号释义或直接解释目标词。translationZh 必须是自然中文整句翻译，senseIndex 只能选择给定候选索引。除目标词外尽量使用不高于 ${targetTrack || '通用英语'} 的常用词，避免罕见专名。当前材料档案：${difficultyProfile?.challenge || 'standard'}，目标覆盖率 ${difficultyProfile?.coverage || 96}%。`
-      },
-      { role: 'user', content: JSON.stringify({ words: rows }) }
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.55
-  }, 60000, signal);
-  const parsed = safeJson(response?.choices?.[0]?.message?.content);
-  const requested = new Map(rows.map(item => [Number(item.wordId), item]));
-  return (Array.isArray(parsed?.items) ? parsed.items : [])
-    .map(item => validateGeneratedContextReviewSentence(item, requested.get(Number(item?.wordId))))
-    .filter(Boolean);
-}
+const generateBatch = createContextReviewGenerator({
+  fetch: (...args) => API.fetch(...args),
+  hasApiKey: () => Config.hasApiKey(),
+  getTranslation: getSavableTranslation
+});
+
+const reviewPersistence = getReviewPersistence(DB);
 
 export const ContextReview = createContextReviewService({
   examExamples: (word, targetTrack) => ExamCorpus.getExamples(word, targetTrack),
@@ -76,17 +61,46 @@ export const ContextReview = createContextReviewService({
   loadCached,
   saveCached,
   coordinator: ReviewQueue,
-  recordReview: async ({ item, result, schedule, assistedLookupCount }) => {
-    const attemptId = `context:${item.wordId}:${Date.now()}`;
-    return DB.settleSessionReview(item.wordId, schedule, {
+  recordReview: ({ item, result, schedule, assistedLookupCount }) => {
+    const attemptId = `context:${item.wordId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const expectedRevision = Math.max(0, Number(item.expectedRevision ?? item.word?.reviewRevision) || 0);
+    const correlationId = `review:context:${item.wordId}:${Date.now()}`;
+    const event = {
       rating: result === 'known' ? 5 : result === 'uncertain' ? 3 : 1,
       source: 'context-review',
       sawAnswer: false,
       contextResult: result,
       assistedLookupCount: Math.max(0, Number(assistedLookupCount) || 0),
-      expectedRevision: item.expectedRevision,
+      expectedRevision,
       sessionDebt: result === 'uncertain' ? 1 : result === 'unknown' ? 2 : 0,
+      attemptId,
+      correlationId
+    };
+    const optimisticWord = {
+      ...(item.word || {}),
+      ...schedule,
+      reviewRevision: expectedRevision + 1,
+      expectedRevision: expectedRevision + 1,
       attemptId
-    }).then(word => ({ ...word, attemptId }));
+    };
+    try {
+      const queued = reviewPersistence.enqueueRating({
+        operationId: attemptId,
+        attemptId,
+        wordId: item.wordId,
+        expectedRevision,
+        srsData: schedule,
+        event,
+        correlationId
+      });
+      if (!queued) throw new Error('语境复习后台保存不可用');
+      return optimisticWord;
+    } catch {
+      return DB.settleSessionReview(item.wordId, schedule, event, {
+        expectedRevision,
+        attemptId,
+        correlationId
+      }).then(word => ({ ...word, attemptId }));
+    }
   }
 });

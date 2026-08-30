@@ -9,8 +9,9 @@ export class ReviewQueueCoordinator {
     this.now = now;
   }
 
-  async getDueWords({ limit = 20, targetTrack = '' } = {}) {
-    const words = await this.db.getAllLearnWords();
+  async getDueWords({ limit = 20, targetTrack = '', words: wordSnapshot = null } = {}) {
+    const sourceWords = Array.isArray(wordSnapshot) ? wordSnapshot : await this.db.getAllLearnWords();
+    const words = sourceWords.filter(word => word?.archivedAt == null);
     const scored = await Promise.all(words.map(async (word, index) => ({
       word,
       index,
@@ -31,15 +32,43 @@ export class ReviewQueueCoordinator {
       ? right.score - left.score || left.index - right.index
       : left.index - right.index;
     });
-    return this.srs.getDueWords(scored.map(item => item.word), limit, { recoveryFirst: true }).map(word => ({
-      ...word,
-      expectedRevision: revisionOf(word)
-    }));
+    return this.srs.getDueWords(scored.map(item => item.word), limit, { recoveryFirst: true })
+      .filter(word => word?.archivedAt == null)
+      .map(word => ({
+        ...word,
+        expectedRevision: revisionOf(word)
+      }));
+  }
+
+  async getDueSummary({ targetTrack = '', recallLimit = 20, contextLimit = 10, words: wordSnapshot = null } = {}) {
+    const sourceWords = Array.isArray(wordSnapshot) ? wordSnapshot : await this.db.getAllLearnWords();
+    const words = sourceWords.filter(word => word?.archivedAt == null);
+    const now = this.now();
+    const isRecovery = word => Math.max(0, Math.trunc(Number(word?.recoveryStage) || 0)) > 0;
+    const isDue = word => isRecovery(word) || (!word?.nextReview || Number(word.nextReview) <= now);
+    const dueCount = words.filter(word => isRecovery(word) || (word?.nextReview && Number(word.nextReview) <= now)).length;
+    const newCount = words.filter(word => !word?.nextReview).length;
+    const candidateWords = words.length
+      ? this.srs.getDueWords(words, words.length, {
+        recoveryFirst: true,
+        newLimit: words.length,
+        targetTrack
+      })
+      : [];
+    return {
+      candidateCount: candidateWords.length,
+      recoveryCount: candidateWords.filter(isRecovery).length,
+      dueCount,
+      newCount,
+      recallLimit: Math.max(0, Number(recallLimit) || 20),
+      contextLimit: Math.max(0, Number(contextLimit) || 10)
+    };
   }
 
   async revalidate(candidate) {
     const currentWord = await this.db.findLearnWordById(candidate?.id);
     if (!currentWord) return { current: false, reason: 'missing-word', word: null };
+    if (currentWord.archivedAt != null) return { current: false, reason: 'archived-word', word: null };
     if (revisionOf(currentWord) !== revisionOf({ reviewRevision: candidate?.expectedRevision })) {
       return { current: false, reason: 'reviewed-elsewhere', word: null };
     }
