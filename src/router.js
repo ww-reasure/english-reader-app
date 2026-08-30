@@ -1,112 +1,87 @@
 /**
  * Router Module
- * Handles SPA hash-based routing with cleanup on navigation
+ * Handles SPA hash-based routing with lazy page loading and cleanup on navigation
  */
 
-import { ChatView } from './views/chat.js';
-import { ReadingView } from './views/reading.js';
-import { HistoryView } from './views/history.js';
-import { VocabularyView } from './views/vocabulary.js';
-import { FlashcardView } from './views/flashcard.js';
-import { ReviewModeView } from './views/review-mode.js';
-import { ContextReviewView } from './views/context-review.js';
-import { LearnWordsView } from './views/learn-words.js';
-import { SettingsView } from './views/settings.js';
-import { StatsView } from './views/stats.js';
-import { ReportView } from './views/report.js';
-import { AssessmentView } from './views/assessment.js';
-import { CalibrationView } from './views/calibration.js';
-import { ReadingListView } from './views/reading-list.js';
 import { AppShell } from './components/app-shell.js';
 import { RouteHistory } from './components/route-history.js';
 import { WordStudyDetail } from './components/word-study-detail.js';
+import { preloadRoute, resolveRoute, warmCoreRoutes } from './router-routes.mjs';
+import { createNavigationController } from './router-navigation.mjs';
 
-const views = {
-  ChatView, ReadingView, HistoryView, VocabularyView, FlashcardView, ReviewModeView, ContextReviewView,
-  LearnWordsView, SettingsView, StatsView, ReportView, AssessmentView, CalibrationView, ReadingListView
-};
+const navigation = createNavigationController({
+  appShell: AppShell,
+  wordStudyDetail: WordStudyDetail,
+  getApp: () => document.getElementById('app'),
+  getRouteMeta: hash => AppShell.getRouteMeta(hash),
+  resolveRoute,
+  onCleanupError: error => console.error('[router] view cleanup failed', error),
+  onRenderError: (error, hash) => console.error(`[router] render failed for ${hash}`, error),
+  onFirstMeaningfulPaint: () => {
+    globalThis.StartupMetricsBridge?.reportFullyDrawn?.();
+  },
+  recordEvent: (event, payload) => {
+    try {
+      globalThis?.__englishReaderDiagnosticLogger?.record(event, {
+        category: 'app',
+        level: payload?.result === 'failed' ? 'error' : 'info',
+        correlationId: payload?.correlationId,
+        payload
+      });
+    } catch {
+      // Navigation evidence is best-effort and must not affect navigation.
+    }
+  }
+});
 
 export const Router = {
-  currentView: null,
   routeHistory: null,
 
-  // Views that have cleanup methods
-  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView'],
-
-  // Cleanup current view before navigation
-  cleanupCurrentView() {
-    WordStudyDetail.close();
-    if (this.currentView && typeof this.currentView.cleanup === 'function') this.currentView.cleanup();
-    AppShell.cleanup();
-    this.currentView = null;
+  get currentView() {
+    return navigation.currentView;
   },
 
-  // Route to the correct view based on hash
+  set currentView(view) {
+    navigation.currentView = view;
+  },
+
+  get navigationToken() {
+    return navigation.navigationToken;
+  },
+
+  // Views that have cleanup methods
+  viewsWithCleanup: ['ChatView', 'ReadingView', 'FlashcardView', 'AssessmentView', 'CalibrationView', 'ReadingListView', 'StatsView', 'ExamHomeView', 'ExamPracticeView', 'ExamResultView', 'ExamReviewView', 'ExamCatalogView', 'ExamHistoryView'],
+
+  // Cleanup current view without delaying the next shell mount.
+  cleanupCurrentView() {
+    return navigation.cleanupCurrentView();
+  },
+
+  preload(hash) {
+    return preloadRoute(hash).catch(() => undefined);
+  },
+
+  // Route to the correct view based on hash. The navigation controller mounts
+  // the new shell synchronously, then loads and renders the view lazily.
   async navigate() {
-    const hash = location.hash || '#/chat';
-    const app = document.getElementById('app');
-
-    // Cleanup previous view's event listeners
-    this.cleanupCurrentView();
-
-    let view;
-    let args = [];
-    switch (true) {
-      case hash === '#/chat':
-        view = ChatView;
-        break;
-      case hash.startsWith('#/reading/'):
-        view = ReadingView;
-        args = [parseInt(hash.split('/')[2])];
-        break;
-      case hash === '#/history':
-        view = HistoryView;
-        break;
-      case hash === '#/vocab':
-        view = VocabularyView;
-        break;
-      case hash === '#/flashcard':
-        view = ReviewModeView;
-        break;
-      case hash === '#/flashcard/recall':
-        view = FlashcardView;
-        break;
-      case /^#\/flashcard\/practice\/[a-z_]+$/.test(hash): {
-        view = FlashcardView;
-        args = [hash.split('/').pop()];
-        break;
-      }
-      case hash === '#/flashcard/context':
-        view = ContextReviewView;
-        break;
-      case hash === '#/learn-words':
-        view = LearnWordsView;
-        break;
-      case hash === '#/settings':
-        view = SettingsView;
-        break;
-      case hash === '#/stats':
-        view = StatsView;
-        break;
-      case hash === '#/report':
-        view = ReportView;
-        break;
-      case hash === '#/assessment':
-        view = CalibrationView;
-        break;
-      case hash === '#/reading-list':
-        view = ReadingListView;
-        break;
-      case hash === '#/profile':
-        view = StatsView;
-        break;
-      default:
-        view = ChatView;
+    let hash = location.hash || '#/chat';
+    if (hash === '#/learn-words') {
+      hash = '#/vocab';
+      history.replaceState(history.state, '', `${location.pathname}${location.search}${hash}`);
     }
-
-    const outlet = AppShell.mount(app, AppShell.getRouteMeta(hash), hash === '#/chat' ? 'chat' : 'standard');
-    await view.render(outlet, ...args);
-    this.currentView = view;
+    try {
+      // Route keys are stable page identifiers without per-article ids or
+      // query content, keeping navigation evidence privacy-safe.
+      const routeKey = resolveRoute(hash).routeKey;
+      globalThis?.__englishReaderDiagnosticLogger?.record('route.navigate', {
+        category: 'app',
+        route: routeKey,
+        payload: { route: routeKey }
+      });
+    } catch {
+      // Diagnostics are best-effort and must not affect navigation.
+    }
+    return navigation.navigate(hash);
   },
 
   // Get current article ID from hash
@@ -124,13 +99,17 @@ export const Router = {
       this.routeHistory.record(location.hash || '#/chat');
       this.navigate();
     });
-    this.navigate();
+    AppShell.setRouteIntentHandler(hash => this.preload(hash));
+    void this.navigate().finally(() => {
+      void warmCoreRoutes();
+    });
   },
 
-  back() {
+  back(fallbackRoute = '') {
     const previous = this.routeHistory?.previous();
-    if (!previous) return false;
-    location.hash = previous;
+    const destination = previous || fallbackRoute;
+    if (!destination) return false;
+    location.hash = destination;
     return true;
   }
 };
