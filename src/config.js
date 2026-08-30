@@ -7,6 +7,10 @@ import { Capacitor } from '@capacitor/core';
 import { SecureStorage } from '@aparajita/capacitor-secure-storage';
 import { createConfigStorage } from './config-storage.mjs';
 import { requiresTargetTrackSelection } from './learning-track.mjs';
+import {
+  DEFAULT_DEEPSEEK_MODEL,
+  resolveVisionDefaultMigration
+} from './components/deepseek-model-catalog.mjs';
 
 const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen';
 const shouldShowApiOnboarding = ({ apiKey = '', seen = false } = {}) => (
@@ -30,7 +34,9 @@ export const Config = {
     web_research_mode: 'deepseek_native',
     [API_ONBOARDING_SEEN_KEY]: 'false',
     base_url: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-flash',
+    model: DEFAULT_DEEPSEEK_MODEL,
+    model_selection_explicit: 'false',
+    vision_default_migration: '0',
     theme: 'light',
     // A display control may visually default to CET-4, but a new learner must
     // make a deliberate target choice before the app creates reading material.
@@ -39,6 +45,8 @@ export const Config = {
     // `exam_level` is the fixed target; recommendation is stored separately.
     reading_mode: 'support',
     reading_word_marking: 'false',
+    exam_word_lookup_enabled: 'true',
+    home_learning_response_mode: 'ask',
     coverage: '97',
     new_word_percent: '3',
     target_track_selection_required: 'true',
@@ -49,6 +57,16 @@ export const Config = {
 
   async initialize() {
     await this.storage.initialize();
+    const storedModel = this.storage.get('model');
+    const visionMigration = resolveVisionDefaultMigration({
+      model: storedModel,
+      explicitSelection: this.storage.get('model_selection_explicit') === 'true',
+      migrated: this.storage.get('vision_default_migration') === '1'
+    });
+    if (visionMigration.changed) {
+      this.set('model', visionMigration.model);
+      this.set('vision_default_migration', '1');
+    }
     // Migrate presentation-era settings without relabelling old articles or
     // silently deciding whether an old "考研" target meant English I or II.
     if (!this.storage.get('reading_mode')) {
@@ -93,6 +111,10 @@ export const Config = {
 
   markApiOnboardingSeen() {
     this.set(API_ONBOARDING_SEEN_KEY, 'true');
+  },
+
+  markModelSelectionExplicit() {
+    this.set('model_selection_explicit', 'true');
   },
 
   // Get all settings as object

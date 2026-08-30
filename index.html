@@ -23,12 +23,10 @@
         <input type="url" id="baseUrlInput" name="baseUrl" placeholder="https://api.deepseek.com/v1" autocomplete="off">
       </div>
       <div class="form-group">
-        <label>模型</label>
-        <div class="model-select">
-          <select id="modelPreset">
-            <option value="deepseek-v4-flash">DeepSeek V4 Flash（快速）</option>
-            <option value="deepseek-v4-pro">DeepSeek V4 Pro（高质量）</option>
-            <option value="custom">自定义模型</option>
+          <label>模型</label>
+          <div class="model-select">
+          <select id="modelPreset" aria-label="选择模型">
+            <option value="">加载模型列表…</option>
           </select>
           <input type="text" id="modelInput" name="customModel" placeholder="输入模型名称…" autocomplete="off" style="display:none">
         </div>
@@ -85,13 +83,14 @@
           <option value="graduate">考研通用</option>
         </select>
       </div>
-      <div class="form-group">
-        <label for="importFile">从文件导入（可选）</label>
+      <div class="form-group import-file-control">
+        <label for="importFile">从本地文件读取（可选）</label>
         <input type="file" id="importFile" accept=".txt,.md,.markdown,.html,.htm">
+        <p class="import-file-hint">支持 TXT、Markdown、HTML，最大 2 MiB。读取后仍可在下方编辑。</p>
         <div id="importStatus" class="import-status" aria-live="polite"></div>
       </div>
       <div class="form-group">
-        <label>英文内容（粘贴到这里）</label>
+        <label for="importContent">英文内容（可直接粘贴）</label>
         <textarea id="importContent" name="articleContent" rows="10" placeholder="把英文正文粘贴在这里…" autocomplete="off"></textarea>
       </div>
       <div class="form-group">
