@@ -10,12 +10,22 @@ let databaseSequence = 0;
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
+  const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
+  const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
+  const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
       "const getStemForm = word => String(word || '').trim().toLowerCase();"
     )
-    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
+    .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
+    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
+    .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -181,7 +191,7 @@ test('v7 migration adds knowledge stores without converting or deleting legacy s
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 14);
+  assert.ok(upgraded.version >= 21);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeWords'), true);
   assert.equal(upgraded.objectStoreNames.contains('knowledgeEvidence'), true);
   upgraded.close();
@@ -210,7 +220,7 @@ test('v11 migration resets only reading history and reading-calibration progress
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 14);
+  assert.ok(upgraded.version >= 21);
   upgraded.close();
 
   assert.deepEqual(await module.DB.getAllReadingStats(), []);
@@ -231,7 +241,7 @@ test('v8 knowledge evidence gains the calibration index during the v10 additive 
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 14);
+  assert.ok(upgraded.version >= 21);
   assert.equal(upgraded.transaction('knowledgeEvidence').objectStore('knowledgeEvidence').indexNames.contains('calibrationKey'), true);
   upgraded.close();
 

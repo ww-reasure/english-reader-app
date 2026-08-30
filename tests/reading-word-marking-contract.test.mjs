@@ -14,8 +14,8 @@ test('ordinary reading keeps vocabulary marking opt-in while review reading rema
 
   assert.match(config, /reading_word_marking:\s*'false'/);
   assert.match(reading, /wordMarkingEnabled\s*=\s*Config\.get\('reading_word_marking'\)\s*===\s*'true'/);
-  assert.match(reading, /this\.reviewMode\s*\?\s*this\._highlightReviewWords/);
-  assert.match(reading, /this\.wordMarkingEnabled\s*\?\s*this\._highlightLearningWords/);
+  assert.match(reading, /if \(this\.reviewMode\) return this\._highlightReviewWords/);
+  assert.match(reading, /if \(this\.wordMarkingEnabled\) return this\._highlightLearningWords/);
   assert.match(reading, /toggleWordMarking\(\)/);
   assert.match(reading, /词汇标记/);
 });

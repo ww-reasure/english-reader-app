@@ -110,7 +110,7 @@ test('learning profile counts historical graduate reading in the general graduat
     DIFFICULTY_LABELS: JSON.stringify(LABELS),
     formatDate: formatDate.toString(),
     esc: esc.toString(),
-    SpacedRepetition: JSON.stringify({ getDueCount: () => 0, isStable: () => false })
+    SpacedRepetition: JSON.stringify({ getDueCount: () => 0 })
   });
   const source = await readFile(new URL('../src/views/stats.js', import.meta.url), 'utf8');
   const runtime = source.replace(/^import .*?;\r?\n/gm, '');
@@ -134,7 +134,9 @@ test('learning profile counts historical graduate reading in the general graduat
     const DIFFICULTY_LABELS = ${JSON.stringify(LABELS)};
     const formatDate = ${formatDate.toString()};
     const esc = ${esc.toString()};
-    const SpacedRepetition = { getDueCount: () => 0, isStable: () => false };
+    const SpacedRepetition = { getDueCount: () => 0 };
+    const createExamServices = () => ({});
+    const createExamLearningOverviewProvider = () => ({ getOverview: async () => ({ status: 'unavailable', availableYears: [], totals: { completedAttempts: 0, objectiveAccuracy: null, objectiveAnswered: 0, translationSegments: 0, activeDurationMs: 0 }, byType: [], trend: [], review: { activeWrong: 0, dueWrong: 0, masteredWrong: 0, translationNeedsReview: 0 }, recentAttempts: [] }) });
     const resolveArticleTrack = article => { const raw = article.examType === '英语一' ? 'kaoyan1' : article.examType === '英语二' ? 'kaoyan2' : article.targetTrack || article.difficulty || 'unknown'; return { targetTrack: raw === 'graduate' ? 'kaoyan-general' : raw }; };
     ${analyticsRuntime}
     ${runtime}

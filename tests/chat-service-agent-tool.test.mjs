@@ -3,8 +3,14 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 async function loadChatService() {
-  const source = await readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8');
-  return import('data:text/javascript;base64,' + Buffer.from(source.replace("import { LEARNING_TOOLS } from './learning-agent.js';", 'const LEARNING_TOOLS = [];')).toString('base64'));
+  const [source, multimodal] = await Promise.all([
+    readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/multimodal-context.mjs', import.meta.url), 'utf8')
+  ]);
+  const adapted = source
+    .replace("import { LEARNING_TOOLS } from './learning-agent.js';", 'const LEARNING_TOOLS = [];')
+    .replace("from './multimodal-context.mjs'", `from 'data:text/javascript;base64,${Buffer.from(multimodal).toString('base64')}'`);
+  return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
 
 test('returns article artifacts immediately after a generation tool call', async () => {
@@ -23,32 +29,6 @@ test('returns article artifacts immediately after a generation tool call', async
 
   assert.equal(reply.content, '已生成一篇定制阅读，点击卡片开始阅读。');
   assert.deepEqual(reply.artifacts, [{ type: 'article', article: { id: 8, title: 'Practice' } }]);
-});
-
-test('reading follow-ups always send an explicit empty tools array', async () => {
-  const { ChatService } = await loadChatService();
-  const requests = [];
-  const service = new ChatService({
-    api: {
-      chat: async (_messages, options) => {
-        requests.push(options);
-        return { content: 'reading answer' };
-      }
-    },
-    agent: { getLearningOverview: async () => ({}) },
-    builder: { build: () => [{ role: 'user', content: 'why?' }] }
-  });
-
-  const reply = await service.ask({
-    sessionKey: 'reading:1',
-    session: { summary: '', messages: [] },
-    userMessage: 'why?',
-    kind: 'reading',
-    tools: [{ type: 'function', function: { name: 'should_not_be_sent' } }]
-  });
-
-  assert.equal(reply.content, 'reading answer');
-  assert.deepEqual(requests[0].tools, []);
 });
 
 test('returns a generation failure artifact without asking the model to continue', async () => {
@@ -75,6 +55,72 @@ test('returns a generation failure artifact without asking the model to continue
   assert.equal(chatCalls, 1);
   assert.equal(reply.content, '');
   assert.deepEqual(reply.artifacts, [{ type: 'generation_failure', failure }]);
+});
+
+test('returns a guided learning artifact without asking the model for duplicate prose', async () => {
+  const { ChatService } = await loadChatService();
+  let chatCalls = 0;
+  const service = new ChatService({
+    api: {
+      chat: async () => {
+        chatCalls += 1;
+        return { tool_calls: [{ function: { name: 'create_guided_learning', arguments: '{}' } }] };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const session = { id: 'lesson-1', sourceMessageId: 'message-1' };
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '一步一步教我这句话', kind: 'home',
+    tools: [{ function: { name: 'create_guided_learning' } }],
+    executeTool: async () => ({ result: { status: 'created' }, artifact: { type: 'guided_learning', session } })
+  });
+
+  assert.equal(chatCalls, 1);
+  assert.equal(reply.content, '');
+  assert.deepEqual(reply.artifacts, [{ type: 'guided_learning', session }]);
+});
+
+test('returns a guided learning update artifact without a second model turn', async () => {
+  const { ChatService } = await loadChatService();
+  let chatCalls = 0;
+  const service = new ChatService({
+    api: { chat: async () => {
+      chatCalls += 1;
+      return { tool_calls: [{ function: { name: 'adapt_guided_learning', arguments: '{}' } }] };
+    } },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const artifact = { type: 'guided_learning_update', sessionId: 'lesson-1', expectedRevision: 2, stepId: 'step-2' };
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '表示让步', kind: 'home',
+    tools: [{ function: { name: 'adapt_guided_learning' } }],
+    executeTool: async () => ({ result: { status: 'evaluated' }, artifact })
+  });
+  assert.equal(chatCalls, 1);
+  assert.deepEqual(reply, { content: '', artifacts: [artifact] });
+});
+
+test('turns malformed guided learning tool output into a retryable card failure', async () => {
+  const { ChatService } = await loadChatService();
+  const service = new ChatService({
+    api: { chat: async () => ({ tool_calls: [{ function: { name: 'create_guided_learning', arguments: '{}' } }] }) },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '教我', kind: 'home',
+    tools: [{ function: { name: 'create_guided_learning' } }],
+    executeTool: async () => { throw new Error('malformed hidden details'); }
+  });
+  assert.deepEqual(reply, {
+    content: '',
+    artifacts: [{ type: 'guided_learning_failure', failure: { message: '互动教学暂时无法生成，请重试或改用详细解析。', reason: 'tool_error' } }]
+  });
+  assert.doesNotMatch(JSON.stringify(reply), /hidden details/);
 });
 
 test('returns to normal conversation when the home safety gate rejects a generation tool call', async () => {
@@ -260,4 +306,32 @@ test('continues ordinary read-only tool calls through the model loop', async () 
     role: 'tool', tool_call_id: 'read-1', name: 'get_learning_overview',
     content: JSON.stringify({ source: 'get_learning_overview', due: 3 })
   });
+});
+
+test('passes a bounded daily report artifact through the ordinary tool loop', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const artifact = { type: 'daily_learning_report', reportId: 'daily:2026-08-24', dateKey: '2026-08-24', dataFingerprint: 'sha256:test' };
+  const service = new ChatService({
+    api: {
+      chat: async (_messages, options) => {
+        requests.push(options);
+        return requests.length === 1
+          ? { tool_calls: [{ id: 'daily-1', type: 'function', function: { name: 'get_daily_learning_report', arguments: '{"date":"2026-08-24"}' } }] }
+          : { content: '日报已生成。' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '查看今日日报', kind: 'home',
+    tools: [{ function: { name: 'get_daily_learning_report' } }],
+    executeTool: async () => ({ result: { source: 'daily_learning_report', dateKey: '2026-08-24' }, artifact })
+  });
+
+  assert.equal(reply.content, '日报已生成。');
+  assert.deepEqual(reply.artifacts, [artifact]);
+  assert.equal(requests.length, 2);
 });

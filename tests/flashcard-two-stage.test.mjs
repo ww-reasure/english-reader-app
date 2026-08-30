@@ -15,6 +15,22 @@ import {
   nextWord
 } from '../src/flashcard-flow.mjs';
 
+async function loadAudioCacheModule() {
+  const [audioSource, resolverSource] = await Promise.all([
+    readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pronunciation-resolver.mjs', import.meta.url), 'utf8')
+  ]);
+  const resolverUrl = `data:text/javascript;base64,${Buffer.from(resolverSource).toString('base64')}`;
+  const adaptedAudioSource = audioSource
+    .replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
+    .replace(
+      /import \{\s*createPronunciationResolver,\s*fetchPronunciationResponse,\s*normalizePronunciationWord\s*\} from '\.\/pronunciation-resolver\.mjs';/,
+      `import { createPronunciationResolver, fetchPronunciationResponse, normalizePronunciationWord } from '${resolverUrl}';`
+    );
+
+  return import(`data:text/javascript;base64,${Buffer.from(adaptedAudioSource).toString('base64')}`);
+}
+
 test('revealing a meaning keeps recall scoring available but disables known', () => {
   const revealed = revealMeaning(createReviewState());
 
@@ -181,15 +197,15 @@ test('in-card updates keep rendering inside the shell outlet', async () => {
   assert.doesNotMatch(source, /document\.getElementById\('app'\)/);
 });
 
-test('learn word in-place actions preserve the AppShell outlet', async () => {
-  const source = await readFile(new URL('../src/views/learn-words.js', import.meta.url), 'utf8');
+test('unified vocabulary in-place actions preserve the AppShell outlet', async () => {
+  const source = await readFile(new URL('../src/views/vocabulary.js', import.meta.url), 'utf8');
 
   assert.match(source, /container:\s*null/);
   assert.match(source, /this\.container = container/);
-  assert.match(source, /setFilter\(mode\)\s*\{\s*this\.filterMode = mode;\s*this\.render\(this\.container\);/s);
-  assert.match(source, /toggleManage\(\)\s*\{\s*this\.manageMode = !this\.manageMode;\s*this\.render\(this\.container\);/s);
-  assert.match(source, /async deleteWord\(id\)\s*\{[\s\S]*?await DB\.deleteLearnWord\(id\);[\s\S]*?if \(words\.length === 0\)\s*\{\s*this\.manageMode = false;\s*\}\s*await this\.render\(this\.container\);/s);
-  assert.match(source, /clearAll\(\)\s*\{[\s\S]*?this\.render\(this\.container\);/s);
+  assert.match(source, /setSourceFilter\(value\)/);
+  assert.match(source, /toggleManage\(\)/);
+  assert.match(source, /archiveWords\(wordIds\)/);
+  assert.doesNotMatch(source, /deleteLearnWord|clearAll/);
   assert.doesNotMatch(source, /document\.getElementById\('app'\)/);
 });
 
@@ -226,7 +242,8 @@ test('study examples reuse the shared word tooltip and clean up its listeners', 
   assert.match(source, /target\.closest\('\.example-translate-btn'\)/);
   assert.match(source, /data-word-study-word/);
   assert.match(source, /Tooltip\.hide\(\);/);
-  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+  assert.match(source, /invalidateCardRequests\(\)\s*\{\s*this\.cardSession\+\+;\s*this\.cancelCardPronunciation\(\);\s*this\.cancelPhraseRequest\(\);\s*this\.cancelSimilarRequest\(\);\s*this\.cancelRootRequest\(\);\s*this\.cleanupExampleWordLookup\(\);/s);
+  assert.match(source, /cleanup\(\)\s*\{\s*this\.invalidateCardRequests\(\);/s);
 });
 
 test('study example lookup can switch words after a tooltip is open and keeps sentence context', async () => {
@@ -238,6 +255,17 @@ test('study example lookup can switch words after a tooltip is open and keeps se
   assert.doesNotMatch(source, /if \(Tooltip\.isVisible\(\)\)\s*\{\s*e\.stopPropagation\(\);\s*Tooltip\.hide\(\);\s*return;/s);
 });
 
+test('flashcard review telemetry is best effort and does not replace the two-stage flow', async () => {
+  const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
+
+  assert.match(source, /StudySessionTimer/);
+  assert.match(source, /DB\.saveLearningActivity/);
+  assert.match(source, /reviewedWordIds/);
+  assert.match(source, /practiceCompletedWordIds/);
+  assert.match(source, /review-session-summary/);
+  assert.match(source, /commitPendingKnowledgeEvidence\(\)/);
+});
+
 test('a recall card starts one cancellable automatic pronunciation', async () => {
   const source = await readFile(new URL('../src/views/flashcard.js', import.meta.url), 'utf8');
 
@@ -245,7 +273,8 @@ test('a recall card starts one cancellable automatic pronunciation', async () =>
   assert.match(source, /cancelCardPronunciation\(\);/);
   assert.match(source, /startCardPronunciation\(word\.word, session\);/);
   assert.match(source, /AudioCache\.getAudio\(word, \{ signal: controller\.signal, silent: true \}\)/);
-  assert.match(source, /cleanup\(\)\s*\{\s*this\.cancelCardPronunciation\(\);[\s\S]*?this\.cleanupExampleWordLookup\(\);/);
+  assert.match(source, /invalidateCardRequests\(\)\s*\{[\s\S]*?this\.cancelCardPronunciation\(\);[\s\S]*?this\.cleanupExampleWordLookup\(\);/);
+  assert.match(source, /cleanup\(\)\s*\{\s*this\.invalidateCardRequests\(\);/s);
 });
 
 test('an aborted pronunciation request does not fetch or fall back to speech', async () => {
@@ -265,11 +294,7 @@ test('an aborted pronunciation request does not fetch or fall back to speech', a
     };
     globalThis.SpeechSynthesisUtterance = class {};
     globalThis.speechSynthesis = { cancel() {}, speak() {} };
-    const audioSource = await readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8');
-    const audioModule = `data:text/javascript;base64,${Buffer.from(
-      audioSource.replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
-    ).toString('base64')}`;
-    const { AudioCache } = await import(audioModule);
+    const { AudioCache } = await loadAudioCacheModule();
     const controller = new AbortController();
     controller.abort();
 
@@ -298,11 +323,7 @@ test('silent automatic pronunciation does not show a missing-audio toast', async
     globalThis.speechSynthesis = undefined;
     globalThis.SpeechSynthesisUtterance = undefined;
     globalThis.document = undefined;
-    const audioSource = await readFile(new URL('../src/audio-cache.js', import.meta.url), 'utf8');
-    const audioModule = `data:text/javascript;base64,${Buffer.from(
-      audioSource.replace("import { getStemForm } from './helpers.js';", 'const getStemForm = (word) => word;')
-    ).toString('base64')}`;
-    const { AudioCache } = await import(audioModule);
+    const { AudioCache } = await loadAudioCacheModule();
 
     assert.equal(await AudioCache.getAudio('practice', { silent: true }), false);
   } finally {

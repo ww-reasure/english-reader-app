@@ -123,3 +123,39 @@ test('home context injects structured generation facts from the recent activity 
   assert.match(joined, /2400/);
   assert.match(joined, /第 2 篇内容不完整/);
 });
+
+test('guided home requests receive progressive teaching rules and only visible lesson progress', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'home', summary: '', messages: [], userMessage: '表示让步',
+    pageContext: {
+      homeLearningMode: 'guided_reply',
+      guidedInstruction: '必须调用 adapt_guided_learning，一次只处理当前步骤。',
+      guidedSession: {
+        id: 'lesson-1', status: 'active', currentStepIndex: 0,
+        target: { title: '理解让步', text: 'Although it was late, we stayed.' },
+        steps: [
+          { id: 'step-1', kind: 'free_response', title: '先说关系', content: '只说明逻辑关系。', prompt: '是什么关系？' },
+          { id: 'step-2', kind: 'choice', title: '未来隐藏步骤', content: '不应提前展示', prompt: '秘密问题', choices: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }], correctChoiceId: 'b' }
+        ],
+        answers: {}, hints: {}, revision: 2
+      }
+    }
+  });
+  const joined = messages.map(message => message.content).join('\n');
+  assert.match(joined, /adapt_guided_learning/);
+  assert.match(joined, /先说关系/);
+  assert.doesNotMatch(joined, /未来隐藏步骤/);
+  assert.doesNotMatch(joined, /correctChoiceId/);
+});
+
+test('detailed home preference requests the existing full answer path without enabling guided mode', async () => {
+  const { ContextBuilder } = await loadBuilder();
+  const messages = new ContextBuilder().build({
+    kind: 'home', summary: '', messages: [], userMessage: 'inevitable',
+    pageContext: { homeLearningMode: 'detailed' }
+  });
+  const systems = messages.filter(message => message.role === 'system').map(message => message.content).join('\n');
+  assert.match(systems, /详细解析/);
+  assert.doesNotMatch(systems, /create_guided_learning/);
+});

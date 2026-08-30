@@ -3,11 +3,14 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 async function loadService() {
-  const source = await readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8');
+  const [source, multimodal] = await Promise.all([
+    readFile(new URL('../src/components/chat-service.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/multimodal-context.mjs', import.meta.url), 'utf8')
+  ]);
   const testSource = source.replace(
     "import { LEARNING_TOOLS } from './learning-agent.js';",
     "const LEARNING_TOOLS = [{ type: 'function', function: { name: 'get_learning_overview' } }];"
-  );
+  ).replace("from './multimodal-context.mjs'", `from 'data:text/javascript;base64,${Buffer.from(multimodal).toString('base64')}'`);
   return import('data:text/javascript;base64,' + Buffer.from(testSource).toString('base64'));
 }
 
@@ -57,6 +60,33 @@ test('forwards the home activity ledger to the context builder with the same ses
   });
 
   assert.deepEqual(built.activities, activities);
+});
+
+test('forwards an explicit structured response format to the API without changing normal chat flow', async () => {
+  const { ChatService } = await loadService();
+  let capturedOptions = null;
+  const service = new ChatService({
+    api: {
+      chatCompletion: async (_messages, options) => {
+        capturedOptions = options;
+        return { message: { role: 'assistant', content: '{"trainingScore":7}' } };
+      }
+    },
+    agent: {},
+    builder: { build: () => [{ role: 'user', content: 'score it' }] }
+  });
+
+  await service.ask({
+    sessionKey: 'exam:attempt:q46',
+    session: { summary: '', messages: [] },
+    userMessage: 'score it',
+    kind: 'translation_training_feedback',
+    tools: [],
+    responseFormat: { type: 'json_object' }
+  });
+
+  assert.deepEqual(capturedOptions.responseFormat, { type: 'json_object' });
+  assert.deepEqual(capturedOptions.tools, []);
 });
 
 test('tool rounds use the standard assistant tool_calls followed by matching tool messages', async () => {

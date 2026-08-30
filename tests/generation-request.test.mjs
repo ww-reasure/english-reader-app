@@ -149,8 +149,8 @@ test('uses the selected difficulty and the profile midpoint when the request has
   assert.equal(result.request, '请生成一篇关于旅行的英语阅读。');
   assert.equal(result.difficulty, 'cet6');
   assert.equal(result.challenge, 'stretch');
-  assert.deepEqual(result.profile.wordRange, { min: 450, max: 560 });
-  assert.equal(result.wordCount, 505);
+  assert.deepEqual(result.profile.wordRange, { min: 430, max: 500 });
+  assert.equal(result.wordCount, 465);
   assert.equal(result.adjustment, undefined);
 });
 
@@ -167,7 +167,7 @@ test('recognizes explicit requested lengths and clamps an under-range request wi
   assert.deepEqual(result.adjustment, {
     requested: 180,
     resolved: 320,
-    range: { min: 320, max: 420 }
+    range: { min: 320, max: 380 }
   });
 });
 
@@ -191,13 +191,13 @@ test('recognizes English word-count requests and clamps an over-range request', 
 test('keeps an explicit in-range word count without an adjustment', async () => {
   const { resolveGenerationRequest } = await loadResolver();
   const result = resolveGenerationRequest({
-    request: '请生成一篇六级阅读，420词。',
+    request: '请生成一篇六级阅读，340词。',
     selectedDifficulty: 'cet4',
     legacyLevel: 'easy'
   });
 
   assert.equal(result.difficulty, 'cet6');
-  assert.equal(result.wordCount, 420);
+  assert.equal(result.wordCount, 340);
   assert.equal(result.adjustment, undefined);
 });
 
@@ -213,11 +213,11 @@ test('does not let an agent tool difficulty overwrite the selected user target',
 
   assert.equal(result.difficulty, 'cet4');
   assert.equal(result.targetSelectionRequested, undefined);
-  assert.equal(result.wordCount, 420);
+  assert.equal(result.wordCount, 380);
   assert.deepEqual(result.adjustment, {
     requested: 1000,
-    resolved: 420,
-    range: { min: 320, max: 420 }
+    resolved: 380,
+    range: { min: 320, max: 380 }
   });
 });
 

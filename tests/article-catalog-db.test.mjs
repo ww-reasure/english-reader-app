@@ -8,12 +8,22 @@ let sequence = 0;
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
+  const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
+  const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
+  const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
       "const getStemForm = word => String(word || '').trim().toLowerCase();"
     )
-    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
+    .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
+    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
+    .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -30,7 +40,7 @@ function openVersion12(name) {
   });
 }
 
-test('v14 adds AI cache alongside catalog metadata without modifying existing articles or study words', async () => {
+test('v18 adds analytics stores alongside catalog metadata without modifying existing articles or study words', async () => {
   globalThis.indexedDB = indexedDB;
   const module = await loadDatabaseModule();
   const name = `EnglishReaderCatalogUpgrade-${process.pid}-${sequence++}`;
@@ -46,9 +56,16 @@ test('v14 adds AI cache alongside catalog metadata without modifying existing ar
 
   module.DB.DB_NAME = name;
   const upgraded = await module.DB.open();
-  assert.equal(upgraded.version, 14);
+  assert.ok(upgraded.version >= 21);
   assert.equal(upgraded.objectStoreNames.contains('articleCatalog'), true);
   assert.equal(upgraded.objectStoreNames.contains('aiCache'), true);
+  for (const storeName of [
+    'examPackMeta', 'examBanks', 'examPapers', 'examUnits', 'examQuestions',
+    'examAttempts', 'examResponses', 'examWrongStates', 'examBookmarks',
+    'examTranslationReviews'
+  ]) {
+    assert.equal(upgraded.objectStoreNames.contains(storeName), true, storeName);
+  }
   upgraded.close();
 
   assert.equal((await module.DB.getArticle(7)).title, 'Keep me');
@@ -70,4 +87,25 @@ test('catalog repository persists and retrieves one versioned metadata snapshot'
   await module.DB.saveArticleCatalog(record);
 
   assert.deepEqual(await module.DB.getArticleCatalog(), record);
+});
+
+test('article storage preserves imported-file metadata without a schema upgrade', async () => {
+  globalThis.indexedDB = indexedDB;
+  const module = await loadDatabaseModule();
+  module.DB.DB_NAME = `EnglishReaderImportedArticle-${process.pid}-${sequence++}`;
+  const article = {
+    title: 'Imported note',
+    content: 'This is a stored imported article.',
+    sourceType: 'imported',
+    source: 'local',
+    fileName: 'note.md',
+    wordCount: 6,
+    contentFingerprint: 'v1-abcdef'
+  };
+  const id = await module.DB.saveArticle(article);
+  const saved = await module.DB.getArticle(id);
+  assert.equal(saved.sourceType, 'imported');
+  assert.equal(saved.source, 'local');
+  assert.equal(saved.fileName, 'note.md');
+  assert.equal(saved.contentFingerprint, 'v1-abcdef');
 });

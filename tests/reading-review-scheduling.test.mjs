@@ -7,7 +7,14 @@ test('reading review never upgrades untouched words as known', async () => {
 
   assert.doesNotMatch(source, /User didn't click - they recognized it/);
   assert.doesNotMatch(source, /quality\s*=\s*5;/);
+  assert.match(source, /async _updateReviewSRS\(completionId\)/);
+  assert.match(source, /cycleReviewRatings/);
+  assert.match(source, /recordReviewRating/);
+  assert.match(source, /getReviewRatings/);
+  assert.doesNotMatch(source, /this\.clickedWords\.filter\(.*explicitRating/);
   assert.match(source, /DB\.settleSessionReview\(word\.id, srsData, \{/);
+  assert.match(source, /DB\.addReviewEventOnce\(/);
+  assert.match(source, /attemptId/);
   assert.match(source, /source:\s*'reading'/);
   assert.match(source, /contextExposure/);
 });

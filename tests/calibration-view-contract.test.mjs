@@ -8,8 +8,10 @@ test('the assessment route uses the offline adaptive calibration flow instead of
     readFile(new URL('../src/views/calibration.js', import.meta.url), 'utf8')
   ]);
 
-  assert.match(router, /import \{ CalibrationView \} from '\.\/views\/calibration\.js';/);
-  assert.match(router, /case hash === '#\/assessment':\s*\n\s*view = CalibrationView;/);
+  const routes = await readFile(new URL('../src/router-routes.mjs', import.meta.url), 'utf8');
+  assert.match(router, /createNavigationController/);
+  assert.match(routes, /routeKey: 'calibration'/);
+  assert.match(routes, /import\('\.\/views\/calibration\.js'\)/);
   assert.match(view, /CALIBRATION_WORD_QUESTION_COUNT/);
   assert.match(view, /createCalibrationSession/);
   assert.match(view, /recommendCalibrationMode/);

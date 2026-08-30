@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSentenceRangeForTextNodes, splitSentences } from '../src/components/sentence-selection.mjs';
+import {
+  createSentenceRangeForTextNodes,
+  findSentenceOffsets,
+  splitSentences
+} from '../src/components/sentence-selection.mjs';
 
 function textNode(text) {
   return { nodeType: 3, textContent: text };
@@ -55,33 +59,32 @@ test('long press starts after the preceding sentence even when a highlight begin
   assert.equal(result.range.end.node, tail);
 });
 
-test('shared sentence segmentation keeps abbreviations, closing quotes, and source ranges', () => {
-  const source = 'Dr. Lee said "Wait here." Then we left.';
+test('shared sentence segmentation preserves abbreviations, decimals and initials', () => {
+  const source = 'Dr. A. Smith used e.g. 3.14 units in the U.S. market. It worked.';
   const segments = splitSentences(source);
-
   assert.deepEqual(segments.map(item => item.text), [
-    'Dr. Lee said "Wait here."',
-    'Then we left.'
+    'Dr. A. Smith used e.g. 3.14 units in the U.S. market.',
+    'It worked.'
   ]);
-  assert.equal(source.slice(segments[0].start, segments[0].end), segments[0].text);
-  assert.equal(source.slice(segments[1].start, segments[1].end), segments[1].text);
+  assert.ok(segments.every(item => source.slice(item.start, item.end) === item.text));
 });
 
-test('shared sentence segmentation recognizes typographic closing quotes', () => {
-  assert.deepEqual(splitSentences('She said “Go now.” Then she left.').map(item => item.text), [
-    'She said “Go now.”',
-    'Then she left.'
+test('shared boundaries include closing quotes and parentheses and retain an unpunctuated tail', () => {
+  const source = 'She asked, “Really?” (He nodded.) A final clause';
+  assert.deepEqual(splitSentences(source).map(item => item.text), [
+    'She asked, “Really?”',
+    '(He nodded.)',
+    'A final clause'
   ]);
 });
 
-test('shared sentence segmentation returns an unpunctuated tail and handles multiple paragraphs', () => {
-  const source = 'First paragraph ends. A final clause\n\nSecond paragraph has no mark';
+test('point lookup uses the same sentence ranges as segmentation', () => {
+  const source = 'Mr. Lee said "Wait here." Then we left.';
   const segments = splitSentences(source);
-
-  assert.deepEqual(segments.map(item => item.text), [
-    'First paragraph ends.',
-    'A final clause',
-    'Second paragraph has no mark'
-  ]);
-  assert.ok(segments.every(item => item.end > item.start));
+  const point = source.indexOf('Wait') + 2;
+  assert.deepEqual(findSentenceOffsets(source, point), {
+    start: segments[0].start,
+    end: segments[0].end
+  });
+  assert.equal(source.slice(segments[0].start, segments[0].end), 'Mr. Lee said "Wait here."');
 });

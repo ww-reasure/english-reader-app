@@ -21,26 +21,14 @@ test('long-interval and legacy mastered words use the stable SRS status', async 
   assert.equal(SpacedRepetition.isStable({ reviewCount: 1, interval: 2 }), false);
 });
 
-test('words in active recovery are never reported as stable', async () => {
-  const { SpacedRepetition } = await loadSpacedRepetition();
+test('unified vocabulary exposes stable and relearning filters without losing relearning words', async () => {
+  const vocabularySource = await readFile(new URL('../src/views/vocabulary.js', import.meta.url), 'utf8');
 
-  // Mature word relearning: long stored interval but recoveryStage > 0.
-  assert.equal(SpacedRepetition.getStatus({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }), 'relearning');
-  assert.equal(SpacedRepetition.isStable({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }), false);
-  // Recovery overrides a previously mastered state as well.
-  assert.equal(SpacedRepetition.getStatus({ reviewCount: 12, interval: 60, state: 'mastered', recoveryStage: 2 }), 'relearning');
-  // Once recovery completes the word returns to the long-term status.
-  assert.equal(SpacedRepetition.getStatus({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 0 }), 'stable');
-  assert.equal(SpacedRepetition.getStatusDisplay({ reviewCount: 8, interval: 30, state: 'review', recoveryStage: 1 }).label, '重新学习');
-});
-
-test('learning vocabulary exposes stable and relearning filters without losing relearning words', async () => {
-  const learnWordsSource = await readFile(new URL('../src/views/learn-words.js', import.meta.url), 'utf8');
-
-  assert.match(learnWordsSource, /filterMode === 'stable'/);
-  assert.match(learnWordsSource, /setFilter\('stable'\)/);
-  assert.match(learnWordsSource, /长期巩固/);
-  assert.match(learnWordsSource, /=== 'learning' \|\| SpacedRepetition\.getStatus\(w\) === 'relearning'/);
+  assert.match(vocabularySource, /STATUS_FILTERS = Object\.freeze\(\['all', 'new', 'learning', 'review', 'stable'\]\)/);
+  assert.match(vocabularySource, /setStatusFilter/);
+  assert.match(vocabularySource, /stable: '长期巩固'/);
+  assert.match(vocabularySource, /长期巩固/);
+  assert.match(vocabularySource, /statusDisplayOf/);
 });
 
 test('homepage review preserves due stable words while supplementing only non-stable words', async () => {

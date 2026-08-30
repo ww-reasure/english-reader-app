@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  PRACTICE_DONE_LEGACY_PREFIX,
   PRACTICE_DONE_PREFIX,
   PRACTICE_SESSION_KEY,
   clearPracticeScopeDone,
   clearPracticeSession,
   createPracticeSession,
+  finalizePracticeSession,
   getPracticeScopeStatus,
   markPracticeScopeDone,
   readPracticeScopeDone,
@@ -17,12 +17,32 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-08-11T12:00:00+08:00').getTime();
+const LIBRARY_NOW = new Date(2026, 7, 24, 12).getTime();
+const LIBRARY_DAY = 24 * 60 * 60 * 1000;
 
-function makeDb({ saved = [], library = [] } = {}) {
+function canonical({ id, word = `word-${id}`, libraryAddedAt = LIBRARY_NOW, source = 'import', createdAt = libraryAddedAt } = {}) {
+  const reading = source === 'reading' || source === 'both';
+  const imported = source === 'import' || source === 'both';
   return {
-    getAllWords: async () => saved,
-    getAllLearnWords: async () => library
+    id,
+    word,
+    createdAt,
+    libraryAddedAt,
+    archivedAt: null,
+    librarySourceVersion: 1,
+    librarySources: {
+      reading: { active: reading, firstAddedAt: reading ? libraryAddedAt : null, lastAddedAt: reading ? libraryAddedAt : null },
+      import: { active: imported, firstAddedAt: imported ? libraryAddedAt : null, lastAddedAt: imported ? libraryAddedAt : null }
+    }
   };
+}
+
+function archived(values) {
+  return { ...canonical(values), archivedAt: LIBRARY_NOW - 1 };
+}
+
+function canonicalDb(learnWords) {
+  return { getAllLearnWords: async () => learnWords.filter(word => word.archivedAt == null) };
 }
 
 function installSessionStorage() {
@@ -35,92 +55,61 @@ function installSessionStorage() {
   return store;
 }
 
-function installLocalStorage() {
+function createStorage() {
   const store = new Map();
-  globalThis.localStorage = {
+  return {
     get length() { return store.size; },
-    key: index => [...store.keys()][index] ?? null,
-    getItem: key => (store.has(key) ? store.get(key) : null),
-    setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key)
+    key(index) { return [...store.keys()][index] ?? null; },
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) { store.set(key, String(value)); },
+    removeItem(key) { store.delete(key); },
+    store
   };
-  return store;
 }
 
-test('today_added scope only keeps words added since local midnight that exist in the library', async () => {
-  const midnight = new Date(NOW);
-  midnight.setHours(0, 0, 0, 0);
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'inevitable', createdAt: NOW - 1000 },
-      { id: 2, word: 'oldword', createdAt: midnight.getTime() - 1000 },
-      { id: 3, word: 'notinlibrary', createdAt: NOW - 500 }
-    ],
-    library: [
-      { id: 11, word: 'inevitable', reviewRevision: 2 },
-      { id: 12, word: 'oldword', reviewRevision: 5 }
-    ]
-  });
-
-  const result = await resolvePracticeScope({ db, scope: 'today_added', now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [11]);
-  assert.equal(result.skipped, 1);
-});
-
-test('recent_added honors the configurable day window and deduplicates library matches', async () => {
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'fresh', createdAt: NOW - DAY * 6 },
-      { id: 2, word: 'edge', createdAt: NOW - DAY * 7 + 1000 },
-      { id: 3, word: 'expired', createdAt: NOW - DAY * 7 - 1000 },
-      { id: 4, word: 'fresh', createdAt: NOW - 2000 }
-    ],
-    library: [
-      { id: 21, word: 'fresh', reviewRevision: 1 },
-      { id: 22, word: 'edge', reviewRevision: 1 },
-      { id: 23, word: 'expired', reviewRevision: 1 }
-    ]
-  });
-
-  const result = await resolvePracticeScope({ db, scope: 'recent_added', days: 7, now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [21, 22]);
+test('today_added includes imported and saved canonical words once', async () => {
+  const db = canonicalDb([
+    canonical({ id: 1, word: 'imported', libraryAddedAt: new Date(2026, 7, 24, 9).getTime(), source: 'import' }),
+    canonical({ id: 2, word: 'saved', libraryAddedAt: new Date(2026, 7, 24, 10).getTime(), source: 'reading' }),
+    canonical({ id: 3, word: 'both', libraryAddedAt: new Date(2026, 7, 24, 11).getTime(), source: 'both' })
+  ]);
+  const result = await resolvePracticeScope({ db, scope: 'today_added', now: LIBRARY_NOW });
+  assert.deepEqual(result.words.map(word => word.id), [1, 2, 3]);
   assert.equal(result.skipped, 0);
 });
 
-test('manual scope follows vocabulary ids and keeps vocabulary insertion order', async () => {
-  const db = makeDb({
-    saved: [
-      { id: 1, word: 'alpha', createdAt: NOW },
-      { id: 2, word: 'beta', createdAt: NOW },
-      { id: 3, word: 'gamma', createdAt: NOW }
-    ],
-    library: [
-      { id: 31, word: 'gamma', reviewRevision: 0 },
-      { id: 32, word: 'alpha', reviewRevision: 0 },
-      { id: 33, word: 'beta', reviewRevision: 0 }
-    ]
-  });
+test('manual uses canonical ids and skips archived or missing ids', async () => {
+  const db = canonicalDb([canonical({ id: 2 }), canonical({ id: 1 }), archived({ id: 3 })]);
+  const result = await resolvePracticeScope({ db, scope: 'manual', wordIds: [3, 1, 99, 2] });
+  assert.deepEqual(result.words.map(word => word.id), [2, 1]);
+  assert.equal(result.skipped, 2);
+});
 
-  const result = await resolvePracticeScope({ db, scope: 'manual', wordIds: [3, 1], now: NOW });
-
-  assert.deepEqual(result.words.map(word => word.id), [32, 31]);
+test('recent_added uses seven local calendar days and libraryAddedAt fallback', async () => {
+  const db = canonicalDb([
+    canonical({ id: 4, libraryAddedAt: LIBRARY_NOW - LIBRARY_DAY * 6 }),
+    canonical({ id: 5, libraryAddedAt: null, createdAt: LIBRARY_NOW - LIBRARY_DAY * 6 }),
+    canonical({ id: 6, libraryAddedAt: LIBRARY_NOW - LIBRARY_DAY * 8 })
+  ]);
+  const result = await resolvePracticeScope({ db, scope: 'recent_added', days: 7, now: LIBRARY_NOW });
+  assert.deepEqual(result.words.map(word => word.id), [4, 5]);
   assert.equal(result.skipped, 0);
 });
 
 test('unknown scopes are rejected', async () => {
-  const db = makeDb();
+  const db = canonicalDb([]);
   await assert.rejects(resolvePracticeScope({ db, scope: 'article' }), /不支持的专项复习范围/);
 });
 
 test('practice session round-trips through sessionStorage and clears', () => {
   installSessionStorage();
-  createPracticeSession({ scope: 'manual', wordIds: [31, 32], skipped: 2 });
+  createPracticeSession({ scope: 'manual', wordIds: [31, 32], expectedWordIds: [30, 31, 32], skipped: 2 });
 
   const session = readPracticeSession();
   assert.equal(session.scope, 'manual');
   assert.deepEqual(session.wordIds, [31, 32]);
+  assert.deepEqual(session.expectedWordIds, [30, 31, 32]);
+  assert.equal(session.reviewAll, false);
   assert.equal(session.skipped, 2);
 
   clearPracticeSession();
@@ -140,136 +129,129 @@ test('corrupt or mismatched practice sessions read back as null', () => {
   assert.equal(readPracticeSession(), null);
 });
 
-test('completed time-scoped practice locks the entry for the same local day', () => {
-  const store = installLocalStorage();
-  const morning = new Date('2026-08-11T09:00:00+08:00').getTime();
-  const evening = new Date('2026-08-11T21:00:00+08:00').getTime();
+test('today completion is versioned and expires at the next local day', () => {
+  const storage = createStorage();
+  const record = markPracticeScopeDone('today_added', {
+    wordIds: [11, 11, 12],
+    now: NOW,
+    storage
+  });
 
-  assert.equal(readPracticeScopeDone('today_added', { now: morning }), null);
+  assert.deepEqual(record, {
+    version: 2,
+    scope: 'today_added',
+    wordIds: [11, 12],
+    completedAt: NOW
+  });
+  assert.deepEqual(readPracticeScopeDone('today_added', { now: NOW + 1000, storage }), record);
 
-  markPracticeScopeDone('today_added', { wordIds: [11, 12], now: morning });
-  const done = readPracticeScopeDone('today_added', { now: evening });
-  assert.ok(done, '同一天内再次进入仍能看到完成标记');
-  assert.deepEqual(done.wordIds, [11, 12]);
-  assert.equal(done.completedAt, morning);
-
-  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}today_added`), 'v2 单键存储');
+  const tomorrow = new Date(NOW);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 1);
+  assert.equal(readPracticeScopeDone('today_added', { now: tomorrow.getTime(), storage }), null);
 });
 
-test('completion markers accumulate as a union across multiple rounds', () => {
-  const store = installLocalStorage();
-  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
+test('recent completion unlocks only new ids and expires after seven days', () => {
+  const storage = createStorage();
+  markPracticeScopeDone('recent_added', { wordIds: [21, 22], now: NOW, storage });
 
-  markPracticeScopeDone('today_added', { wordIds: [11, 12], now });
-  markPracticeScopeDone('today_added', { wordIds: [12, 13, 14], now });
-
-  assert.deepEqual(readPracticeScopeDone('today_added', { now }).wordIds, [11, 12, 13, 14]);
-  assert.equal(JSON.parse(store.get(`${PRACTICE_DONE_PREFIX}today_added`)).completedAt, now);
-});
-
-test('today_added markers expire on a new local day while recent_added keeps a rolling window', () => {
-  const store = installLocalStorage();
-  markPracticeScopeDone('recent_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
-  markPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
-
-  assert.ok(readPracticeScopeDone('recent_added', { now: new Date('2026-08-11T23:00:00+08:00').getTime() }));
-  // 跨天：today_added 失效，recent_added 仍在同一 7 天窗口内
-  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-12T00:30:00+08:00').getTime() }), null);
-  assert.ok(readPracticeScopeDone('recent_added', { now: new Date('2026-08-12T00:30:00+08:00').getTime() }));
-  // 超过 7 天：recent_added 也失效，整窗重新开放
-  assert.equal(readPracticeScopeDone('recent_added', { now: new Date('2026-08-19T12:00:00+08:00').getTime() }), null);
-  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}recent_added`));
-});
-
-test('manual scope is never locked and unknown scopes are ignored', () => {
-  const store = installLocalStorage();
-
-  markPracticeScopeDone('manual', { wordIds: [31] });
-  assert.equal(readPracticeScopeDone('manual'), null);
-  assert.equal([...store.keys()].some(key => key.includes(':manual')), false);
-
-  markPracticeScopeDone('article', { wordIds: [1] });
-  assert.equal(readPracticeScopeDone('article'), null);
-  assert.equal(store.size, 0);
-});
-
-test('corrupt completion markers read back as null and clear removes v2 and legacy keys', () => {
-  const store = installLocalStorage();
-  store.set(`${PRACTICE_DONE_PREFIX}today_added`, '{not-json');
-  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() }), null);
-
-  markPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
-  store.set(`${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-10`, JSON.stringify({ wordIds: [9], completedAt: 1 }));
-  clearPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() });
-  assert.equal(readPracticeScopeDone('today_added', { now: new Date('2026-08-11T12:00:00+08:00').getTime() }), null);
-  assert.ok(!store.has(`${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-10`));
-});
-
-test('legacy date-keyed markers migrate into the v2 single key on read', () => {
-  const store = installLocalStorage();
-  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
-  const legacyKey = `${PRACTICE_DONE_LEGACY_PREFIX}today_added:2026-08-11`;
-  store.set(legacyKey, JSON.stringify({ wordIds: [7, 8], completedAt: now }));
-
-  const migrated = readPracticeScopeDone('today_added', { now });
-  assert.deepEqual(migrated.wordIds, [7, 8]);
-  assert.ok(store.has(`${PRACTICE_DONE_PREFIX}today_added`), 'v2 键已写入');
-  assert.ok(!store.has(legacyKey), '旧键已删除');
-});
-
-test('getPracticeScopeStatus drives the three entry states', () => {
-  installLocalStorage();
-  const now = new Date('2026-08-11T12:00:00+08:00').getTime();
-  const currentIds = [11, 12, 13];
-
-  // 无标记：全部可复习
-  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
+  assert.deepEqual(getPracticeScopeStatus({
+    scope: 'recent_added',
+    currentWordIds: [21, 22, 23, 23],
+    now: NOW + DAY,
+    storage
+  }), {
     done: false,
+    hasCompletion: true,
+    reviewedIds: [21, 22],
+    newIds: [23]
+  });
+
+  markPracticeScopeDone('recent_added', { wordIds: [23], now: NOW + DAY, storage });
+  assert.deepEqual(readPracticeScopeDone('recent_added', { now: NOW + DAY, storage })?.wordIds, [21, 22, 23]);
+  assert.equal(readPracticeScopeDone('recent_added', { now: NOW + DAY * 8 + 1, storage }), null);
+});
+
+test('manual scope never locks and completion storage failures degrade to unlocked', () => {
+  const storage = createStorage();
+  assert.equal(markPracticeScopeDone('manual', { wordIds: [1], now: NOW, storage }), null);
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'manual', currentWordIds: [1], now: NOW, storage }), {
+    done: false,
+    hasCompletion: false,
     reviewedIds: [],
-    newIds: [11, 12, 13]
+    newIds: [1]
   });
 
-  // 部分完成：新增词单独列出，入口不锁定
-  markPracticeScopeDone('today_added', { wordIds: [11, 12], now });
-  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
-    done: false,
-    reviewedIds: [11, 12],
-    newIds: [13]
-  });
-
-  // 全部完成：锁定
-  markPracticeScopeDone('today_added', { wordIds: [13], now });
-  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: currentIds, now }), {
-    done: true,
-    reviewedIds: [11, 12, 13],
-    newIds: []
-  });
-
-  // manual 永不锁定
-  assert.deepEqual(getPracticeScopeStatus({ scope: 'manual', currentWordIds: currentIds, now }), {
-    done: false,
-    reviewedIds: [],
-    newIds: [11, 12, 13]
-  });
+  const unavailable = {
+    getItem() { throw new Error('blocked'); },
+    setItem() { throw new Error('blocked'); },
+    removeItem() { throw new Error('blocked'); },
+    get length() { throw new Error('blocked'); },
+    key() { throw new Error('blocked'); }
+  };
+  assert.doesNotThrow(() => markPracticeScopeDone('today_added', { wordIds: [1], now: NOW, storage: unavailable }));
+  assert.equal(readPracticeScopeDone('today_added', { now: NOW, storage: unavailable }), null);
+  assert.deepEqual(getPracticeScopeStatus({ scope: 'today_added', currentWordIds: [1], now: NOW, storage: unavailable }).newIds, [1]);
+  assert.doesNotThrow(() => clearPracticeScopeDone('today_added', { storage: unavailable }));
 });
 
-test('recent_added status keeps reviewed words out across days within the rolling window', () => {
-  installLocalStorage();
-  const day1 = new Date('2026-08-11T12:00:00+08:00').getTime();
-  const day2 = new Date('2026-08-12T09:00:00+08:00').getTime();
-  const currentIds = [21, 22];
+test('legacy date-key completion migrates without deleting it when v2 write fails', () => {
+  const storage = createStorage();
+  const date = '2026-08-11';
+  const legacyKey = `review-practice-done-v1:today_added:${date}`;
+  storage.setItem(legacyKey, JSON.stringify({ wordIds: [41], completedAt: NOW }));
 
-  markPracticeScopeDone('recent_added', { wordIds: [21, 22], now: day1 });
+  const migrated = readPracticeScopeDone('today_added', { now: NOW, storage });
+  assert.deepEqual(migrated?.wordIds, [41]);
+  assert.equal(storage.getItem(legacyKey), null);
+  assert.ok(storage.getItem(`${PRACTICE_DONE_PREFIX}today_added`));
 
-  // 跨天后：昨天复习过的词不算新增，词集无新词 → 锁定
-  const status = getPracticeScopeStatus({ scope: 'recent_added', currentWordIds: currentIds, now: day2 });
-  assert.equal(status.done, true);
-  assert.deepEqual(status.reviewedIds, [21, 22]);
-  assert.deepEqual(status.newIds, []);
+  const failing = createStorage();
+  failing.setItem(legacyKey, JSON.stringify({ wordIds: [42], completedAt: NOW }));
+  const originalSet = failing.setItem.bind(failing);
+  failing.setItem = (key, value) => {
+    if (key.startsWith(PRACTICE_DONE_PREFIX)) throw new Error('quota');
+    originalSet(key, value);
+  };
+  assert.deepEqual(readPracticeScopeDone('today_added', { now: NOW, storage: failing })?.wordIds, [42]);
+  assert.ok(failing.getItem(legacyKey));
+});
 
-  // 有新收藏词：只把新词列为可复习
-  const withNew = getPracticeScopeStatus({ scope: 'recent_added', currentWordIds: [21, 22, 23], now: day2 });
-  assert.equal(withNew.done, false);
-  assert.deepEqual(withNew.reviewedIds, [21, 22]);
-  assert.deepEqual(withNew.newIds, [23]);
+test('finalization requires every valid id, marks completion, and clears only a completed session', () => {
+  const completionStorage = createStorage();
+  const sessionStorage = createStorage();
+  sessionStorage.setItem(PRACTICE_SESSION_KEY, JSON.stringify({ scope: 'recent_added', wordIds: [1, 2] }));
+
+  assert.equal(finalizePracticeSession({
+    scope: 'recent_added',
+    expectedWordIds: [1, 2],
+    completedWordIds: [1],
+    now: NOW,
+    storage: completionStorage,
+    sessionStorage
+  }), false);
+  assert.ok(sessionStorage.getItem(PRACTICE_SESSION_KEY));
+  assert.equal(readPracticeScopeDone('recent_added', { now: NOW, storage: completionStorage }), null);
+
+  assert.equal(finalizePracticeSession({
+    scope: 'recent_added',
+    expectedWordIds: [1, 2, 2],
+    completedWordIds: [2, 1],
+    now: NOW,
+    storage: completionStorage,
+    sessionStorage
+  }), true);
+  assert.equal(sessionStorage.getItem(PRACTICE_SESSION_KEY), null);
+  assert.deepEqual(readPracticeScopeDone('recent_added', { now: NOW, storage: completionStorage })?.wordIds, [1, 2]);
+});
+
+test('empty and unknown practice rounds never finalize', () => {
+  const storage = createStorage();
+  const sessionStorage = createStorage();
+  assert.equal(finalizePracticeSession({
+    scope: 'today_added', expectedWordIds: [], completedWordIds: [], now: NOW, storage, sessionStorage
+  }), false);
+  assert.equal(finalizePracticeSession({
+    scope: 'unknown', expectedWordIds: [1], completedWordIds: [1], now: NOW, storage, sessionStorage
+  }), false);
 });

@@ -3,9 +3,10 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 async function loadAgent() {
-  const [source, analytics] = await Promise.all([
+  const [source, analytics, learningDay] = await Promise.all([
     readFile(new URL('../src/components/learning-agent.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8')
+    readFile(new URL('../src/reading-analytics.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/learning-day.mjs', import.meta.url), 'utf8')
   ]);
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
   const adapted = source.replace(
@@ -13,6 +14,9 @@ async function loadAgent() {
     analytics
       .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
       .replace(/^export /gm, '')
+  ).replace(
+    "import { localDayKey } from '../learning-day.mjs';",
+    learningDay.replace(/^export /gm, '')
   );
   return import('data:text/javascript;base64,' + Buffer.from(adapted).toString('base64'));
 }
@@ -47,6 +51,33 @@ test('rejects mutating and unknown tool names', async () => {
     new LearningAgent({ db: {}, srs: {} }).execute('delete_article', { id: 1 }),
     /not allowed/
   );
+});
+
+test('agent current vocabulary tools exclude archived words', async () => {
+  const { LearningAgent } = await loadAgent();
+  const allWords = [
+    { id: 1, word: 'active', translation: '活跃', archivedAt: null, nextReview: 1 },
+    { id: 2, word: 'archived', translation: '归档', archivedAt: 10, nextReview: 1 }
+  ];
+  const db = {
+    getAllLearnWords: async ({ includeArchived = false } = {}) => includeArchived
+      ? allWords
+      : allWords.filter(word => word.archivedAt == null),
+    getAllArticles: async () => [],
+    getAllReadingStats: async () => []
+  };
+  const agent = new LearningAgent({
+    db,
+    srs: {
+      getDueCount: words => words.length,
+      getDueWords: words => words,
+      getStatus: () => 'review'
+    },
+    now: () => 100
+  });
+  assert.equal((await agent.execute('get_learning_overview')).totals.words, 1);
+  assert.deepEqual((await agent.execute('find_learning_words', {})).words.map(word => word.word), ['active']);
+  assert.deepEqual((await agent.execute('get_review_queue')).words.map(word => word.word), ['active']);
 });
 
 test('learning overview distinguishes saved article inventory from qualified reading activity', async () => {
@@ -106,4 +137,36 @@ test('reports target-track true-exam priorities and available examples for plann
   assert.equal(result.highFrequencyUnmastered[0].word, 'frequent');
   assert.equal(result.highFrequencyUnmastered[0].exampleCount, 2);
   assert.deepEqual(result.duePriorityWords.map(item => item.word), ['frequent']);
+});
+
+test('exposes a bounded read-only exam overview tool and forwards an explicit year', async () => {
+  const { LearningAgent, LEARNING_TOOLS } = await loadAgent();
+  const calls = [];
+  const overview = { source: 'exam_learning_overview', status: 'available', recentAttempts: [], wrongSummary: [] };
+  const agent = new LearningAgent({
+    db: {}, srs: {},
+    examLearningProvider: { getOverview: async args => { calls.push(args); return overview; } }
+  });
+  const definition = LEARNING_TOOLS.find(tool => tool.function.name === 'get_exam_learning_overview');
+  assert.equal(definition.function.parameters.properties.year.type, 'integer');
+  assert.equal(await agent.execute('get_exam_learning_overview', { year: 2023 }), overview);
+  assert.deepEqual(calls, [{ year: 2023, recentLimit: 5, wrongLimit: 5 }]);
+});
+
+test('exam overview tool reports unavailable without mutating or inventing data', async () => {
+  const { LearningAgent } = await loadAgent();
+  const agent = new LearningAgent({ db: {}, srs: {} });
+  assert.deepEqual(await agent.execute('get_exam_learning_overview'), {
+    source: 'exam_learning_overview', status: 'unavailable', availableYears: [],
+    recentAttempts: [], wrongSummary: []
+  });
+});
+
+test('daily report tools return a typed unavailable result without a provider', async () => {
+  const { LearningAgent } = await loadAgent();
+  const agent = new LearningAgent({ db: {}, srs: {} });
+  assert.deepEqual(await agent.execute('get_daily_learning_report', { date: '2026-08-24' }), {
+    source: 'daily_learning_report', status: 'unavailable', completeness: 'unavailable',
+    reports: [], items: [], dateKey: '2026-08-24'
+  });
 });

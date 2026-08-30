@@ -100,10 +100,9 @@ test('all example sentences expose each English word as a lookup target', async 
 });
 
 test('all full word details share the focused study sheet while tooltip stays compact with a detail entry', async () => {
-  const [detail, vocabulary, learnWords, flashcard, tooltip, css] = await Promise.all([
+  const [detail, vocabulary, flashcard, tooltip, css] = await Promise.all([
     read('../src/components/word-study-detail.js'),
     read('../src/views/vocabulary.js'),
-    read('../src/views/learn-words.js'),
     read('../src/views/flashcard.js'),
     read('../src/components/tooltip.js'),
     read('../css/style.css')
@@ -112,7 +111,6 @@ test('all full word details share the focused study sheet while tooltip stays co
   assert.match(detail, /word-study-detail-sheet/);
   assert.match(detail, /WordStudyDetail/);
   assert.match(vocabulary, /WordStudyDetail\.open/);
-  assert.match(learnWords, /WordStudyDetail\.open/);
   assert.match(flashcard, /WORD_STUDY_TABS/);
   assert.match(flashcard, /phrases/);
   assert.match(flashcard, /ExamCorpus\.getExamples/);

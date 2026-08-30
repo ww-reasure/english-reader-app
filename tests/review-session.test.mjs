@@ -164,3 +164,16 @@ test('队列耗尽后 isEmpty', () => {
   assert.equal(SESSION_CONSTANTS.FUZZY_SPACING, 6);
   assert.equal(SESSION_CONSTANTS.MAX_REINSERT, 3);
 });
+
+test('当前展示中的词会进入会话快照，并可在刷新后恢复', async () => {
+  const queue = createSessionQueue([1, 2, 3]);
+  assert.equal(queue.next(), 1);
+  const snapshot = queue.snapshot();
+  assert.equal(snapshot.activeWordId, 1);
+
+  const restored = createSessionQueue();
+  restored.restore(snapshot);
+  assert.equal(restored.next(), 1);
+  restored.completeActive();
+  assert.equal(restored.next(), 2);
+});

@@ -8,12 +8,22 @@ let databaseSequence = 0;
 async function loadDatabaseModule() {
   const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
   const metadataUrl = new URL('../src/cloud-article-metadata.mjs', import.meta.url).href;
+  const learningDayUrl = new URL('../src/learning-day.mjs', import.meta.url).href;
+  const learningActivityUrl = new URL('../src/learning-activity.mjs', import.meta.url).href;
+  const externalSchedulerUrl = new URL('../src/external-review-scheduler.mjs', import.meta.url).href;
+  const recoverySchedulerUrl = new URL('../src/recovery-scheduler.mjs', import.meta.url).href;
+  const vocabularyLibraryUrl = new URL('../src/vocabulary-library.mjs', import.meta.url).href;
   const adapted = source
     .replace(
       "import { getStemForm } from './helpers.js';",
       "const getStemForm = word => String(word || '').trim().toLowerCase();"
     )
-    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`);
+    .replace("from './cloud-article-metadata.mjs'", `from '${metadataUrl}'`)
+    .replace("from './learning-day.mjs'", `from '${learningDayUrl}'`)
+    .replace("from './learning-activity.mjs'", `from '${learningActivityUrl}'`)
+    .replace("from './external-review-scheduler.mjs'", `from '${externalSchedulerUrl}'`)
+    .replace("from './recovery-scheduler.mjs'", `from '${recoverySchedulerUrl}'`)
+    .replace("from './vocabulary-library.mjs'", `from '${vocabularyLibraryUrl}'`);
   return import(`data:text/javascript;base64,${Buffer.from(adapted).toString('base64')}`);
 }
 
@@ -66,4 +76,61 @@ test('practice rating rejects invalid ratings and missing words gracefully', asy
 
   const events = await DB.getReviewEventsForWord(1);
   assert.equal(events.length, 0);
+});
+
+test('practice review events can be queried in one bounded batch for progress', async () => {
+  const { DB } = await createDatabase();
+  const startedAt = Date.now() - 1_000;
+
+  await DB.recordLearnWordPractice(11, { rating: 5, practiceScope: 'today_added' });
+  await DB.recordLearnWordPractice(12, { rating: 3, practiceScope: 'recent_added' });
+
+  const events = await DB.getPracticeReviewEvents({
+    practiceScope: 'today_added',
+    from: startedAt,
+    to: Date.now() + 1_000,
+    wordIds: [11, 99]
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].wordId, 11);
+  assert.equal(events[0].practiceScope, 'today_added');
+  assert.equal(events[0].source, 'practice-flashcard');
+});
+
+test('practice progress queries the reviewedAt range index before filtering practice events', async () => {
+  const source = await readFile(new URL('../src/db.js', import.meta.url), 'utf8');
+
+  assert.match(source, /index\('reviewedAt'\)/);
+  assert.match(source, /getAll\(range\)/);
+  assert.doesNotMatch(source, /index\('source'\)\.getAll\('practice-flashcard'\)/);
+});
+
+test('practice progress batches multiple scopes into one storage call', async () => {
+  const { getPracticeProgressBatch } = await import('../src/review-practice.mjs');
+  let calls = 0;
+  const db = {
+    async getPracticeReviewEventsBatch(requests) {
+      calls += 1;
+      assert.equal(requests.length, 2);
+      return {
+        today_added: [{ wordId: 1, source: 'practice-flashcard', practiceScope: 'today_added', reviewedAt: requests[0].from + 1 }],
+        recent_added: [{ wordId: 2, source: 'practice-flashcard', practiceScope: 'recent_added', reviewedAt: requests[1].from + 1 }]
+      };
+    }
+  };
+  const now = new Date(2026, 7, 30, 12, 0, 0).getTime();
+
+  const result = await getPracticeProgressBatch({
+    db,
+    now,
+    scopes: [
+      { scope: 'today_added', wordIds: [1, 3] },
+      { scope: 'recent_added', wordIds: [2, 4] }
+    ]
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(result.today_added.completedWordIds, [1]);
+  assert.deepEqual(result.recent_added.completedWordIds, [2]);
 });

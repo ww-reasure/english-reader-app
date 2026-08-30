@@ -8,13 +8,13 @@ async function read(relativePath) {
 
 test('flashcard routes expose a mode chooser plus recall and context modes', async () => {
   const [router, shell, chooser] = await Promise.all([
-    read('../src/router.js'),
+    read('../src/router-routes.mjs'),
     read('../src/components/app-shell.js'),
     read('../src/views/review-mode.js')
   ]);
 
-  assert.match(router, /#\/flashcard\/recall/);
-  assert.match(router, /#\/flashcard\/context/);
+  assert.match(router, /hash === '#\/flashcard\/recall'/);
+  assert.match(router, /hash === '#\/flashcard\/context'/);
   assert.match(shell, /hash\.startsWith\('#\/flashcard'\)/);
   assert.match(chooser, /单词回忆/);
   assert.match(chooser, /语境识词/);
@@ -51,10 +51,41 @@ test('context review unlocks target-word lookup after the answer and translation
   assert.match(source, /if \(!this\.answered\) this\.assistedLookupCount/);
 });
 
+test('context review discloses source difficulty only after an answer', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /difficultyStatus/);
+  assert.match(source, /offline-fallback/);
+  assert.match(source, /AI 定制例句/);
+  assert.match(source, /原设定/);
+  assert.match(source, /answered \? `<div class="context-review-answer/);
+  assert.match(source, /item\.examTrack \|\| item\.sourceTrack/);
+});
+
+test('context review requires an explicit target exam before starting a new session', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /requiresTargetTrackSelection/);
+  assert.match(source, /#\/settings/);
+  assert.match(source, /请先选择目标考试导向/);
+});
+
 test('traditional recall also consumes the shared revision-aware queue', async () => {
   const flashcard = await read('../src/views/flashcard.js');
 
   assert.match(flashcard, /ReviewQueue\.getDueWords/);
   assert.match(flashcard, /ReviewQueue\.revalidate/);
   assert.match(flashcard, /expectedRevision/);
+});
+
+test('context review persists an active session summary without changing scoring', async () => {
+  const source = await read('../src/views/context-review.js');
+
+  assert.match(source, /StudySessionTimer/);
+  assert.match(source, /ActivityType\.REVIEW_SESSION_SUMMARY/);
+  assert.match(source, /buildReviewSummary/);
+  assert.match(source, /persistReviewSummary\('completed'\)/);
+  assert.match(source, /persistReviewSummary\('partial'\)/);
+  assert.match(source, /this\.persistSession\(\)/);
+  assert.match(source, /counts\[result\] \+= 1/);
 });

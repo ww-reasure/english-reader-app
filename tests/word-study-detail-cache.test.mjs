@@ -12,7 +12,7 @@ test('word detail uses versioned cache snapshots before remote material enrichme
   assert.match(source, /persistDetailCache/);
   assert.match(source, /materialStages\.examples/);
   assert.match(source, /materialStages\.root/);
-  assert.match(db, /DB_VERSION: 14/);
+  assert.match(db, /DB_VERSION:\s*(2[1-9]|[3-9]\d)/);
   assert.match(db, /aiCache/);
 });
 
