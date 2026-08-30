@@ -1,97 +1,94 @@
-const ABBREVIATION_AT_END = /(?:Mr|Mrs|Dr|Ms|Prof|Sr|Jr|St|vs|etc|inc|Ltd|Corp|U\.S|U\.K|e\.g|i\.e|a\.m|p\.m)\.$/i;
-const CLOSING_SENTENCE_CHARACTERS = /[\"'\u2019\u201d\u00bb\u300d\u300f\u3011\)\]\}]/;
+const TITLE_ABBREVIATION_AT_END = /(?:Mr|Mrs|Dr|Ms|Prof|Sr|Jr|St)\.$/i;
+const CONTINUING_ABBREVIATION_AT_END = /(?:vs|e\.g|i\.e)\.$/i;
+const GENERAL_ABBREVIATION_AT_END = /(?:etc|inc|Ltd|Corp|No|Fig|Vol|pp|U\.S|U\.K|a\.m|p\.m)\.$/i;
+const CLOSING_SENTENCE_CHARACTERS = /["'\u2019\u201d\u00bb\u300d\u300f\u3011)\]}]/u;
 
-export function isSentenceEnd(text, index) {
-  const character = text[index];
-  if (!/[.!?]/.test(character)) return false;
-  if (character === '.' && ABBREVIATION_AT_END.test(text.slice(Math.max(0, index - 14), index + 1))) return false;
-  const following = text[index + 1] || '';
-  return !following || /[\s\"'\u2019\u201d\u00bb\u300d\u300f\u3011)\]}]/.test(following);
+function nextNonSpace(text, index) {
+  let cursor = index;
+  while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+  return cursor < text.length ? text[cursor] : '';
 }
 
-function sentenceEndWithClosingCharacters(text, punctuationIndex) {
+function isInitialAtEnd(text, index) {
+  const fragment = text.slice(Math.max(0, index - 4), index + 1);
+  return /(?:^|[^A-Za-z])[A-Z]\.$/u.test(fragment);
+}
+
+export function isSentenceEnd(text, index) {
+  const value = String(text || '');
+  const character = value[index];
+  if (!/[.!?]/u.test(character)) return false;
+  if (character === '.' && /\d/u.test(value[index - 1] || '') && /\d/u.test(value[index + 1] || '')) return false;
+  const following = value[index + 1] || '';
+  if (following && !/[\s.!?"'\u2019\u201d\u00bb\u300d\u300f\u3011)\]}]/u.test(following)) return false;
+  if (character !== '.') return true;
+
+  const fragment = value.slice(Math.max(0, index - 18), index + 1);
+  const next = nextNonSpace(value, index + 1);
+  if ((TITLE_ABBREVIATION_AT_END.test(fragment) || isInitialAtEnd(value, index)) && next) return false;
+  if (CONTINUING_ABBREVIATION_AT_END.test(fragment) && next) return false;
+  if (GENERAL_ABBREVIATION_AT_END.test(fragment) && next && !/[A-Z\u201c"'(\[]/u.test(next)) return false;
+  return true;
+}
+
+function sentenceEndWithClosers(text, punctuationIndex) {
   let end = punctuationIndex + 1;
+  while (end < text.length && /[.!?]/u.test(text[end])) end += 1;
   while (end < text.length && CLOSING_SENTENCE_CHARACTERS.test(text[end])) end += 1;
   return end;
 }
 
-function trimRange(text, start, end) {
+function trimSentenceRange(text, start, end) {
   let trimmedStart = Math.max(0, start);
   let trimmedEnd = Math.min(text.length, end);
-  while (trimmedStart < trimmedEnd && /\s/.test(text[trimmedStart])) trimmedStart += 1;
-  while (trimmedEnd > trimmedStart && /\s/.test(text[trimmedEnd - 1])) trimmedEnd -= 1;
+  while (trimmedStart < trimmedEnd && /\s/u.test(text[trimmedStart])) trimmedStart += 1;
+  while (trimmedEnd > trimmedStart && /\s/u.test(text[trimmedEnd - 1])) trimmedEnd -= 1;
   return {
     start: trimmedStart,
     end: trimmedEnd,
     sourceStart: trimmedStart,
     sourceEnd: trimmedEnd,
-    range: { start: trimmedStart, end: trimmedEnd },
     text: text.slice(trimmedStart, trimmedEnd)
   };
 }
 
-/**
- * Split source text using the same abbreviation-aware boundary rules used by
- * long-press selection. Ranges point back into the original string so callers
- * can wrap a sentence without changing whitespace, punctuation, or quotes.
- */
 export function splitSentences(text) {
   const value = String(text ?? '');
   if (!value) return [];
-
   const segments = [];
   let segmentStart = 0;
+
   for (let index = 0; index < value.length; index += 1) {
-    const paragraphBreak = value.slice(index).match(/^\r?\n(?:[ \t]*\r?\n)+/);
+    const paragraphBreak = value.slice(index).match(/^\r?\n(?:[ \t]*\r?\n)+/u);
     if (paragraphBreak) {
-      const paragraph = trimRange(value, segmentStart, index);
-      if (paragraph.text) segments.push(paragraph);
+      const segment = trimSentenceRange(value, segmentStart, index);
+      if (segment.text) segments.push(segment);
       segmentStart = index + paragraphBreak[0].length;
       index = segmentStart - 1;
       continue;
     }
     if (!isSentenceEnd(value, index)) continue;
-    const end = sentenceEndWithClosingCharacters(value, index);
-    const segment = trimRange(value, segmentStart, end);
+    const end = sentenceEndWithClosers(value, index);
+    const segment = trimSentenceRange(value, segmentStart, end);
     if (segment.text) segments.push(segment);
     segmentStart = end;
-    while (segmentStart < value.length && /\s/.test(value[segmentStart])) segmentStart += 1;
     index = end - 1;
   }
 
-  const tail = trimRange(value, segmentStart, value.length);
+  const tail = trimSentenceRange(value, segmentStart, value.length);
   if (tail.text) segments.push(tail);
   return segments;
 }
-
-// Explicit aliases make the shared contract discoverable to older callers.
-export const segmentSentences = splitSentences;
-export const findSentenceSegments = splitSentences;
 
 export function findSentenceOffsets(text, pointOffset) {
   const value = String(text || '');
   if (!value) return null;
   const offset = Math.max(0, Math.min(Number(pointOffset) || 0, value.length));
-
-  let start = 0;
-  for (let index = offset - 1; index >= 0; index -= 1) {
-    if (isSentenceEnd(value, index)) {
-      start = sentenceEndWithClosingCharacters(value, index);
-      break;
-    }
-  }
-  while (start < value.length && /\s/.test(value[start])) start += 1;
-
-  let end = value.length;
-  for (let index = offset; index < value.length; index += 1) {
-    if (isSentenceEnd(value, index)) {
-      end = sentenceEndWithClosingCharacters(value, index);
-      break;
-    }
-  }
-  while (end > start && /\s/.test(value[end - 1])) end -= 1;
-
-  return end > start ? { start, end } : null;
+  const segments = splitSentences(value);
+  const containing = segments.find(segment => offset >= segment.start && offset <= segment.end);
+  if (containing) return { start: containing.start, end: containing.end };
+  const selected = segments.find(segment => segment.start > offset) || segments.at(-1);
+  return selected ? { start: selected.start, end: selected.end } : null;
 }
 
 function findTextPosition(textNodes, absoluteOffset, preferPrevious) {

@@ -9,6 +9,10 @@ function rangeContainsPoint(range, x, y) {
   return Array.from(range?.getClientRects?.() || []).some(rect => containsPoint(rect, x, y));
 }
 
+/**
+ * Resolve a click to the text range under it. Modern Chromium exposes one of
+ * the caret* APIs; the Range walk keeps lookup usable in older Android WebViews.
+ */
 export function getRangeAtPoint(event) {
   const x = Number(event?.clientX);
   const y = Number(event?.clientY);
@@ -25,17 +29,23 @@ export function getRangeAtPoint(event) {
       range.setEnd(position.offsetNode, position.offset);
     }
   }
+
   if (range?.startContainer?.nodeType === TEXT_NODE) return range;
 
   const hitElement = document.elementFromPoint?.(x, y);
-  if (!hitElement || hitElement.closest?.('button, a, input, textarea, select, [role="button"]')) return null;
-  const container = hitElement.closest?.('.en-paragraph, .reading-title, p, [data-selection-source]') || hitElement;
+  if (!hitElement) return null;
+  if (hitElement.closest?.('button, a, input, textarea, select, [role="button"]')) return null;
+
+  const container = hitElement.closest?.(
+    '.reading-sentence, .sentence-guide-source, .en-paragraph, .reading-title, p, [data-selection-source]'
+  ) || hitElement;
   const walker = document.createTreeWalker?.(container, SHOW_TEXT);
   if (!walker) return null;
 
   let node;
   while ((node = walker.nextNode())) {
-    for (let offset = 0; offset < (node.textContent || '').length; offset += 1) {
+    const text = node.textContent || '';
+    for (let offset = 0; offset < text.length; offset += 1) {
       const charRange = document.createRange();
       charRange.setStart(node, offset);
       charRange.setEnd(node, offset + 1);

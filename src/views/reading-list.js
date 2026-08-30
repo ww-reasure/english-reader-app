@@ -87,6 +87,18 @@ export const ReadingListView = {
   _pendingArticles: null,
   _catalogRefreshPromise: null,
   _pullRefreshCleanup: null,
+  _preloadedSnapshot: null,
+
+  async preloadData() {
+    const cached = await ArticleCatalog.getSnapshot();
+    if (cached) {
+      this._preloadedSnapshot = cached;
+      return cached;
+    }
+    const result = await ArticleCatalog.refresh();
+    this._preloadedSnapshot = result.snapshot;
+    return this._preloadedSnapshot;
+  },
 
   cleanup() {
     this._renderSession += 1;
@@ -98,6 +110,28 @@ export const ReadingListView = {
     this._catalogRefreshPromise = null;
     this._pendingArticles = null;
     this._container = null;
+  },
+
+  deactivate() {
+    this._renderSession += 1;
+    this._unsubscribeCatalog?.();
+    this._unsubscribeCatalog = null;
+    this._pullRefreshCleanup?.();
+    this._pullRefreshCleanup = null;
+    this._catalogRefreshPromise = null;
+  },
+
+  activate(container) {
+    if (container) this._container = container;
+    this._unsubscribeCatalog?.();
+    this._unsubscribeCatalog = ArticleCatalog.subscribe(event => this._handleCatalogUpdate(event));
+    this._bindPullRefresh(this._container);
+  },
+
+  dispose() {
+    this.cleanup();
+    this._articles = [];
+    this._preloadedSnapshot = null;
   },
 
   // Main render — paint memory/IndexedDB metadata first, then refresh silently.
@@ -112,7 +146,8 @@ export const ReadingListView = {
     this._unsubscribeCatalog?.();
     this._unsubscribeCatalog = ArticleCatalog.subscribe(event => this._handleCatalogUpdate(event));
 
-    const cached = await ArticleCatalog.getSnapshot();
+    const cached = this._preloadedSnapshot || await ArticleCatalog.getSnapshot();
+    this._preloadedSnapshot = null;
     if (renderSession !== this._renderSession || this._container !== container) return;
     if (cached) {
       this._articles = cached.articles;
