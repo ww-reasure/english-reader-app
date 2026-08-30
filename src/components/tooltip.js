@@ -13,7 +13,7 @@ import { DEFINITION_SCHEMA_VERSION } from './saved-word-definition.mjs';
 import { renderTooltipWordBadges } from './tooltip-metadata.mjs';
 import { WordStudyDetail } from './word-study-detail.js';
 import { WordStudyDetailCache } from './word-study-detail-cache.mjs';
-import { getRangeAtPoint } from './word-point.mjs';
+import { getRangeAtPoint } from './word-point.js';
 
 export const Tooltip = {
   session: new TooltipSession(),
@@ -157,7 +157,9 @@ export const Tooltip = {
           pos: data.pos || '',
           definitionSenses: getDefinitionSenses(data),
           definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-          lexiconVersion: data.lexiconVersion || ''
+          lexiconVersion: data.lexiconVersion || '',
+          lookupContext: options.lookupContext || {},
+          onWordSaved: options.onWordSaved
         };
         html += `<div class="tooltip-actions">
           <button class="btn-save-word" type="button">+ 收藏</button>
@@ -199,7 +201,7 @@ export const Tooltip = {
       saveBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        await this.saveWord(savePayload);
+        await this.saveWord(savePayload, savePayload);
       });
     }
 
@@ -295,7 +297,7 @@ export const Tooltip = {
   },
 
   // Save word to vocabulary and auto-sync to learn words (with SRS)
-  async saveWord(wordData) {
+  async saveWord(wordData, { lookupContext = {}, onWordSaved = null } = {}) {
     try {
       const word = String(wordData?.word || '').trim();
       if (!word) return;
@@ -306,7 +308,7 @@ export const Tooltip = {
       const hash = location.hash;
       const match = hash.match(/#\/reading\/(\d+)/);
       const articleId = match ? parseInt(match[1]) : null;
-      await DB.saveWord({
+      const saved = await DB.saveVocabularyWord({
         articleId,
         word,
         translation: savedTranslation,
@@ -318,20 +320,21 @@ export const Tooltip = {
         contextSentence: ''
       });
 
-      // Auto-sync to learn words library with translation
-      try {
-        await DB.saveLearnWord({
-          word: word.toLowerCase(),
-          translation: savedTranslation,
-          phonetic: phonetic || '',
-          pos,
-          definitionSenses,
-          definitionSchemaVersion: DEFINITION_SCHEMA_VERSION,
-          ...(wordData?.lexiconVersion ? { definitionLexiconVersion: wordData.lexiconVersion } : {}),
-          createdAt: Date.now()
-        });
-      } catch {
-        // Duplicate word in learn library, ignore
+      const provenance = {
+        lemma: getStemForm(word.toLowerCase()),
+        createdLearnWord: saved.createdLearnWord,
+        learnWordId: saved.learnWordId,
+        vocabularyId: saved.vocabularyId,
+        source: lookupContext?.source || 'unknown',
+        articleId: lookupContext?.articleId ?? articleId ?? null,
+        articleTitle: lookupContext?.articleTitle || ''
+      };
+      if (typeof onWordSaved === 'function') {
+        try {
+          await onWordSaved(provenance);
+        } catch (error) {
+          console.warn('Learning save telemetry failed.', error);
+        }
       }
 
       // Background: warm the shared detail cache after the save has settled.
@@ -345,8 +348,10 @@ export const Tooltip = {
         btn.textContent = '已收藏';
         btn.disabled = true;
       }
+      return provenance;
     } catch {
       alert('收藏失败');
+      return null;
     }
   },
 
