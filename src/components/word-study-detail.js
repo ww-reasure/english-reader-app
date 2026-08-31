@@ -4,12 +4,12 @@ import { AudioCache } from '../audio-cache.js';
 import { Config } from '../config.js';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { Examples } from '../examples.js';
-import { Dictionary } from '../dictionary.js';
 import { esc } from '../helpers.js';
 import { formatPartOfSpeech, formatPhonetic, getDefinitionDisplayLines, getDefinitionSenses } from './definition-trust.mjs';
 import { WordPhrases } from './word-phrases.js';
 import { WordSimilar } from './word-similar.js';
 import { Tooltip } from './tooltip.js';
+import { bindLearningTextLookup } from './reading-word-lookup.js';
 import { WordStudyDetailCache, loadCachedDetail, persistDetailCache } from './word-study-detail-cache.mjs';
 import { renderExamCorpusDetail, selectExamCorpusPresentation } from './exam-corpus-presentation.mjs';
 import {
@@ -485,58 +485,19 @@ export const WordStudyDetail = {
     const root = this.overlay?.querySelector('.word-study-detail-panel');
     if (!root) return;
     this.cleanupExampleWordLookup({ hide: false });
-    this._exampleLookupRoot = root;
-    this._exampleLookupHandler = async event => {
-      const target = event.target instanceof Element ? event.target : null;
-      const wordTarget = target?.closest('[data-word-study-word]');
-      const sentence = target?.closest('.flashcard-example-item p[data-example-text]');
-      if (!wordTarget || !sentence) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      const word = String(wordTarget.dataset.wordStudyWord || wordTarget.textContent || '').trim();
-      if (!word) return;
-
-      Tooltip.hide();
-      const lookupId = Tooltip.beginLookup(event.clientX, event.clientY);
-      try {
-        const data = await Dictionary.lookup(word);
-        if (!this.isCurrent(session) || !Tooltip.isCurrent(lookupId)) return;
-        await Tooltip.show(lookupId, event.clientX, event.clientY, data, false, {
-          targetTrack: this.sourceMeta?.targetTrack || Config.get('exam_level') || '',
-          contextSentence: sentence.textContent || ''
-        });
-      } catch {
-        if (this.isCurrent(session) && Tooltip.isCurrent(lookupId)) {
-          Tooltip.showError(lookupId, event.clientX, event.clientY);
-        }
-      }
-    };
-    root.addEventListener('click', this._exampleLookupHandler);
-    this._exampleLookupGlobalHandler = event => {
-      const tooltip = document.getElementById('wordTooltip');
-      if (!tooltip || tooltip.style.display === 'none' || tooltip.contains(event.target)) return;
-      if (this.overlay?.contains(event.target)) return;
-      Tooltip.hide();
-    };
-    document.addEventListener('click', this._exampleLookupGlobalHandler);
-    this._exampleTooltipDismissCleanup = Tooltip.attachAutoDismiss();
+    this._exampleWordLookupCleanup = bindLearningTextLookup({
+      root,
+      closeBeforeLookup: false,
+      getContextSentence: event => event.target?.closest?.('[data-example-text]')?.textContent || '',
+      getTargetTrack: () => this.sourceMeta?.targetTrack || Config.get('exam_level') || '',
+      isEnabled: () => this.isCurrent(session),
+      lookupContext: { source: 'word-study-detail' }
+    });
   },
 
   cleanupExampleWordLookup({ hide = true } = {}) {
-    if (this._exampleLookupRoot && this._exampleLookupHandler) {
-      this._exampleLookupRoot.removeEventListener('click', this._exampleLookupHandler);
-    }
-    if (this._exampleLookupGlobalHandler) {
-      document.removeEventListener('click', this._exampleLookupGlobalHandler);
-    }
-    if (this._exampleTooltipDismissCleanup) {
-      this._exampleTooltipDismissCleanup();
-    }
-    this._exampleLookupRoot = null;
-    this._exampleLookupHandler = null;
-    this._exampleLookupGlobalHandler = null;
-    this._exampleTooltipDismissCleanup = null;
+    this._exampleWordLookupCleanup?.();
+    this._exampleWordLookupCleanup = null;
     if (hide) Tooltip.hide();
   },
 

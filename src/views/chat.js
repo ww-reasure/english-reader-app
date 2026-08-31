@@ -281,6 +281,9 @@ export const ChatView = {
   _chatFollowUpExcerpt: '',
   _guidedReplyTarget: null,
   _guidedActionCleanup: null,
+  _learningTextLookupCleanup: null,
+  _learningTextLookupPromise: null,
+  _learningTextLookupRoot: null,
   _guidedRequestController: null,
   _dailyReportRequestPending: false,
   imageDraftGroupId: null,
@@ -1274,6 +1277,9 @@ export const ChatView = {
       onAsk: excerpt => this.setChatFollowUp(excerpt)
     });
     this._chatSelectionActions.bind();
+    if (messages?.querySelector('[data-learning-text="click"]')) {
+      void this.ensureLearningTextLookup(messages);
+    }
     const onGuidedAction = event => {
       const learningMode = event.target.closest('[data-learning-mode]');
       if (learningMode) {
@@ -1489,6 +1495,33 @@ export const ChatView = {
     return true;
   },
 
+  async ensureLearningTextLookup(root = document.getElementById('chatMessages')) {
+    if (!root || this._learningTextLookupCleanup) return this._learningTextLookupCleanup;
+    if (this._learningTextLookupPromise && this._learningTextLookupRoot === root) {
+      return this._learningTextLookupPromise;
+    }
+    this._learningTextLookupRoot = root;
+    const request = import('../components/reading-word-lookup.js')
+      .then(({ bindLearningTextLookup }) => {
+        if (this._learningTextLookupRoot !== root) return null;
+        this._learningTextLookupCleanup = bindLearningTextLookup({
+          root,
+          getContextSentence: event => event.target?.closest?.('.guided-learning-card')?.textContent || '',
+          lookupContext: { source: 'home-guided-learning' }
+        });
+        return this._learningTextLookupCleanup;
+      })
+      .catch(error => {
+        console.warn('Guided learning word lookup failed to load.', error);
+        return null;
+      })
+      .finally(() => {
+        if (this._learningTextLookupPromise === request) this._learningTextLookupPromise = null;
+      });
+    this._learningTextLookupPromise = request;
+    return request;
+  },
+
   releaseChatActions() {
     this._messageCopyCleanup?.();
     this._messageCopyCleanup = null;
@@ -1500,6 +1533,9 @@ export const ChatView = {
     this._imageViewerCleanup = null;
     this._guidedActionCleanup?.();
     this._guidedActionCleanup = null;
+    this._learningTextLookupCleanup?.();
+    this._learningTextLookupCleanup = null;
+    this._learningTextLookupRoot = null;
     this.revokeImageObjectUrls();
     this._chatFollowUpExcerpt = '';
     this._guidedReplyTarget = null;
@@ -1585,6 +1621,7 @@ export const ChatView = {
     div.dataset.guidedSessionId = session.id;
     div.innerHTML = renderGuidedLearningCard(session);
     container.appendChild(div);
+    void this.ensureLearningTextLookup(container);
     container.scrollTop = container.scrollHeight;
   },
 
@@ -1612,6 +1649,7 @@ export const ChatView = {
     } else if (message.kind === 'guided_learning') {
       element.dataset.guidedSessionId = message.session?.id || '';
       element.innerHTML = renderGuidedLearningCard(message.session);
+      void this.ensureLearningTextLookup(element.closest?.('#chatMessages') || document.getElementById('chatMessages'));
     } else if (message.kind === 'guided_learning_failure') {
       element.innerHTML = renderGuidedLearningFailureCard(message.failure, {
         failureId: messageId,

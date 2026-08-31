@@ -17,6 +17,8 @@ import { getRangeAtPoint } from './word-point.js';
 
 export const Tooltip = {
   session: new TooltipSession(),
+  vocabularyMembershipRevision: null,
+  vocabularyMembershipIndex: new Set(),
 
   beginLookup(x, y) {
     const lookupId = this.session.begin();
@@ -59,29 +61,45 @@ export const Tooltip = {
     this.bindCloseButton(tooltip);
   },
 
-  showError(lookupId, x, y, message = '暂时无法查询，请稍后重试') {
+  showError(lookupId, x, y, message = '暂时无法查询，请稍后重试', onRetry = null) {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
     tooltip.innerHTML = `
       <div class="tooltip-error">
         <span>${esc(message)}</span>
+        ${typeof onRetry === 'function' ? '<button class="tooltip-retry" type="button">重试</button>' : ''}
         <button class="tooltip-close" type="button" aria-label="关闭单词翻译" title="关闭">×</button>
       </div>`;
     this.position(tooltip, x, y);
     tooltip.style.display = 'block';
     this.bindCloseButton(tooltip);
+    const retryButton = tooltip.querySelector('.tooltip-retry');
+    retryButton?.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      void Promise.resolve(onRetry?.()).catch(() => {});
+    });
     return true;
   },
 
   // Check if word is already in vocabulary
   async isWordSaved(word) {
     try {
-      const words = await DB.getAllWords();
-      const stem = getStemForm(word.toLowerCase());
-      return words.some(w => {
-        const wStem = getStemForm(w.word.toLowerCase());
-        return wStem === stem || w.word.toLowerCase() === word.toLowerCase();
-      });
+      const snapshot = await DB.getUnifiedVocabularySnapshot();
+      if (this.vocabularyMembershipRevision !== snapshot.revision) {
+        const nextIndex = new Set();
+        for (const row of snapshot.data || []) {
+          const value = String(row?.word || row?.lemma || '').trim().toLowerCase();
+          if (!value) continue;
+          nextIndex.add(value);
+          nextIndex.add(getStemForm(value));
+        }
+        this.vocabularyMembershipIndex = nextIndex;
+        this.vocabularyMembershipRevision = snapshot.revision;
+      }
+      const value = String(word || '').trim().toLowerCase();
+      return this.vocabularyMembershipIndex.has(value)
+        || this.vocabularyMembershipIndex.has(getStemForm(value));
     } catch {
       return false;
     }
@@ -91,10 +109,11 @@ export const Tooltip = {
   async show(lookupId, x, y, data, reviewMode, options = {}) {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
+    const density = options.density === 'compact' ? 'compact' : 'full';
 
     const targetTrack = String(options.targetTrack || Config.get('exam_level') || '').trim();
     const wordBadges = renderTooltipWordBadges(data, esc, targetTrack);
-    let html = `<div class="tooltip-word">
+    let html = `<div class="tooltip-word" data-tooltip-density="${density}">
       <div class="tooltip-word-title">
         <button class="tooltip-word-trigger" type="button" data-audio-word="${esc(data.word)}" title="播放发音" aria-label="播放 ${esc(data.word)} 的发音">${esc(data.word)}</button>
         ${wordBadges ? `<span class="tooltip-word-meta" aria-label="词汇标签">${wordBadges}</span>` : ''}
@@ -121,10 +140,16 @@ export const Tooltip = {
     }
 
     if (definitionPreview.visibleLines.length) {
-      html += `<div class="tooltip-definition-preview">${definitionPreview.visibleLines.map((line) => `<div class="tooltip-translation definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
-      if (definitionPreview.additionalLines.length) {
+      const visibleDefinitionLines = density === 'compact'
+        ? definitionPreview.visibleLines.slice(0, 1)
+        : definitionPreview.visibleLines;
+      const additionalDefinitionLines = density === 'compact'
+        ? [...definitionPreview.visibleLines.slice(1), ...definitionPreview.additionalLines]
+        : definitionPreview.additionalLines;
+      html += `<div class="tooltip-definition-preview">${visibleDefinitionLines.map((line) => `<div class="tooltip-translation definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
+      if (additionalDefinitionLines.length) {
         html += `<button class="tooltip-definition-toggle" type="button" aria-expanded="false" data-definition-total="${definitionPreview.total}">展开更多释义（${definitionPreview.total}）</button>`;
-        html += `<div class="tooltip-all-definitions" hidden>${definitionPreview.additionalLines.map((line) => `<div class="definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
+        html += `<div class="tooltip-all-definitions" hidden>${additionalDefinitionLines.map((line) => `<div class="definition-line"><span class="definition-pos">${esc(line.label)}</span><span>${esc(line.glossZh)}</span></div>`).join('')}</div>`;
       }
     } else {
       html += `<div class="tooltip-translation">${esc(data.translation)}</div>`;

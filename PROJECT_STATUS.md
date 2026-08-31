@@ -1,9 +1,12 @@
-# English Reader main 线交接（2026-08-30 功能移植轮）
+# English Reader main 线交接（2026-08-30 功能移植 + 2026-08-31 统一点词合并）
 
 ## 本轮结果
 
 以开发线 `feat/english-practice-machine`（fa02328）为参考源，把全部非真题功能移植到 main 线。
 main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工作树干净，未推送。
+
+2026-08-31 又以真正的 git merge 把 `feat/app-wide-word-lookup`（fa02328 + `021cfcc` 全局取词功能）合并进 main：
+历史统一，但按既定原则解决冲突——真题代码不落地，main 继续无真题。版本保持 1.9.5/41。
 
 ## 提交清单（自旧到新）
 
@@ -17,17 +20,23 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 8. `4813508` feat(agent)：tooltip 与知识画像对齐收尾。
 9. `faf9372` chore(release)：1.9.5 / versionCode 41。
 
+## 2026-08-31 合并 `feat/app-wide-word-lookup`
+
+- 合并内容：共享 `bindLearningTextLookup()` 全局取词（阅读标题/正文/导读、AI 分析、闪卡与单词详情例句、语境复习、测评、首页导学卡），compact 释义卡、词库 revision 快照成员索引、tooltip 成员缓存，AI 句子分析三段式布局修复。
+- 冲突解决：与 fa02328 逐字节一致的 11 个文件取开发线版本；main 有意剥离过的 16 个文件保留 main 版；真题域新增（src/exam/**、exam 视图与测试、题包构建脚本、translation-tutor、私有包 loader/校验、release-artifact/verify-apk、source-inventory fixtures、verify-2026 兼容脚本等 129 个文件）不落地；`chat.js` 手工双面合并（main 无真题版 + 6 处取词增量）；surface 契约测试去掉两个 exam 用例；版本保持 1.9.5/41（开发线自己的 2.0.0/48 不带入）。
+- 顺手修复移植期遗留：HEAD 的 package.json 构建链引用了不存在的 `scripts/release-artifact.mjs`（真题发布管线），`npm run build` 在合并前就已损坏；现已改为 `vite build --mode public && npx cap sync android`，并移除指向已删脚本的 `exam-pack:build`。`assets/learning-paper-texture.png` 随合并删除（全树无引用）。
+- 合并后基线：`node --test tests/*.test.mjs` 1241/1241 通过；`npm run build`（public）通过；src/tests 中无已删真题模块引用。
+
 ## 验证基线（main 树实测）
 
-- `node --test tests/*.test.mjs`：1228 项全部通过，0 失败，0 跳过。
-- `npm run build`（public）：通过，43 chunks。
-- `git diff --check`：干净。
-- 真题残留：`src/`、`tests/` 中无 `views/exam-*`、`src/exam/*`、`exam-packs`、`exam-practice`、`exam-tutor` 引用；`css/style.css` 中遗留少量无 DOM 命中的真题样式块（死样式，无功能影响，可在后续清理）。
+- `node --test tests/*.test.mjs`：1241 项全部通过，0 失败，0 跳过。
+- `npm run build`（public）：通过（vite 构建 + cap sync）。
+- 真题残留：`src/`、`tests/` 中无 `views/exam-*`、`src/exam/*`、`exam-packs`、`exam-practice`、`exam-tutor`、`translation-tutor`、`private-pack` 引用；`css/style.css` 中遗留少量无 DOM 命中的真题样式块（死样式，无功能影响，可在后续清理）。
 - `src/exam-corpus.mjs` / `exam-corpus-runtime.mjs` 保留 main 线旧版（单索引语料查询，供复习/词汇例句增强），并补了 `preload` 钩子。
 
 ## 范围与限制
 
-- 真题训练（题包、练习、错题复习、翻译训练、真题学习概览、题包安装器与校验）按约定**不包含**；日报的 exam 事实段为恒空存根，schema 兼容。
-- 开发线工作树中未提交的 WebView 启动实验（versionCode 46/47 的 build.gradle 开关等）**未移植**，仍留在 `feat/english-practice-machine` 工作树。
+- 真题训练（题包、练习、错题复习、翻译训练、真题学习概览、题包安装器与校验）按约定**不包含**；日报的 exam 事实段为恒空存根，schema 兼容。开发线 `feat/app-wide-word-lookup` 上的真题相关改动同样未带入。
 - DB 迁移链 v14→v23 为代码级移植；老用户数据（v14）升级前建议先备份实测一次。
-- 未做任何远程推送；main 领先 origin/main 的提交数随本轮增加（此前 3 + 本轮 9）。
+- 未做任何远程推送；main 领先 origin/main 的提交数随本轮继续增加。
+- 版本仍为 1.9.5/41：下次从 main 出 APK 时再递增（建议 1.9.6/42）。

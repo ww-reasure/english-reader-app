@@ -68,3 +68,11 @@ test('reading lookup binding exposes optional success and save telemetry callbac
   assert.match(source, /onWordSaved/);
   assert.match(source, /lemma/);
 });
+
+test('shared lookup exposes one app-wide learning text binding while preserving the reading alias', async () => {
+  const source = await readFile(new URL('../src/components/reading-word-lookup.js', import.meta.url), 'utf8');
+
+  assert.match(source, /export function bindLearningTextLookup\(/);
+  assert.match(source, /export function bindReadingStyleWordLookup\(/);
+  assert.match(source, /data-learning-text/);
+});

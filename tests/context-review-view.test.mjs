@@ -29,8 +29,8 @@ test('context review protects the target but allows other word lookups before sc
   assert.match(source, /不认识/);
   assert.match(source, /跳过/);
   assert.match(source, /这是本句复习词，请先作答/);
-  assert.match(source, /Tooltip\.beginLookup/);
-  assert.match(source, /Dictionary\.lookup/);
+  assert.match(source, /bindLearningTextLookup/);
+  assert.match(source, /data-word-lookup-token/);
   assert.match(source, /assistedLookupCount/);
   assert.match(source, /完整学习详情/);
   assert.match(source, /记错了/);

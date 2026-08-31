@@ -12,7 +12,7 @@ test('reading lookup supplies the full current sentence to a constrained context
     readSource('../src/components/reading-word-lookup.js')
   ]);
 
-  assert.match(reading, /bindReadingStyleWordLookup/);
+  assert.match(reading, /bindLearningTextLookup/);
   assert.match(reading, /getLookupSentence\(e\)/);
   assert.match(lookup, /ContextualSense\.resolve\(\{/);
   assert.match(lookup, /sentence:\s*contextSentence/);

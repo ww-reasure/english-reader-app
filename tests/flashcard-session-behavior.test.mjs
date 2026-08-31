@@ -121,6 +121,7 @@ async function loadFlashcardView(dbUrl) {
       isVisible: () => false,
       getWordAtPoint: () => null
     };`)],
+    ["'../components/reading-word-lookup.js'", stub('export const bindLearningTextLookup = () => () => {};')],
     ["'../audio-cache.js'", stub('export const AudioCache = { getAudio: async () => false, stop: () => {} };')],
     ["'../exam-corpus-runtime.mjs'", stub(`export const ExamCorpus = {
       getExamples: async () => [],

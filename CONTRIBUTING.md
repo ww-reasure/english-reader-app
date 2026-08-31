@@ -1,40 +1,20 @@
-# 贡献指南
+# 内部开发说明
 
-感谢你对本项目的关注！欢迎任何形式的贡献。
+本仓库为私有项目，不接受公开贡献、Fork、Pull Request 或外部 Issue。
+代码、文档和构建产物仅限版权所有者及获授权的协作者使用。
 
-## 如何贡献
+## 内部变更流程
 
-### 报告问题
+1. 通过私有仓库协作渠道登记问题和需求。
+2. 在独立分支或专属 worktree 中修改并完成测试。
+3. 通过内部审查后合并到专属主线。
 
-1. 在 [Issues](https://github.com/ww-reasure/english-reader-app/issues) 页面创建新 Issue
-2. 使用 Bug 报告模板
-3. 尽可能详细地描述问题
-
-### 提交代码
-
-1. **Fork** 本仓库
-2. **克隆**你的 Fork：
+如需在本地初始化工作区：
    ```bash
-   git clone https://github.com/ww-reasure/english-reader-app.git
+   git clone https://github.com/ww-reasure/english-reader-private.git
    ```
-3. **创建分支**：
-   ```bash
-   git checkout -b feature/你的功能名
-   ```
-4. **修改代码**
-5. **测试**：确保功能正常
-6. **提交**：
-   ```bash
-   git add .
-   git commit -m "feat: 添加xxx功能"
-   ```
-7. **推送**：
-   ```bash
-   git push origin feature/你的功能名
-   ```
-8. **创建 Pull Request**
 
-### 提交规范
+### 内部提交规范
 
 使用语义化提交信息：
 
@@ -64,8 +44,8 @@ docs: 更新 README 安装说明
 
 ```bash
 # 克隆仓库
-git clone https://github.com/ww-reasure/english-reader-app.git
-cd english-reader-app
+git clone https://github.com/ww-reasure/english-reader-private.git
+cd english-reader-private
 
 # 安装依赖
 npm install
@@ -118,6 +98,4 @@ cd android && ./gradlew assembleDebug
 
 ## 联系方式
 
-如有问题，可通过 Issue 或 Discussion 联系。
-
-再次感谢你的贡献！🎉
+问题和变更请通过私有协作渠道处理，不通过公开 Issue 或 Discussion 处理。

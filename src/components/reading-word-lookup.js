@@ -3,11 +3,12 @@ import { ContextualSense } from './contextual-sense.js';
 import { getDefinitionSenses } from './definition-trust.mjs';
 import { Dictionary } from '../dictionary.js';
 import { getContextSentenceAtPoint } from './reading-word-context.mjs';
+import { bindSentenceLongPress } from './sentence-long-press.mjs';
 
 export { getContextSentenceAtPoint } from './reading-word-context.mjs';
 
 const LOOKUP_CONTROL_SELECTOR = 'button, a, input, textarea, select, [role="button"]';
-const LOOKUP_DISABLED_SELECTOR = '[data-word-lookup="disabled"], [data-selection-source="option_translations"], [data-selection-source="option_analysis"]';
+const LOOKUP_DISABLED_SELECTOR = 'code, pre, [data-word-lookup="disabled"], [data-selection-source="option_translations"], [data-selection-source="option_analysis"]';
 
 function pointForEvent(event, target) {
   const rect = target?.getBoundingClientRect?.();
@@ -29,9 +30,17 @@ function normalizeSentence(value) {
  * Callers own persistence and selection actions; this binding only owns the
  * shared tooltip lifecycle and dictionary/context lookup.
  */
-export function bindReadingStyleWordLookup({
+export function bindLearningTextLookup({
   root,
   surface = 'reading',
+  clickScopeSelector = '[data-learning-text="click"]',
+  longPressScopeSelector = '[data-learning-text="longpress"]',
+  longPressDuration = 450,
+  longPressMovementThreshold = 12,
+  tooltipDensity = 'compact',
+  closeBeforeLookup = true,
+  setTimer = globalThis.setTimeout,
+  clearTimer = globalThis.clearTimeout,
   dictionary = Dictionary,
   tooltip: tooltipOverride = null,
   getContextSentence = event => getContextSentenceAtPoint(event, root),
@@ -46,13 +55,31 @@ export function bindReadingStyleWordLookup({
   lookupContext = {}
 } = {}) {
   const tooltipApi = tooltipOverride && typeof tooltipOverride.beginLookup === 'function' ? tooltipOverride : Tooltip;
-  const tooltip = tooltipOverride && typeof tooltipOverride.contains === 'function'
+  let tooltip = tooltipOverride && typeof tooltipOverride.contains === 'function'
     ? tooltipOverride
     : document.getElementById('wordTooltip');
-  if (!root || !tooltip) return () => {};
+  if (!root) return () => {};
+  let ownsTooltip = false;
+  if (!tooltip && document.createElement && root.appendChild) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'wordTooltip';
+    tooltip.className = 'word-tooltip';
+    tooltip.style.display = 'none';
+    root.appendChild(tooltip);
+    ownsTooltip = true;
+  }
+  if (!tooltip) return () => {};
 
   let disposed = false;
+  let suppressedClickTarget = null;
+  let suppressionTimer = null;
   const isolatedSurface = surface === 'guide' || surface === 'isolated';
+
+  const clearClickSuppression = () => {
+    if (suppressionTimer != null) clearTimer(suppressionTimer);
+    suppressionTimer = null;
+    suppressedClickTarget = null;
+  };
 
   const hide = () => {
     tooltipApi.hide();
@@ -64,7 +91,7 @@ export function bindReadingStyleWordLookup({
     hide();
   };
 
-  const lookupWord = async event => {
+  const lookupWord = async (event, { mode = 'click', allowControl = false } = {}) => {
     if (disposed) return;
     if (!isEnabled()) return hide();
     if (shouldIgnoreClick(event)) {
@@ -76,17 +103,21 @@ export function bindReadingStyleWordLookup({
     const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
     if (!target || !root.contains(target)) return;
     const tokenTarget = target.dataset?.wordLookupToken ? target : target.closest?.('[data-word-lookup-token]');
-    if (isolatedSurface && !tokenTarget) return;
-    if ((!tokenTarget && target.closest?.(LOOKUP_CONTROL_SELECTOR)) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
+    const learningTextTarget = mode === 'click' && clickScopeSelector
+      ? target.closest?.(clickScopeSelector || '[data-learning-text="click"]')
+      : null;
+    if (mode === 'click' && clickScopeSelector && !learningTextTarget) return;
+    if (mode === 'click' && isolatedSurface && !tokenTarget) return;
+    if ((!allowControl && !tokenTarget && target.closest?.(LOOKUP_CONTROL_SELECTOR)) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return;
 
     const selection = window.getSelection?.();
-    if (event.type !== 'keydown' && selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
+    if (mode === 'click' && event.type !== 'keydown' && selection && !selection.isCollapsed && root.contains(selection.anchorNode)) return;
 
     // Match reading behavior: the first body click closes the current card.
     if (tooltipApi.isVisible()) {
       event.stopPropagation?.();
       hide();
-      return;
+      if (mode === 'click' && closeBeforeLookup) return;
     }
 
     const word = String(tokenTarget?.dataset?.wordLookupToken || tooltipApi.getWordAtPoint?.(event) || '').trim();
@@ -107,6 +138,7 @@ export function bindReadingStyleWordLookup({
         ? await lookupContext({ event, word, data, surface })
         : lookupContext || {};
       const tooltipOptions = {
+        density: tooltipDensity,
         contextSentence,
         targetTrack,
         lookupContext: resolvedLookupContext,
@@ -167,7 +199,11 @@ export function bindReadingStyleWordLookup({
       })).catch(() => {});
     } catch {
       if (!disposed && tooltipApi.isCurrent(lookupId)) {
-        tooltipApi.showError(lookupId, x, y, '暂时无法查询，请稍后重试');
+        tooltipApi.showError(lookupId, x, y, '暂时无法查询，请稍后重试', () => {
+          if (disposed || !tooltipApi.isCurrent(lookupId)) return false;
+          tooltipApi.hide();
+          return lookupWord(event, { mode, allowControl });
+        });
       }
     }
   };
@@ -180,17 +216,76 @@ export function bindReadingStyleWordLookup({
     void lookupWord(event);
   };
 
-  root.addEventListener('click', lookupWord);
+  const suppressLongPressClick = event => {
+    if (!suppressedClickTarget) return false;
+    const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
+    const belongsToLongPress = target && (
+      target === suppressedClickTarget
+      || suppressedClickTarget.contains?.(target)
+      || target.closest?.(longPressScopeSelector) === suppressedClickTarget
+    );
+    if (!belongsToLongPress) return false;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
+    event.stopPropagation?.();
+    clearClickSuppression();
+    return true;
+  };
+
+  const clickHandler = event => {
+    if (suppressLongPressClick(event)) return;
+    return lookupWord(event);
+  };
+
+  const longPressCleanup = longPressScopeSelector
+    ? bindSentenceLongPress({
+      root,
+      duration: longPressDuration,
+      movementThreshold: longPressMovementThreshold,
+      preventNativeTextSelection: true,
+      setTimer,
+      clearTimer,
+      shouldIgnore: event => {
+        const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
+        if (!target || !root.contains(target) || target.closest?.(LOOKUP_DISABLED_SELECTOR)) return true;
+        return !target.closest?.(longPressScopeSelector);
+      },
+      onLongPress: event => {
+        const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
+        const scope = target?.closest?.(longPressScopeSelector);
+        if (!scope) return;
+        clearClickSuppression();
+        suppressedClickTarget = scope;
+        suppressionTimer = setTimer(clearClickSuppression, 800);
+        void lookupWord(event, { mode: 'longpress', allowControl: true });
+      }
+    })
+    : () => {};
+
+  const clickCapture = Boolean(longPressScopeSelector);
+  root.addEventListener('click', clickHandler, clickCapture);
   root.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', globalClickHandler);
   const autoDismissCleanup = tooltipApi.attachAutoDismiss?.() || (() => {});
 
   return () => {
     disposed = true;
-    root.removeEventListener('click', lookupWord);
+    clearClickSuppression();
+    longPressCleanup();
+    root.removeEventListener('click', clickHandler, clickCapture);
     root.removeEventListener('keydown', keydownHandler);
     document.removeEventListener('click', globalClickHandler);
     autoDismissCleanup?.();
     tooltipApi.hide();
+    if (ownsTooltip) tooltip.remove?.();
   };
+}
+
+export function bindReadingStyleWordLookup(options = {}) {
+  return bindLearningTextLookup({
+    clickScopeSelector: '',
+    longPressScopeSelector: '',
+    tooltipDensity: 'full',
+    ...options
+  });
 }

@@ -42,15 +42,15 @@
 
 ## 安装使用
 
-### 下载 APK
-1. 从 [Releases](https://github.com/ww-reasure/english-reader-app/releases) 下载最新 APK
+### 使用内部构建
+1. 从私有仓库或内部交付渠道获取 QA APK
 2. 在 Android 手机上安装
 3. 首次打开输入 DeepSeek API Key
 
 ### 源码运行
 ```bash
-git clone https://github.com/ww-reasure/english-reader-app.git
-cd english-reader-app
+git clone https://github.com/ww-reasure/english-reader-private.git
+cd english-reader-private
 npm install
 npx vite build          # 构建到 www/
 npx cap sync android    # 同步到 Android
@@ -118,7 +118,10 @@ cd android && ./gradlew assembleDebug  # 构建 APK
 
 ## License
 
-[MIT License](LICENSE)
+本项目为私有专有软件，不采用 MIT、Apache、GPL 等开源许可证。除获得版权所有者书面授权外，
+不得复制、修改、分发或将本项目用于其他项目。完整条款见 [LICENSE](LICENSE)。
+
+第三方依赖、字体、词典数据和外部数据源仍受其各自许可证和署名要求约束。
 
 ## 致谢
 

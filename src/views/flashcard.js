@@ -22,6 +22,7 @@ import { ChatView } from './chat.js';
 import { Examples } from '../examples.js';
 import { Affixes } from '../affixes.js';
 import { Tooltip } from '../components/tooltip.js';
+import { bindLearningTextLookup } from '../components/reading-word-lookup.js';
 import { AudioCache } from '../audio-cache.js';
 import { ExamCorpus } from '../exam-corpus-runtime.mjs';
 import { normalizeTargetWords } from '../components/article-generation-tool.js';
@@ -1106,57 +1107,18 @@ export const FlashcardView = {
   bindExampleWordLookup() {
     const root = this.container?.querySelector('.flashcard-study-panel');
     if (!root) return;
-
-    this._exampleLookupRoot = root;
-    this._exampleLookupHandler = async (e) => {
-      const target = e.target instanceof Element ? e.target : null;
-      if (!target || target.closest('.example-translate-btn')) return;
-      const wordTarget = target.closest('[data-word-study-word]');
-      const sentence = target.closest('.flashcard-example-item p[data-example-text]');
-      if (!sentence) return;
-
-      const word = String(wordTarget?.dataset.wordStudyWord || Tooltip.getWordAtPoint(e) || '').trim();
-      if (!word) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-      Tooltip.hide();
-      const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
-      try {
-        const data = await Dictionary.lookup(word);
-        await Tooltip.show(lookupId, e.clientX, e.clientY, data, false, {
-          targetTrack: Config.get('exam_level') || '',
-          contextSentence: sentence.textContent || ''
-        });
-      } catch {
-        if (Tooltip.isCurrent(lookupId)) Tooltip.showError(lookupId, e.clientX, e.clientY);
-      }
-    };
-    root.addEventListener('click', this._exampleLookupHandler);
-
-    this._exampleLookupGlobalHandler = (e) => {
-      const tooltip = document.getElementById('wordTooltip');
-      if (!tooltip || tooltip.style.display === 'none' || tooltip.contains(e.target)) return;
-      Tooltip.hide();
-    };
-    document.addEventListener('click', this._exampleLookupGlobalHandler);
-    this._exampleTooltipDismissCleanup = Tooltip.attachAutoDismiss();
+    this._exampleWordLookupCleanup = bindLearningTextLookup({
+      root,
+      closeBeforeLookup: false,
+      getContextSentence: event => event.target?.closest?.('[data-example-text]')?.textContent || '',
+      getTargetTrack: () => Config.get('exam_level') || '',
+      lookupContext: { source: 'flashcard-study' }
+    });
   },
 
   cleanupExampleWordLookup() {
-    if (this._exampleLookupRoot && this._exampleLookupHandler) {
-      this._exampleLookupRoot.removeEventListener('click', this._exampleLookupHandler);
-    }
-    if (this._exampleLookupGlobalHandler) {
-      document.removeEventListener('click', this._exampleLookupGlobalHandler);
-    }
-    if (this._exampleTooltipDismissCleanup) {
-      this._exampleTooltipDismissCleanup();
-    }
-    this._exampleLookupRoot = null;
-    this._exampleLookupHandler = null;
-    this._exampleLookupGlobalHandler = null;
-    this._exampleTooltipDismissCleanup = null;
+    this._exampleWordLookupCleanup?.();
+    this._exampleWordLookupCleanup = null;
     Tooltip.hide();
   },
 

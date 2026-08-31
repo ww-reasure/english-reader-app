@@ -20,7 +20,7 @@ test('reading keeps the article header above the content and exposes an AI panel
   assert.doesNotMatch(source, /class="reading-study-pane" data-reading-pane="study"/);
 });
 
-test('AI analysis has responsive side-overlay and fixed composer surfaces', async () => {
+test('AI analysis keeps header, scrolling body and composer in separate grid rows', async () => {
   const [source, css] = await Promise.all([
     read('../src/components/ai-analysis.js'),
     read('../css/style.css')
@@ -28,10 +28,15 @@ test('AI analysis has responsive side-overlay and fixed composer surfaces', asyn
 
   assert.match(source, /side-overlay/);
   assert.match(source, /ai-result-body/);
-  assert.match(source, /ai-result-footer/);
+  assert.doesNotMatch(source, /ai-result-footer/);
   assert.match(css, /\.ai-result-overlay--side/);
   assert.match(css, /\.ai-result-overlay--side \.modal\s*\{[^}]*width:clamp\(320px,42vw,430px\)/s);
-  assert.match(css, /\.ai-followup-composer\s*\{[^}]*position:sticky/s);
+  assert.match(css, /\.ai-result-modal::before\s*\{[^}]*display:none/s);
+  assert.match(css, /\.ai-result-modal\s*\{[^}]*grid-template-rows:auto minmax\(0,1fr\) auto/s);
+  assert.match(css, /\.ai-result-head\s*\{[^}]*grid-row:1[^}]*position:relative[^}]*background:var\(--surface\)/s);
+  assert.match(css, /\.ai-result-body\s*\{[^}]*grid-row:2[^}]*overflow-y:auto/s);
+  assert.match(css, /\.ai-followup-composer\s*\{[^}]*grid-row:3[^}]*position:relative/s);
+  assert.doesNotMatch(css, /\.ai-followup-composer\s*\{[^}]*position:sticky/s);
 });
 
 test('tablet article grids stretch cards so bottom rules align by row', async () => {

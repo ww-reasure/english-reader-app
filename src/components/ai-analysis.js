@@ -5,7 +5,7 @@
 
 import { Tooltip } from './tooltip.js';
 import { API } from '../api.js';
-import { Dictionary } from '../dictionary.js';
+import { bindLearningTextLookup } from './reading-word-lookup.js';
 import { esc, debounce } from '../helpers.js';
 import { SentenceAnalysisCache } from './sentence-analysis-cache.js';
 import { Config } from '../config.js';
@@ -46,6 +46,7 @@ export const AIAnalysis = {
   _detailSelectionModal: null,
   _followUpController: null,
   _messageCopyCleanup: null,
+  _wordLookupCleanup: null,
 
   setArticleContext(article, paragraph = '') {
     this.articleContext = {
@@ -94,6 +95,8 @@ export const AIAnalysis = {
   },
 
   _removeResultModal() {
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = null;
     this._messageCopyCleanup?.();
     this._messageCopyCleanup = null;
     this.clearDetailSelection();
@@ -201,10 +204,10 @@ export const AIAnalysis = {
         <button id="aiResultClose" class="btn-icon" type="button" aria-label="关闭 AI 分析">×</button>
       </div>
       <div class="ai-result-body">
-        <div class="ai-original-sentence ai-lookup-sentence" title="轻点英文单词查看释义">${esc(sentence)}</div>
+        <div class="ai-original-sentence ai-lookup-sentence" data-learning-text="click" title="轻点英文单词查看释义">${esc(sentence)}</div>
         <p class="ai-lookup-hint">轻点上面的英文单词可查看释义</p>
         <div class="ai-analysis-copyable" ${isLoading ? '' : 'data-copyable="true"'}>
-          <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}" ${isLoading ? '' : 'data-copy-content data-chat-selectable="true"'}>
+          <div class="${isLoading ? 'ai-loading' : 'ai-result-content'}" data-learning-text="click" ${isLoading ? '' : 'data-copy-content data-chat-selectable="true"'}>
             ${isLoading ? '正在分析，请稍候...' : this.formatResult(content)}
           </div>
         </div>
@@ -224,8 +227,7 @@ export const AIAnalysis = {
       <div id="aiFollowupComposer" class="ai-followup-composer" hidden>
         <textarea id="aiFollowupInput" rows="2" placeholder="继续问这句话的语法、词义或表达…" aria-label="继续追问"></textarea>
         <button id="aiFollowupSend" class="btn btn-primary btn-sm" type="button">发送</button>
-      </div>` : ''}
-      <div class="modal-actions ai-result-footer" aria-hidden="true"></div>`;
+      </div>` : ''}`;
 
     overlay.appendChild(modal);
     const host = isSideSurface ? document.querySelector?.('[data-reading-ai-panel="side"]') : null;
@@ -246,32 +248,12 @@ export const AIAnalysis = {
 
   // Reuse the reading-page dictionary card inside the analysis modal.
   bindWordLookup(modal) {
-    const lookupTargets = modal.querySelectorAll('.ai-lookup-sentence, .ai-result-content');
-    lookupTargets.forEach(target => {
-      target.addEventListener('click', async (e) => {
-        // A native text selection is an intentional follow-up action, never a word lookup.
-        if (this.getSelectedDetailExcerpt(modal)) {
-          e.stopPropagation();
-          return;
-        }
-        if (Tooltip.isVisible()) {
-          e.stopPropagation();
-          Tooltip.hide();
-          return;
-        }
-
-        const word = Tooltip.getWordAtPoint(e);
-        if (!word) return;
-
-        e.stopPropagation();
-        const lookupId = Tooltip.beginLookup(e.clientX, e.clientY);
-        try {
-          const data = await Dictionary.lookup(word);
-          await Tooltip.show(lookupId, e.clientX, e.clientY, data);
-        } catch {
-          if (Tooltip.isCurrent(lookupId)) Tooltip.hide();
-        }
-      });
+    this._wordLookupCleanup?.();
+    this._wordLookupCleanup = bindLearningTextLookup({
+      root: modal,
+      getContextSentence: event => event.target?.closest?.('.ai-original-sentence, .ai-result-content, .ai-followup-bubble')?.textContent || '',
+      shouldIgnoreClick: () => Boolean(this.getSelectedDetailExcerpt(modal)),
+      lookupContext: { source: 'ai-analysis' }
     });
   },
 
@@ -454,6 +436,7 @@ export const AIAnalysis = {
     if (!container) return;
     const bubble = document.createElement('div');
     bubble.className = 'ai-followup-bubble ' + (role === 'user' ? 'user-message' : 'ai-message') + (isThinking ? ' ai-followup-thinking' : '');
+    bubble.setAttribute(role === 'assistant' ? 'data-learning-text' : 'data-word-lookup', role === 'assistant' ? 'click' : 'disabled');
     if (role === 'assistant' && !isThinking) bubble.innerHTML = renderLearningMarkdown(content);
     else bubble.textContent = content;
     container.appendChild(bubble);

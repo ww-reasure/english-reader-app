@@ -6,8 +6,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite --mode private-qa",
-    "build": "vite build --mode public && node scripts/release-artifact.mjs --dir www --flavor public && npx cap sync android",
-    "build:private-qa": "vite build --mode private-qa && node scripts/release-artifact.mjs --dir www --flavor private-qa && npx cap sync android",
+    "build": "vite build --mode public && npx cap sync android",
+    "build:private-qa": "vite build --mode private-qa && npx cap sync android",
     "build:apk": "npm run build:private-qa && node scripts/build-apk.js --flavor private-qa",
     "lexicon:fetch": "node scripts/fetch-lexicon-sources.mjs",
     "lexicon:build": "node scripts/build-lexicon.mjs",
@@ -16,7 +16,6 @@
     "exam-focus:verify": "node scripts/build-exam-focus.mjs",
     "exam-corpus:build": "node scripts/build-exam-corpus.mjs",
     "exam-corpus:verify": "node scripts/build-exam-corpus.mjs",
-    "exam-pack:build": "node scripts/build-exam-practice-pack.mjs",
     "oewn:fetch": "node scripts/fetch-oewn-source.mjs",
     "oewn:build": "node scripts/build-oewn-artifact.mjs",
     "oewn:verify": "npm run oewn:fetch && npm run oewn:build",
