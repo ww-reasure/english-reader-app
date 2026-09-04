@@ -24,7 +24,8 @@ import { getDefinitionSenses, getSavableTranslation } from '../components/defini
 import { DEFINITION_SCHEMA_VERSION } from '../components/saved-word-definition.mjs';
 import { SentenceGuide } from '../components/sentence-guide.js';
 import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
-import { buildExactWordFormIndex, renderExactWordMarking } from '../components/word-marking.mjs';
+import { buildExactWordFormIndex, renderExactWordMarking, renderPhraseAwareMarking, matchKeyPhraseAt } from '../components/word-marking.mjs';
+import { KeyPhraseLibrary } from '../key-phrase-library.mjs';
 import { bindLearningTextLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
 import { splitSentences } from '../components/sentence-selection.mjs';
@@ -61,6 +62,8 @@ export const ReadingView = {
   reviewWordFormIndex: new Map(),
   wordMarkingSession: 0,
   wordMarkingEnabled: false,
+  phraseHighlightingEnabled: false,
+  keyPhraseMatcher: null,
   englishParagraphs: [],
   paragraphTranslations: [], // 按英文段落索引对齐，允许书架文章乱序按段翻译
   guideSentences: [],
@@ -125,19 +128,72 @@ export const ReadingView = {
   _renderGuideSource(sentence) {
     const source = String(sentence || '');
     const tokenPattern = /[A-Za-z]+(?:['’\-][A-Za-z]+)*/gu;
+    const matches = [...source.matchAll(tokenPattern)];
+    const matcher = this.phraseHighlightingEnabled ? this.keyPhraseMatcher : null;
     let cursor = 0;
     let html = '';
-    for (const match of source.matchAll(tokenPattern)) {
-      const token = match[0];
+    for (let index = 0; index < matches.length; index += 1) {
+      const match = matches[index];
       const start = match.index ?? cursor;
       html += esc(source.slice(cursor, start));
-      html += `<span class="sentence-guide-word" data-word-lookup-token="${escAttr(token)}" role="button" tabindex="0" title="点击查词">${esc(token)}</span>`;
-      cursor = start + token.length;
+      const hit = matcher ? matchKeyPhraseAt(matcher, matches, index, source) : null;
+      if (hit) {
+        const last = matches[index + hit.tokenCount - 1];
+        const end = last.index + last[0].length;
+        let inner = '';
+        let innerCursor = start;
+        for (let step = 0; step < hit.tokenCount; step += 1) {
+          const tokenMatch = matches[index + step];
+          inner += esc(source.slice(innerCursor, tokenMatch.index));
+          inner += `<span class="sentence-guide-word" data-word-lookup-token="${escAttr(tokenMatch[0])}" role="button" tabindex="0" title="点击查词">${esc(tokenMatch[0])}</span>`;
+          innerCursor = tokenMatch.index + tokenMatch[0].length;
+        }
+        const gloss = hit.entry?.glossZh || '';
+        html += `<span class="key-phrase" data-key-phrase-id="${escAttr(hit.id)}"${gloss ? ` title="${escAttr(gloss)}"` : ''}>${inner}</span>`;
+        cursor = end;
+        index += hit.tokenCount - 1;
+        continue;
+      }
+      html += `<span class="sentence-guide-word" data-word-lookup-token="${escAttr(match[0])}" role="button" tabindex="0" title="点击查词">${esc(match[0])}</span>`;
+      cursor = start + match[0].length;
     }
     return html + esc(source.slice(cursor));
   },
 
   _renderMarkedText(text) {
+    if (this.phraseHighlightingEnabled && this.keyPhraseMatcher) {
+      if (this.reviewMode) {
+        return renderPhraseAwareMarking(text, this.keyPhraseMatcher, {
+          wordIndex: this.reviewWordFormIndex,
+          className: word => {
+            const stem = word?.stem || getStemForm(word?.word || '');
+            const wordData = this.reviewWordsMap.get(stem);
+            const status = SpacedRepetition.getStatus(wordData);
+            return status === 'new' ? 'review-word review-new' : 'review-word review-learning';
+          },
+          isActive: word => {
+            const stem = word?.stem || getStemForm(word?.word || '');
+            const wordData = this.reviewWordsMap.get(stem);
+            if (!wordData) return false;
+            return SpacedRepetition.getStatus(wordData) !== 'stable';
+          }
+        });
+      }
+      if (this.wordMarkingEnabled) {
+        return renderPhraseAwareMarking(text, this.keyPhraseMatcher, {
+          wordIndex: this.learningWordFormIndex,
+          className: 'learning-word',
+          isActive: word => {
+            const stem = word?.stem || getStemForm(word?.word || '');
+            const wordData = this.learningWordsMap.get(stem);
+            if (!wordData) return false;
+            const status = SpacedRepetition.getStatus(wordData);
+            return status === 'new' || status === 'learning';
+          }
+        });
+      }
+      return renderPhraseAwareMarking(text, this.keyPhraseMatcher, {});
+    }
     if (this.reviewMode) return this._highlightReviewWords(text);
     if (this.wordMarkingEnabled) return this._highlightLearningWords(text);
     return esc(text);
@@ -424,7 +480,27 @@ export const ReadingView = {
       }
     })();
 
-    await Promise.allSettled([progressTask, vocabularyTask]);
+    const phraseTask = (async () => {
+      if (!this.phraseHighlightingEnabled) return;
+      try {
+        const matcher = await KeyPhraseLibrary.getMatcher({
+          targetTrack: resolveArticleTrack(article).targetTrack
+        });
+        if (!isCurrent() || !this.phraseHighlightingEnabled) return;
+        this.keyPhraseMatcher = matcher;
+        this._rerenderEnglishParagraphs();
+        this._applyPhraseMarkingToTitle(article);
+      } catch (error) {
+        // 词组包加载失败只降级为不高亮，不影响正文阅读。
+        diagnosticLogger()?.record('reading.key_phrase_load_failed', {
+          category: 'reading',
+          level: 'warn',
+          payload: { articleId: article.id, message: String(error?.message || error) }
+        });
+      }
+    })();
+
+    await Promise.allSettled([progressTask, vocabularyTask, phraseTask]);
     if (!isCurrent()) return;
     AudioCache.preloadWords(article.content).catch(() => {});
     diagnosticLogger()?.record('reading.enhancements_ready', {
@@ -711,6 +787,10 @@ export const ReadingView = {
                 <span class="reading-action-item-main"><i class="fa-solid fa-highlighter" aria-hidden="true"></i><span>词汇标记</span></span>
                 <span class="reading-action-state">复习模式 · 已开启</span>
               </div>`}
+            <button class="reading-action-item" type="button" id="phraseHighlightBtn" onclick="ReadingView.togglePhraseHighlighting()" role="switch" aria-checked="${this.phraseHighlightingEnabled}" aria-label="重点词组：${this.phraseHighlightingEnabled ? '开' : '关'}">
+              <span class="reading-action-item-main"><i class="fa-solid fa-tags" aria-hidden="true"></i><span>重点词组</span></span>
+              <span class="reading-action-state">${this.phraseHighlightingEnabled ? '开启' : '关闭'}</span>
+            </button>
             <button class="reading-action-item" type="button" id="exportPdfBtn" onclick="ReadingView.exportArticlePdf()">
               <span class="reading-action-item-main"><i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i><span>导出 PDF</span></span>
               <span class="reading-action-state">就绪</span>
@@ -795,12 +875,26 @@ export const ReadingView = {
     }
   },
 
+  _renderTitleText(article) {
+    const title = String(article?.title || '文章');
+    if (this.phraseHighlightingEnabled && this.keyPhraseMatcher) {
+      return renderPhraseAwareMarking(title, this.keyPhraseMatcher, {});
+    }
+    return esc(title);
+  },
+
+  _applyPhraseMarkingToTitle(article) {
+    if (!this.phraseHighlightingEnabled || !this.keyPhraseMatcher) return;
+    const titleNode = this.container?.querySelector?.('#readingTitleLookup .reading-title');
+    if (titleNode) titleNode.innerHTML = this._renderTitleText(article);
+  },
+
   _renderArticleTitle(article) {
     const titleZh = String(article.titleZh || '').trim();
     return `
       <div class="reading-title-row">
         <div id="readingTitleLookup" class="reading-title-lookup">
-          <h1 class="reading-title" data-learning-text="click" title="点击标题中的英文单词查释义">${esc(article.title || '文章')}</h1>
+          <h1 class="reading-title" data-learning-text="click" title="点击标题中的英文单词查释义">${this._renderTitleText(article)}</h1>
           ${titleZh ? `<div class="reading-title-translation">
             <button type="button" class="btn-paragraph-translate reading-title-translate" aria-expanded="false" onclick="ReadingView.toggleTitleTranslation(this)">译</button>
             <p class="zh-paragraph reading-title-zh" data-word-lookup="disabled" style="display:none">${esc(titleZh)}</p>
@@ -939,6 +1033,7 @@ export const ReadingView = {
     this.learningWordFormIndex = new Map();
     this.reviewWordFormIndex = new Map();
     this.wordMarkingEnabled = Config.get('reading_word_marking') === 'true';
+    this.phraseHighlightingEnabled = Config.get('reading_phrase_highlighting') === 'true';
     this.englishParagraphs = [];
     this.guideSentences = [];
     this.guideVisited = new Set();
@@ -1196,6 +1291,9 @@ export const ReadingView = {
         AIAnalysis.ignoreNextArticleClick = false;
         return true;
       },
+      resolveKeyPhrase: phraseId => KeyPhraseLibrary.getPhraseById(phraseId, {
+        targetTrack: articleTrack.targetTrack
+      }),
       onHide: () => AIAnalysis.hideButton(),
       lookupContext: () => this._readingLookupContext('reading'),
       onLookupResolved: payload => this._recordReadingLookupActivity(payload),
@@ -1346,6 +1444,9 @@ export const ReadingView = {
         surface: 'guide',
         getContextSentence: () => current.sentence,
         getTargetTrack: () => resolveArticleTrack(this.articleData || {}).targetTrack,
+        resolveKeyPhrase: phraseId => KeyPhraseLibrary.getPhraseById(phraseId, {
+          targetTrack: resolveArticleTrack(this.articleData || {}).targetTrack
+        }),
         isReviewWord: word => this.reviewMode && this.reviewWordsMap.has(getStemForm(word.toLowerCase())),
         onHide: () => AIAnalysis.hideButton(),
         lookupContext: () => this._readingLookupContext('reading-guide'),
@@ -1425,6 +1526,43 @@ export const ReadingView = {
       button.setAttribute('aria-label', `词汇标记：${this.wordMarkingEnabled ? '开' : '关'}`);
       const state = button.querySelector('.reading-action-state');
       if (state) state.textContent = this.wordMarkingEnabled ? '开启' : '关闭';
+    }
+  },
+
+  async togglePhraseHighlighting() {
+    this.phraseHighlightingEnabled = !this.phraseHighlightingEnabled;
+    Config.set('reading_phrase_highlighting', this.phraseHighlightingEnabled ? 'true' : 'false');
+    const button = document.getElementById('phraseHighlightBtn');
+    if (button) button.setAttribute('aria-busy', 'true');
+    if (this.phraseHighlightingEnabled && !this.keyPhraseMatcher) {
+      try {
+        this.keyPhraseMatcher = await KeyPhraseLibrary.getMatcher({
+          targetTrack: resolveArticleTrack(this.articleData || {}).targetTrack
+        });
+      } catch (error) {
+        // 包缺失/网络失败时保持不高亮，开关状态本身照常切换。
+        diagnosticLogger()?.record('reading.key_phrase_load_failed', {
+          category: 'reading',
+          level: 'warn',
+          payload: { message: String(error?.message || error) }
+        });
+      }
+    }
+    if (!this.phraseHighlightingEnabled) this.keyPhraseMatcher = null;
+    this._rerenderEnglishParagraphs();
+    this._applyPhraseMarkingToTitle(this.articleData);
+    // 逐句导读弹层若开着，即时刷新当前句的词组标注（绑定是委托的，无需重绑）。
+    if (this._guideWordLookupCleanup) {
+      const current = this.guideSentences[this.guideIndex];
+      const sourceHost = document.querySelector('#sentenceGuideModal .sentence-guide-source');
+      if (current && sourceHost) sourceHost.innerHTML = this._renderGuideSource(current.sentence);
+    }
+    if (button) {
+      button.removeAttribute('aria-busy');
+      button.setAttribute('aria-checked', String(this.phraseHighlightingEnabled));
+      button.setAttribute('aria-label', `重点词组：${this.phraseHighlightingEnabled ? '开' : '关'}`);
+      const state = button.querySelector('.reading-action-state');
+      if (state) state.textContent = this.phraseHighlightingEnabled ? '开启' : '关闭';
     }
   },
 

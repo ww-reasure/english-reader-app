@@ -14,6 +14,7 @@ export const CONFIG_STORAGE_KEYS = [
   'new_word_percent',
   'reading_mode',
   'reading_word_marking',
+  'reading_phrase_highlighting',
   'home_learning_response_mode',
   'target_track_selection_required',
   'calibration_status',

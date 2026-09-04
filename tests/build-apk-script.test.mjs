@@ -13,8 +13,9 @@ test('Android build script selects the platform Gradle wrapper from the android 
   assert.deepEqual(getGradleCommand('linux'), { command: './gradlew', args: ['assembleDebug'] });
   assert.match(getAndroidProjectDirectory(), /android$/);
   assert.equal(packageJson.scripts.dev, 'vite --mode private-qa');
-  assert.equal(packageJson.scripts.build, 'vite build --mode public && node scripts/release-artifact.mjs --dir www --flavor public && npx cap sync android');
-  assert.equal(packageJson.scripts['build:private-qa'], 'vite build --mode private-qa && node scripts/release-artifact.mjs --dir www --flavor private-qa && npx cap sync android');
+  // main 线无真题发布管线：构建链不含 release-artifact.mjs（scripts 已随真题剥离移除）。
+  assert.equal(packageJson.scripts.build, 'vite build --mode public && npx cap sync android');
+  assert.equal(packageJson.scripts['build:private-qa'], 'vite build --mode private-qa && npx cap sync android');
   assert.equal(packageJson.scripts['build:apk'], 'npm run build:private-qa && node scripts/build-apk.js --flavor private-qa');
 });
 

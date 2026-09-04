@@ -48,6 +48,7 @@ export function bindLearningTextLookup({
   isReviewWord = () => false,
   shouldIgnoreClick = () => false,
   isEnabled = () => true,
+  resolveKeyPhrase = null,
   onHide = () => {},
   onShown = () => {},
   onLookupResolved = null,
@@ -118,6 +119,31 @@ export function bindLearningTextLookup({
       event.stopPropagation?.();
       hide();
       if (mode === 'click' && closeBeforeLookup) return;
+    }
+
+    // 词组卡优先：命中重点词组时展示词组释义，而不是单词查词。
+    if (typeof resolveKeyPhrase === 'function') {
+      const phraseTarget = target.closest?.('[data-key-phrase-id]');
+      const phraseId = String(phraseTarget?.dataset?.keyPhraseId || '').trim();
+      if (phraseTarget && phraseId) {
+        const phraseData = await resolveKeyPhrase(phraseId);
+        if (disposed) return;
+        if (phraseData) {
+          event.stopPropagation?.();
+          onHide();
+          const { x, y } = pointForEvent(event, phraseTarget);
+          const phraseLookupId = tooltipApi.beginLookup(x, y);
+          if (typeof tooltipApi.showPhrase === 'function') {
+            tooltipApi.showPhrase(phraseLookupId, x, y, {
+              phrase: phraseData.phrase || phraseId,
+              glossZh: phraseData.glossZh || phraseData.g || ''
+            });
+          } else {
+            tooltipApi.hide();
+          }
+          return;
+        }
+      }
     }
 
     const word = String(tokenTarget?.dataset?.wordLookupToken || tooltipApi.getWordAtPoint?.(event) || '').trim();
@@ -210,7 +236,8 @@ export function bindLearningTextLookup({
 
   const keydownHandler = event => {
     if (!['Enter', ' '].includes(event.key)) return;
-    const target = event.target?.closest?.('[data-word-lookup-token]');
+    const phraseTarget = event.target?.closest?.('[data-key-phrase-id]');
+    const target = phraseTarget || event.target?.closest?.('[data-word-lookup-token]');
     if (!target || !root.contains(target)) return;
     event.preventDefault?.();
     void lookupWord(event);

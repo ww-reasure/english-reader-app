@@ -34,6 +34,15 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 - 真题残留：`src/`、`tests/` 中无 `views/exam-*`、`src/exam/*`、`exam-packs`、`exam-practice`、`exam-tutor`、`translation-tutor`、`private-pack` 引用；`css/style.css` 中遗留少量无 DOM 命中的真题样式块（死样式，无功能影响，可在后续清理）。
 - `src/exam-corpus.mjs` / `exam-corpus-runtime.mjs` 保留 main 线旧版（单索引语料查询，供复习/词汇例句增强），并补了 `preload` 钩子。
 
+## 2026-09-03 重点词组高亮（feature: key phrases）
+
+- 功能：阅读页新增「重点词组」开关（右上角更多弹层，`role="switch"`，`reading_phrase_highlighting` 持久化，默认开）。开启后文章标题、正文段落、逐句导读英文原句中的词组以 moss 绿色块高亮；点击词组弹词组释义卡（Tooltip.showPhrase），非词组词仍走单词查词。
+- 数据：`public/data/key-phrases/`（manifest + 按 track 分片，schemaVersion/packVersion 校验）。词组资料尚未导入——资料到位后运行 `node scripts/build-key-phrases.mjs --input <资料文件> [--track general|cet4|cet6|kaoyan]` 生成，支持 TXT(TAB/| 分隔)/CSV/JSON，同 track 重复导入按规范化词组合并。**当前包不存在，开关开启时静默降级为不高亮。**
+- 实现：`src/components/word-marking.mjs` 新增词组最长匹配层（规范化 + 常规屈折折叠 + 连接符约束，`renderPhraseAwareMarking`/`matchKeyPhraseAt`/`buildKeyPhraseMatcherIndex`，单词标记签名不变）；`src/key-phrase-library.mjs` 词组库运行时（manifest 校验、track 解析 kaoyan1/2→kaoyan、未知 track 回落 general、memoize）；`reading-word-lookup.js` 词组优先分支（keydown 同步）；reading.js 首帧后惰性加载 matcher 并重渲染（`_scheduleAfterFirstPaint` 既有模式），词组 span 嵌在 `.reading-sentence` 内部、续读定位结构不变。
+- 已知限制：不规则动词变形不折叠（dealt/went）；跨句不匹配；词组只按表面序列完整匹配。
+- 顺手修正：`tests/build-apk-script.test.mjs` 的构建链断言仍是合并前旧值（上次合并验证时序缺口），已同步为无 release-artifact 的新链。
+- 验证：`node --test tests/*.test.mjs` 1265/1265 通过（新增 24 项）；`npm run build` 通过。版本保持 1.9.5/41。
+
 ## 范围与限制
 
 - 真题训练（题包、练习、错题复习、翻译训练、真题学习概览、题包安装器与校验）按约定**不包含**；日报的 exam 事实段为恒空存根，schema 兼容。开发线 `feat/app-wide-word-lookup` 上的真题相关改动同样未带入。

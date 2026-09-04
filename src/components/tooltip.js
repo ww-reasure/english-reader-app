@@ -82,6 +82,26 @@ export const Tooltip = {
     return true;
   },
 
+  // 重点词组卡：复用单词卡的定位/关闭/自动收起，内容只有词组与释义。
+  showPhrase(lookupId, x, y, { phrase, glossZh = '' } = {}) {
+    if (!this.isCurrent(lookupId)) return false;
+    const tooltip = document.getElementById('wordTooltip');
+    tooltip.innerHTML = `<div class="tooltip-word tooltip-key-phrase" data-tooltip-density="compact">
+      <div class="tooltip-word-title">
+        <span class="key-phrase-title">${esc(phrase)}</span>
+        <span class="tooltip-word-meta" aria-label="重点词组">词组</span>
+      </div>
+      <div class="tooltip-word-controls">
+        <button class="tooltip-close" type="button" aria-label="关闭词组释义" title="关闭">×</button>
+      </div>
+    </div>
+    <div class="tooltip-translation key-phrase-gloss">${glossZh ? esc(glossZh) : '暂无释义'}</div>`;
+    this.position(tooltip, x, y);
+    tooltip.style.display = 'block';
+    this.bindCloseButton(tooltip);
+    return true;
+  },
+
   // Check if word is already in vocabulary
   async isWordSaved(word) {
     try {
