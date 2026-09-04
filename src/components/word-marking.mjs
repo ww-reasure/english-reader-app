@@ -103,6 +103,17 @@ export function renderExactWordMarking(text, index, className = 'learning-word',
 // 词组内部只允许空白和连字符类连接符，禁止跨句号等句子标点。
 const PHRASE_TOKEN_GAP_PATTERN = /^[\s'’\-,&]*$/;
 
+// 词组资料里的占位符（sth/sb/one's/A/B/do 等）：匹配任意单个词。
+// 'a'/'b' 来自 "exchange A for B" 这类模板；作为冠词/字母时宽松匹配通常也正是想要的。
+const PHRASE_WILDCARD_TOKENS = new Set([
+  'sth', 'sb', 'somebody', 'someone', 'something', 'anything', 'anyone',
+  "one's", 'ones', 'do', 'a', 'b'
+]);
+
+function phraseWildcardToken(normalized) {
+  return PHRASE_WILDCARD_TOKENS.has(normalized);
+}
+
 function normalizePhraseText(value) {
   return String(value || '')
     .replace(/[’]/gu, "'")
@@ -150,66 +161,98 @@ function foldTokenMatchKeys(token) {
 
 /**
  * phrases: [{ id?, phrase | p, glossZh? | g }]。id 缺省用规范化词组文本。
- * 返回 { byFirst: Map<首token基础形, 候选[]>, byId: Map<id, entry>, size }，
- * 候选按 token 数降序，保证最长匹配优先。
+ * 占位符 token（sth/sb/one's/a/b/do...）记为通配位。
+ * 通配开头的词组按其第一个字面 token 建桶（wildcardBySecond），避免逐位置全量扫描。
  */
 export function buildKeyPhraseMatcherIndex(phrases) {
   const byFirst = new Map();
+  const wildcardBySecond = new Map();
+  const wildcardInitialAny = [];
   const byId = new Map();
   for (const phrase of Array.isArray(phrases) ? phrases : []) {
     const text = normalizePhraseText(phrase?.phrase ?? phrase?.p);
     if (!text) continue;
     const id = normalizePhraseText(phrase?.id) || text;
     if (byId.has(id)) continue;
-    const tokens = (text.match(TOKEN_PATTERN) || [])
-      .map(token => stripPossessive(normalizeSurface(token)))
-      .filter(Boolean);
-    if (!tokens.length) continue;
+    const tokens = [];
+    for (const raw of text.match(TOKEN_PATTERN) || []) {
+      const normalized = normalizeSurface(raw).replace(/[’]/gu, "'");
+      tokens.push(phraseWildcardToken(normalized) ? null : stripPossessive(normalized));
+    }
+    if (!tokens.some(token => token !== null)) continue;
     const entry = { id, phrase: text, glossZh: String(phrase?.glossZh ?? phrase?.g ?? '') };
     const record = { id, entry, tokens };
-    const bucket = byFirst.get(tokens[0]);
-    if (bucket) bucket.push(record);
-    else byFirst.set(tokens[0], [record]);
+    if (tokens[0] === null) {
+      if (tokens.length > 1 && tokens[1] !== null) {
+        const bucket = wildcardBySecond.get(tokens[1]);
+        if (bucket) bucket.push(record);
+        else wildcardBySecond.set(tokens[1], [record]);
+      } else {
+        wildcardInitialAny.push(record);
+      }
+    } else {
+      const bucket = byFirst.get(tokens[0]);
+      if (bucket) bucket.push(record);
+      else byFirst.set(tokens[0], [record]);
+    }
     byId.set(id, entry);
   }
   for (const bucket of byFirst.values()) bucket.sort((left, right) => right.tokens.length - left.tokens.length);
-  return { byFirst, byId, size: byId.size };
+  for (const bucket of wildcardBySecond.values()) bucket.sort((left, right) => right.tokens.length - left.tokens.length);
+  wildcardInitialAny.sort((left, right) => right.tokens.length - left.tokens.length);
+  return { byFirst, wildcardBySecond, wildcardInitialAny, byId, size: byId.size };
 }
 
 /**
- * 从 matches[index] 起尝试词组匹配。返回 { id, entry, tokenCount } 或 null。
- * 相邻 token 之间的间隙只允许空白/连字符/逗号类连接符（不跨句）。
+ * 从 matches[index] 起尝试词组匹配，取 token 数最多的命中。
+ * 返回 { id, entry, tokenCount } 或 null。
+ * 相邻 token 之间的间隙只允许空白/连字符/逗号类连接符（不跨句）；
+ * 通配位匹配任意单个词。
  */
 export function matchKeyPhraseAt(matcher, matches, index, source) {
   if (!matcher || !matcher.size) return null;
   const first = matches[index];
   if (!first) return null;
-  let candidates = null;
-  for (const key of foldTokenMatchKeys(first[0])) {
-    const bucket = matcher.byFirst.get(key);
-    if (!bucket) continue;
-    candidates = candidates ? candidates.concat(bucket) : bucket.slice();
-  }
-  if (!candidates) return null;
-  candidates.sort((left, right) => right.tokens.length - left.tokens.length);
   const text = String(source || '');
-  for (const candidate of candidates) {
+  const foldCache = new Map();
+  const foldOf = offset => {
+    let keys = foldCache.get(offset);
+    if (!keys) {
+      keys = foldTokenMatchKeys(matches[offset][0]);
+      foldCache.set(offset, keys);
+    }
+    return keys;
+  };
+  let best = null;
+  const consider = candidate => {
+    if (best && best.tokenCount >= candidate.tokens.length) return;
     const lastIndex = index + candidate.tokens.length - 1;
-    if (lastIndex >= matches.length) continue;
-    let matched = true;
+    if (lastIndex >= matches.length) return;
     for (let step = 1; step < candidate.tokens.length; step += 1) {
       const previous = matches[index + step - 1];
-      const gapStart = previous.index + previous[0].length;
-      const gap = text.slice(gapStart, matches[index + step].index);
-      if (!PHRASE_TOKEN_GAP_PATTERN.test(gap)
-        || !foldTokenMatchKeys(matches[index + step][0]).has(candidate.tokens[step])) {
-        matched = false;
-        break;
-      }
+      const gap = text.slice(previous.index + previous[0].length, matches[index + step].index);
+      if (!PHRASE_TOKEN_GAP_PATTERN.test(gap)) return;
+      const expected = candidate.tokens[step];
+      if (expected === null) continue;
+      if (!foldOf(index + step).has(expected)) return;
     }
-    if (matched) return { id: candidate.id, entry: candidate.entry, tokenCount: candidate.tokens.length };
+    best = { id: candidate.id, entry: candidate.entry, tokenCount: candidate.tokens.length };
+  };
+
+  for (const key of foldOf(index)) {
+    const bucket = matcher.byFirst.get(key);
+    if (bucket) bucket.forEach(consider);
   }
-  return null;
+  // 通配开头：第二个词命中的桶 + 完全通配开头兜底。
+  const second = matches[index + 1];
+  if (second) {
+    for (const key of foldOf(index + 1)) {
+      const bucket = matcher.wildcardBySecond?.get(key);
+      if (bucket) bucket.forEach(consider);
+    }
+  }
+  (matcher.wildcardInitialAny || []).forEach(consider);
+  return best;
 }
 
 /**

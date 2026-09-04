@@ -96,3 +96,33 @@ test('curly apostrophes in the source normalize onto straight-quote phrases', ()
   // id 里的单引号按 HTML 属性转义为 &#39;
   assert.match(renderPhraseAwareMarking('the world’s future', matcher, {}), /data-key-phrase-id="world&#39;s"/);
 });
+
+test('placeholder tokens (sth/sb/do) match any single word', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'respond to sth', phrase: 'respond to sth', glossZh: '回应' }]);
+  assert.match(renderPhraseAwareMarking('respond to the question', matcher, {}), /data-key-phrase-id="respond to sth"/);
+  assert.match(renderPhraseAwareMarking('respond to it', matcher, {}), /data-key-phrase-id="respond to sth"/);
+  // 通配符只吃掉一个词，不能跨两个词
+  assert.doesNotMatch(renderPhraseAwareMarking('respond to', matcher, {}), /data-key-phrase-id/);
+});
+
+test('capture one\u2019s attention style possessive placeholders are wildcards', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: "capture one's attention", phrase: "capture one's attention", glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('capture public attention', matcher, {}), /data-key-phrase-id="capture one&#39;s attention"/);
+  assert.match(renderPhraseAwareMarking("capture one's attention", matcher, {}), /data-key-phrase-id="capture one&#39;s attention"/);
+});
+
+test('a phrase whose first token is a wildcard still matches from any position', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'a ban on sth', phrase: 'a ban on sth', glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('a ban on smoking', matcher, {}), /data-key-phrase-id="a ban on sth"/);
+  assert.match(renderPhraseAwareMarking('the ban on smoking', matcher, {}), /data-key-phrase-id="a ban on sth"/);
+});
+
+test('longest match still wins with wildcard candidates present', () => {
+  const matcher = buildKeyPhraseMatcherIndex([
+    { id: 'respond to sth', phrase: 'respond to sth', glossZh: '' },
+    { id: 'respond to', phrase: 'respond to', glossZh: '' }
+  ]);
+  const html = renderPhraseAwareMarking('respond to pressure', matcher, {});
+  assert.match(html, /data-key-phrase-id="respond to sth"/);
+  assert.doesNotMatch(html, /data-key-phrase-id="respond"/);
+});

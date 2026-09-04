@@ -61,9 +61,44 @@ function parseRow(raw) {
   return { phrase: normalized, gloss: '' };
 }
 
-function extractRows(source) {
-  const trimmed = String(source || '').trim();
-  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+function parseCsvLine(line) {
+  const fields = [];
+  let current = '';
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (inQuotes) {
+      if (char === '"' && line[index + 1] === '"') { current += '"'; index += 1; }
+      else if (char === '"') inQuotes = false;
+      else current += char;
+    } else if (char === '"') inQuotes = true;
+    else if (char === ',') { fields.push(current); current = ''; }
+    else current += char;
+  }
+  if (inQuotes) throw new Error(`CSV 行存在未闭合引号：${line.slice(0, 60)}...`);
+  fields.push(current);
+  return fields;
+}
+
+function rowFromCsvFields(fields) {
+  let phrase = null;
+  let gloss = '';
+  for (const field of fields) {
+    const value = normalizeText(field);
+    if (!value) continue;
+    const hasCJK = /[\u4e00-\u9fff]/u.test(value);
+    if (!hasCJK && /[A-Za-z]{2}/u.test(value)) {
+      if (phrase === null) phrase = value;
+    } else if (hasCJK && !gloss) {
+      gloss = value;
+    }
+  }
+  return phrase ? { phrase, gloss } : null;
+}
+
+function extractRows(source, { isCsv = false } = {}) {
+  const trimmed = String(source || '').replace(/^\ufeff/u, '').trim();
+  if (!isCsv && (trimmed.startsWith('[') || trimmed.startsWith('{'))) {
     const parsed = JSON.parse(trimmed);
     const rows = Array.isArray(parsed) ? parsed : parsed.phrases;
     if (!Array.isArray(rows)) throw new Error('JSON 资料需要是数组或含 phrases 数组的对象');
@@ -71,6 +106,9 @@ function extractRows(source) {
       if (typeof row === 'string') return parseRow(row);
       return { phrase: row?.phrase ?? row?.p ?? row?.word, gloss: row?.gloss ?? row?.g ?? row?.glossZh ?? row?.translation ?? '' };
     });
+  }
+  if (isCsv) {
+    return trimmed.split(/\r?\n/).map(line => line.trim() ? rowFromCsvFields(parseCsvLine(line)) : null);
   }
   return trimmed.split(/\r?\n/).map(parseRow);
 }
@@ -104,7 +142,7 @@ function main() {
     process.exit(1);
   }
 
-  const rows = extractRows(readFileSync(inputPath, 'utf8'));
+  const rows = extractRows(readFileSync(inputPath, 'utf8'), { isCsv: inputPath.toLowerCase().endsWith('.csv') });
   const shardPath = resolve(outDir, `${track}.json`);
   const merged = readExistingShard(shardPath, track);
   let added = 0;

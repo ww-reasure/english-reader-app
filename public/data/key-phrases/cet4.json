@@ -1,0 +1,6046 @@
+{
+  "schemaVersion": 1,
+  "track": "cet4",
+  "phrases": [
+    {
+      "p": "a ban on sth",
+      "g": "usage. 禁令,禁...令"
+    },
+    {
+      "p": "a bid to do",
+      "g": "usage. 努力争取,尝试"
+    },
+    {
+      "p": "a bit of a...",
+      "g": "idm.有点儿"
+    },
+    {
+      "p": "a body of sth",
+      "g": "usage. 大量的某物"
+    },
+    {
+      "p": "a bunch of",
+      "g": "usage.一串,一束,一扎;大量,一群"
+    },
+    {
+      "p": "a burden on sb",
+      "g": "usage.某人的负担"
+    },
+    {
+      "p": "a capacity for sth",
+      "g": "usage.在某方面的能力"
+    },
+    {
+      "p": "a capacity to do",
+      "g": "usage.做某事的能力"
+    },
+    {
+      "p": "a case in point",
+      "g": "idm. 明证,恰当的例证"
+    },
+    {
+      "p": "a change for the better",
+      "g": "idm. 变好,好转"
+    },
+    {
+      "p": "a clue to sth",
+      "g": "usage....的线索"
+    },
+    {
+      "p": "a comment on sth",
+      "g": "usage. 对...的评论"
+    },
+    {
+      "p": "a conflict over sth",
+      "g": "usage. 关于...的争论,关于...的分歧"
+    },
+    {
+      "p": "a consensus on sth",
+      "g": "usage.对...的一致看法,共识"
+    },
+    {
+      "p": "a cue to do",
+      "g": "usage. 该做某事的暗示 (或提示)"
+    },
+    {
+      "p": "a demand for",
+      "g": "usage.对...的坚决要求usage.(对商品、服务等的)需要,要求"
+    },
+    {
+      "p": "a distinction between A and B",
+      "g": "usage. A 和 B 之间的区别"
+    },
+    {
+      "p": "a failure to do",
+      "g": "usage.未做,未履行(应做之事)"
+    },
+    {
+      "p": "a flaw in",
+      "g": "usage. ...中的错误;...的瑕疵,...的缺陷usage. (性格中的) 缺点"
+    },
+    {
+      "p": "a fraction of sth",
+      "g": "usage. 一小部分,少量"
+    },
+    {
+      "p": "a great deal",
+      "g": "usage.大量,很多"
+    },
+    {
+      "p": "a great many",
+      "g": "collocation. 许多"
+    },
+    {
+      "p": "a handful of",
+      "g": "usage.一把的量;少数,少量"
+    },
+    {
+      "p": "a hazard of sth",
+      "g": "usage. ...的危险,...的隐患"
+    },
+    {
+      "p": "a host of",
+      "g": "usage.许多,大量"
+    },
+    {
+      "p": "a judgement on sth",
+      "g": "usage. 对...的看法,对...的评价"
+    },
+    {
+      "p": "a link between A and B",
+      "g": "usage.A和B之间的关联"
+    },
+    {
+      "p": "a majority of",
+      "g": "usage. ...的大多数"
+    },
+    {
+      "p": "a means of sth",
+      "g": "usage....的方式"
+    },
+    {
+      "p": "a pay raise/rise",
+      "g": "collocation.加薪,涨工资"
+    },
+    {
+      "p": "a pile of sth",
+      "g": "usage. 一大堆某物,大量某物"
+    },
+    {
+      "p": "a policy on sth",
+      "g": "usage. 关于...的政策"
+    },
+    {
+      "p": "a preference for",
+      "g": "usage. 对...的偏爱"
+    },
+    {
+      "p": "a range of sth",
+      "g": "usage.一系列的"
+    },
+    {
+      "p": "a refusal to do",
+      "g": "usage. 对...的拒绝"
+    },
+    {
+      "p": "a remedy for sth",
+      "g": "usage. 解决...的方法;治疗...的疗法"
+    },
+    {
+      "p": "a replacement for sth",
+      "g": "usage. ...的替换物"
+    },
+    {
+      "p": "a request for sth",
+      "g": "usage. 对...的请求,对...的要求"
+    },
+    {
+      "p": "a restriction on",
+      "g": "usage. 对...的限制"
+    },
+    {
+      "p": "a revolution in sth",
+      "g": "usage. ...的重大变革,...的巨大变化"
+    },
+    {
+      "p": "a sea of sth",
+      "g": "usage. 大量...,一大片..."
+    },
+    {
+      "p": "a sense of humor",
+      "g": "collocation. 幽默感"
+    },
+    {
+      "p": "a series of sth",
+      "g": "usage.一系列,一连串"
+    },
+    {
+      "p": "a set of sth",
+      "g": "usage. 一套,一副,一组(类似的东西)"
+    },
+    {
+      "p": "a shift in sth",
+      "g": "usage. 在...方面的转变"
+    },
+    {
+      "p": "a sort of sth",
+      "g": "idm. (表示不十分准确) 有点像是某物"
+    },
+    {
+      "p": "a state of affairs",
+      "g": "idm. 情况,形势,事态"
+    },
+    {
+      "p": "a step forward",
+      "g": "collocation. 进步,改进"
+    },
+    {
+      "p": "a strategy for doing sth",
+      "g": "usage. 做某事的策略"
+    },
+    {
+      "p": "a strategy to do",
+      "g": "usage. 做某事的策略"
+    },
+    {
+      "p": "a strip of sth",
+      "g": "usage. 一条(纸、金属、织物等)usage. 一片狭长地带(陆地、海域等)"
+    },
+    {
+      "p": "a substitute for",
+      "g": "usage. ...的代替者,...的替代物"
+    },
+    {
+      "p": "a tendency to do",
+      "g": "usage. 做某事的倾向"
+    },
+    {
+      "p": "a thirst for sth",
+      "g": "usage. 对...的渴望"
+    },
+    {
+      "p": "a trend towards sth",
+      "g": "usage. ...的趋势,...的倾向"
+    },
+    {
+      "p": "a variation in/of sth",
+      "g": "usage. ...的差异,...的变化"
+    },
+    {
+      "p": "a variety of sth",
+      "g": "usage. 各种各样的某事物"
+    },
+    {
+      "p": "a vehicle for sth",
+      "g": "usage. ...的工具,...的手段"
+    },
+    {
+      "p": "a way of life",
+      "g": "idm. 生活方式"
+    },
+    {
+      "p": "a wealth of sth",
+      "g": "usage. 大量的某物"
+    },
+    {
+      "p": "above all",
+      "g": "idm. 最重要的是,尤其是"
+    },
+    {
+      "p": "academic performance",
+      "g": "collocation. 学习成绩,学业表现"
+    },
+    {
+      "p": "access to sth",
+      "g": "usage.进入(权),进入...的通道usage.查阅(或使用)的机会(或权利)"
+    },
+    {
+      "p": "account for sth",
+      "g": "phrv. 是...的原因;解释,说明 phrv. (数量上、比例上) 占"
+    },
+    {
+      "p": "accuse sb of sth",
+      "g": "usage. 控告某人...,指责某人..."
+    },
+    {
+      "p": "achieve one's goal",
+      "g": "collocation.达成目标"
+    },
+    {
+      "p": "acquaint sb with sth",
+      "g": "usage.使某人熟悉某事"
+    },
+    {
+      "p": "across the board",
+      "g": "idm. 全体,整体,全面"
+    },
+    {
+      "p": "act as sth",
+      "g": "usage. 充当...,起...作用"
+    },
+    {
+      "p": "act on sth",
+      "g": "phrv. 根据(建议、信息等)行事 usage. 对...有作用,有影响"
+    },
+    {
+      "p": "act out",
+      "g": "phrv. 将...表演出来"
+    },
+    {
+      "p": "adapt to sth",
+      "g": "usage. 适应"
+    },
+    {
+      "p": "add up",
+      "g": "phrv. 积少成多;把...加起来"
+    },
+    {
+      "p": "add up to sth",
+      "g": "phrv. 总共是,总计为;结果是,表示"
+    },
+    {
+      "p": "adjust sth to sth",
+      "g": "usage. 调整...以适应..."
+    },
+    {
+      "p": "adjust to sth",
+      "g": "usage. 改变...以适应..."
+    },
+    {
+      "p": "admiration for",
+      "g": "usage.对...的敬佩"
+    },
+    {
+      "p": "admit to sth",
+      "g": "usage. 承认(罪行、错误等)"
+    },
+    {
+      "p": "advanced placement",
+      "g": "n. 先修课程,进阶课程"
+    },
+    {
+      "p": "advise sb on sth",
+      "g": "usage. 在...方面给某人提供建议"
+    },
+    {
+      "p": "advocate doing sth",
+      "g": "usage. 提倡做某事,主张做某事"
+    },
+    {
+      "p": "afford to do",
+      "g": "usage. 买得起,负担得起usage. 承担得起,经得起"
+    },
+    {
+      "p": "after all",
+      "g": "idm. 毕竟,终归"
+    },
+    {
+      "p": "agree on sth",
+      "g": "usage. 同意某事,应允某事;约定某事"
+    },
+    {
+      "p": "agreement on sth",
+      "g": "usage. 关于...的协议;(意见的)一致"
+    },
+    {
+      "p": "ahead of",
+      "g": "usage. (时间或空间) 在...前usage. 比...提前;领先于"
+    },
+    {
+      "p": "aim at/for sth",
+      "g": "usage. 力求达到"
+    },
+    {
+      "p": "aim to do",
+      "g": "usage.力求做成某事"
+    },
+    {
+      "p": "all at once",
+      "g": "idm. 突然;一起,同时"
+    },
+    {
+      "p": "all but",
+      "g": "idm. 几乎,差不多;除...外全部"
+    },
+    {
+      "p": "all in all",
+      "g": "idm. 从各方面考虑,总的说来"
+    },
+    {
+      "p": "all of a sudden",
+      "g": "idm. 突然间,一下子"
+    },
+    {
+      "p": "all the while",
+      "g": "collocation. 一直,始终"
+    },
+    {
+      "p": "allow for",
+      "g": "usage. 使...可能phrv. 考虑到,把...算在内"
+    },
+    {
+      "p": "along/down the line",
+      "g": "idm. 在某一环节,在某一时刻"
+    },
+    {
+      "p": "among other things",
+      "g": "collocation. 除了 (其他东西、因素) 以外"
+    },
+    {
+      "p": "amount to sth",
+      "g": "phrv. 合计,共计;等同于,相当于phrv. 发展成,结果是"
+    },
+    {
+      "p": "an abundance of sth",
+      "g": "usage. 大量的...,充足的..."
+    },
+    {
+      "p": "an advantage over sb",
+      "g": "usage. 相对某人而言的优势"
+    },
+    {
+      "p": "an alternative to sth",
+      "g": "usage. ...的替代物"
+    },
+    {
+      "p": "an appetite for sth",
+      "g": "usage. 对...的强烈渴望"
+    },
+    {
+      "p": "an approach to sth",
+      "g": "usage.对...的方法,对...的态度"
+    },
+    {
+      "p": "an attack on sb",
+      "g": "usage. 对某人的攻击,对某人的袭击"
+    },
+    {
+      "p": "an attitude towards",
+      "g": "usage. 对...的态度,对...的看法"
+    },
+    {
+      "p": "an average of",
+      "g": "collocation. 平均为...的"
+    },
+    {
+      "p": "an element of sth",
+      "g": "usage. 少量,有点"
+    },
+    {
+      "p": "an encounter with",
+      "g": "usage. 与...的偶遇,与...的邂逅usage. 和...的冲突;接触,经历"
+    },
+    {
+      "p": "an explanation of/for sth",
+      "g": "usage. 对...的解释,...的理由"
+    },
+    {
+      "p": "an incidence of sth",
+      "g": "usage. ...的发生率"
+    },
+    {
+      "p": "an inclination to do",
+      "g": "usage. 做某事的意向,倾向"
+    },
+    {
+      "p": "an indication of sth",
+      "g": "usage. ...的迹象"
+    },
+    {
+      "p": "an insight into sth",
+      "g": "usage. 对...的洞悉"
+    },
+    {
+      "p": "an intention to do",
+      "g": "usage. 做某事的意图"
+    },
+    {
+      "p": "an investigation into sth",
+      "g": "usage. 对...的调查"
+    },
+    {
+      "p": "an obligation to do",
+      "g": "usage. 对...的义务,做...的责任"
+    },
+    {
+      "p": "an obstacle to sth",
+      "g": "usage. 对...的障碍"
+    },
+    {
+      "p": "an urge to do",
+      "g": "usage. 做某事的强烈冲动"
+    },
+    {
+      "p": "and so forth",
+      "g": "idm. 等等,诸如此类"
+    },
+    {
+      "p": "and the like",
+      "g": "collocation.诸如此类,等等"
+    },
+    {
+      "p": "apart from",
+      "g": "phr. 除...以外;除了...还"
+    },
+    {
+      "p": "apologize for sth",
+      "g": "usage. 为...道歉,为...认错"
+    },
+    {
+      "p": "apologize to sb",
+      "g": "usage. 向某人道歉,向某人认错"
+    },
+    {
+      "p": "application form",
+      "g": "collocation. 申请,申请书,申请表"
+    },
+    {
+      "p": "apply for sth",
+      "g": "usage. 申请(工作、学校、许可等)"
+    },
+    {
+      "p": "apply to",
+      "g": "usage. 向...申请;对...适用"
+    },
+    {
+      "p": "appoint sb as sth",
+      "g": "usage. 任命某人为..."
+    },
+    {
+      "p": "approve of",
+      "g": "usage. 赞成,同意"
+    },
+    {
+      "p": "argue for sth",
+      "g": "usage. 为...据理力争,为赞成...而辩"
+    },
+    {
+      "p": "arise from sth",
+      "g": "phrv. 由...引起,由...产生"
+    },
+    {
+      "p": "arm sb with sth",
+      "g": "usage. 用...武装某人"
+    },
+    {
+      "p": "around the clock",
+      "g": "idm. 日夜不停,夜以继日"
+    },
+    {
+      "p": "around the corner",
+      "g": "idm. 在附近,即将发生"
+    },
+    {
+      "p": "arrange for sb to do",
+      "g": "usage. 安排某人做某事"
+    },
+    {
+      "p": "arrange for sth",
+      "g": "usage.安排,筹备,准备"
+    },
+    {
+      "p": "arrest sb for doing sth",
+      "g": "usage. 因...逮捕某人"
+    },
+    {
+      "p": "artificial intelligence",
+      "g": "n. 人工智能"
+    },
+    {
+      "p": "as a consequence",
+      "g": "collocation. 因此,结果是"
+    },
+    {
+      "p": "as a matter of fact",
+      "g": "idm. 事实上,其实,说真的"
+    },
+    {
+      "p": "as a result",
+      "g": "idm.结果,因此"
+    },
+    {
+      "p": "as a whole",
+      "g": "idm. 作为一个整体,总体上"
+    },
+    {
+      "p": "as far as... is concerned",
+      "g": "idm. 就某事而言idm. 在某人看来,就某人而言"
+    },
+    {
+      "p": "as it were",
+      "g": "idm. 可以说,在一定程度上"
+    },
+    {
+      "p": "as much as",
+      "g": "idm. 多达,多至"
+    },
+    {
+      "p": "as opposed to",
+      "g": "idm. (表示对比) 而不是"
+    },
+    {
+      "p": "as such",
+      "g": "idm. 严格说来,通常意义上"
+    },
+    {
+      "p": "as the case may be",
+      "g": "idm. 根据具体情况,视情况而定"
+    },
+    {
+      "p": "as to",
+      "g": "idm. 关于,至于"
+    },
+    {
+      "p": "as yet",
+      "g": "idm. 到现在为止"
+    },
+    {
+      "p": "aside from",
+      "g": "phr. 除...外,除了...还"
+    },
+    {
+      "p": "assign sb to do",
+      "g": "usage. 指派某人做某事"
+    },
+    {
+      "p": "assign sth to sb",
+      "g": "usage. 分配 (或分派) 某物给某人"
+    },
+    {
+      "p": "assist in/with sth",
+      "g": "usage. 协助做某事"
+    },
+    {
+      "p": "associate... with...",
+      "g": "usage. 把...和...联系起来"
+    },
+    {
+      "p": "at a glance",
+      "g": "idm.立刻,(只)看一眼"
+    },
+    {
+      "p": "at a loss",
+      "g": "idm. 不知所措,困惑"
+    },
+    {
+      "p": "at a rate of sth",
+      "g": "collocation. 以...的速度,以...的比率"
+    },
+    {
+      "p": "at all times",
+      "g": "idm. 总是,永远"
+    },
+    {
+      "p": "at any rate",
+      "g": "idm. 无论如何,不管怎样idm. (表示说得更加确切) 至少"
+    },
+    {
+      "p": "at any time",
+      "g": "idm.随时,在任何时候"
+    },
+    {
+      "p": "at best",
+      "g": "idm. 充其量"
+    },
+    {
+      "p": "at ease",
+      "g": "idm. 舒适,自由自在,无拘无束"
+    },
+    {
+      "p": "at every turn",
+      "g": "idm. 处处,事事,每次"
+    },
+    {
+      "p": "at fault",
+      "g": "collocation.有过错的,有责任的"
+    },
+    {
+      "p": "at first glance",
+      "g": "idm.乍一看,乍看之下"
+    },
+    {
+      "p": "at first sight",
+      "g": "idm. 乍一看;初次见到"
+    },
+    {
+      "p": "at hand",
+      "g": "idm. 在手边,目前的"
+    },
+    {
+      "p": "at heart",
+      "g": "idm. 内心里,本质上"
+    },
+    {
+      "p": "at large",
+      "g": "idm. 整个,总体地,一般地 idm. (危险的人或动物) 在逃的"
+    },
+    {
+      "p": "at length",
+      "g": "idm. 长时间地;详尽地;最后,最终"
+    },
+    {
+      "p": "at most",
+      "g": "idm. 至多,不超过"
+    },
+    {
+      "p": "at one time",
+      "g": "collocation. 过去某个时期,曾经"
+    },
+    {
+      "p": "at random",
+      "g": "idm. 随便地,随机地"
+    },
+    {
+      "p": "at the bottom",
+      "g": "collocation. 在底部"
+    },
+    {
+      "p": "at the cost of",
+      "g": "collocation. 以...为代价"
+    },
+    {
+      "p": "at the end of the day",
+      "g": "idm.最终,到头来"
+    },
+    {
+      "p": "at the expense of",
+      "g": "idm. 以...为代价,在牺牲...的情况下"
+    },
+    {
+      "p": "at the latest",
+      "g": "idm. 最迟,最晚"
+    },
+    {
+      "p": "at the moment",
+      "g": "collocation. 此刻,目前,眼下"
+    },
+    {
+      "p": "at the sight of",
+      "g": "collocation. 看见...时"
+    },
+    {
+      "p": "at the very least",
+      "g": "idm.至少,最起码"
+    },
+    {
+      "p": "at times",
+      "g": "idm. 有时,偶尔"
+    },
+    {
+      "p": "at will",
+      "g": "idm. 任意,随意"
+    },
+    {
+      "p": "at work",
+      "g": "collocation. 在工作,在上班 idm. 起作用;忙着 (做某事)"
+    },
+    {
+      "p": "at... intervals",
+      "g": "idm. 每隔...时间;每隔...距离"
+    },
+    {
+      "p": "at/from a distance",
+      "g": "idm. 从远处,久远地"
+    },
+    {
+      "p": "at/from the outset",
+      "g": "usage. 在开始时"
+    },
+    {
+      "p": "attach importance to sth",
+      "g": "usage. 重视...,认为...具有重要性"
+    },
+    {
+      "p": "attach sth to...",
+      "g": "usage.把...固定在...上,把...附在...上usage.与...有关联,使与...有联系"
+    },
+    {
+      "p": "attempt to do",
+      "g": "usage.试图做(尤指做困难的事)"
+    },
+    {
+      "p": "attend to",
+      "g": "phrv. 处理 (某事),照顾 (某人) phrv. 注意,专心"
+    },
+    {
+      "p": "attract sb to...",
+      "g": "usage. 吸引某人至..."
+    },
+    {
+      "p": "attribute sth to sth",
+      "g": "usage. 把...归因于"
+    },
+    {
+      "p": "avoid doing sth",
+      "g": "usage. 回避做某事,避免 (坏事发生)"
+    },
+    {
+      "p": "award sb sth",
+      "g": "usage. 授予 (或奖励) 某人某物"
+    },
+    {
+      "p": "back and forth",
+      "g": "idm. 反复来回"
+    },
+    {
+      "p": "back up",
+      "g": "phrv. 支持,证实 (某人所言);支援"
+    },
+    {
+      "p": "balance sth against sth",
+      "g": "usage. 权衡...和...(的重要性等)"
+    },
+    {
+      "p": "ban sb from sth",
+      "g": "usage. 禁止某人做某事"
+    },
+    {
+      "p": "base sth on sth",
+      "g": "phrv. 以...为基础(或根据)"
+    },
+    {
+      "p": "be about to do",
+      "g": "idm.正要做某事"
+    },
+    {
+      "p": "be absent from",
+      "g": "usage. 缺席...,缺勤...usage. 不存在...中的,缺少...的"
+    },
+    {
+      "p": "be absorbed in",
+      "g": "usage. 被...吸引住,全神贯注于..."
+    },
+    {
+      "p": "be accessible to sb",
+      "g": "usage. 某人可到达的,可得的,可用的usage. 对某人来说易于理解的"
+    },
+    {
+      "p": "be accountable to sb",
+      "g": "usage. 对某人负有责任的"
+    },
+    {
+      "p": "be accustomed to sth",
+      "g": "usage. 习惯于...的,适应...的"
+    },
+    {
+      "p": "be addicted to sth",
+      "g": "usage. 对...上瘾,对...入迷"
+    },
+    {
+      "p": "be admitted to sth",
+      "g": "usage. 被准许加入"
+    },
+    {
+      "p": "be advisable to do",
+      "g": "usage. 做某事是明智的"
+    },
+    {
+      "p": "be aimed at sth",
+      "g": "usage. 旨在,目的是"
+    },
+    {
+      "p": "be anxious about",
+      "g": "usage. 为...焦虑的,为...不安的"
+    },
+    {
+      "p": "be anxious to do",
+      "g": "usage. 渴望做某事,非常希望做某事"
+    },
+    {
+      "p": "be applicable to",
+      "g": "usage. 适合...的,适用于...的"
+    },
+    {
+      "p": "be ashamed of",
+      "g": "usage. 为...惭愧的,为...羞愧的"
+    },
+    {
+      "p": "be at issue",
+      "g": "idm. 是讨论的焦点"
+    },
+    {
+      "p": "be attached to",
+      "g": "usage.为...所附的usage.附属于...的,为...工作的usage.依恋...的,爱慕...的"
+    },
+    {
+      "p": "be attributable to",
+      "g": "usage. 可能归因于...的"
+    },
+    {
+      "p": "be available to",
+      "g": "usage.可被...获得的,可被...买到的"
+    },
+    {
+      "p": "be aware of",
+      "g": "usage. 知道...的,意识到...的 usage. 察觉到...的,注意到...的"
+    },
+    {
+      "p": "be beneficial to",
+      "g": "usage. 对...有益的,对...有利的"
+    },
+    {
+      "p": "be better off",
+      "g": "idm. 比较富裕,经济情况较好idm. 境况更好,更幸福,更满意"
+    },
+    {
+      "p": "be blind to sth",
+      "g": "usage. 对...视而不见的,未察觉...的"
+    },
+    {
+      "p": "be born with sth",
+      "g": "collocation.生下来就有..."
+    },
+    {
+      "p": "be bound up with",
+      "g": "idm.和...密切相关"
+    },
+    {
+      "p": "be capable of sth",
+      "g": "usage.能胜任...的,有...能力的"
+    },
+    {
+      "p": "be cautious about sth",
+      "g": "usage. 对...谨慎的,对...慎重的"
+    },
+    {
+      "p": "be central to sth",
+      "g": "collocation.对...是核心的,对...是最重要的"
+    },
+    {
+      "p": "be characteristic of",
+      "g": "usage.为...所特有的,是...的典型特点"
+    },
+    {
+      "p": "be characterized by sth",
+      "g": "usage.具有...的特点,以...为特征"
+    },
+    {
+      "p": "be classified as sth",
+      "g": "usage. 被划分为...,被界定为..."
+    },
+    {
+      "p": "be close to",
+      "g": "usage. 靠近...的;快要 (处于某种状态) usage. 与...亲密的,与...密切的 idm. 几乎是,差不多是;近乎"
+    },
+    {
+      "p": "be coated with sth",
+      "g": "usage. 被涂上 (或裹上) 某物"
+    },
+    {
+      "p": "be committed to sth",
+      "g": "usage. 对...尽心尽力的,坚信...的"
+    },
+    {
+      "p": "be common to",
+      "g": "usage. 为...所共有的"
+    },
+    {
+      "p": "be comparable to/with",
+      "g": "usage. 可与...比较的,与...类似的"
+    },
+    {
+      "p": "be compatible with",
+      "g": "usage. (计算机设备或软件) 与...兼容的 usage. (想法、事物等) 可与...共存的"
+    },
+    {
+      "p": "be composed of sth",
+      "g": "usage. 由...组成"
+    },
+    {
+      "p": "be concerned about sth",
+      "g": "usage.对...担心的usage.对...感兴趣的,对...关心的"
+    },
+    {
+      "p": "be concerned with sth",
+      "g": "usage. 对...感兴趣的,对...关心的 usage. 与...有关的,与...有牵连的"
+    },
+    {
+      "p": "be confident of sth",
+      "g": "usage. 对...有把握的,对...确信的"
+    },
+    {
+      "p": "be confronted with sth",
+      "g": "usage.面临,面对(问题或困境等)"
+    },
+    {
+      "p": "be conscious of sth",
+      "g": "usage. 注意到...的,意识到...的"
+    },
+    {
+      "p": "be content to do",
+      "g": "usage. 愿意做某事"
+    },
+    {
+      "p": "be content with sth",
+      "g": "usage. 对...满足的,对...满意的"
+    },
+    {
+      "p": "be contrary to sth",
+      "g": "usage.与...相对立的,与...相反的"
+    },
+    {
+      "p": "be convenient to do",
+      "g": "usage.便于做某事的"
+    },
+    {
+      "p": "be critical of",
+      "g": "usage. 对...持批评态度的,对...挑剔的"
+    },
+    {
+      "p": "be critical to sth",
+      "g": "usage.对...至关紧要的,对...关键的"
+    },
+    {
+      "p": "be crucial to sth",
+      "g": "usage. 对...极其重要的,对...关键的"
+    },
+    {
+      "p": "be dependent on",
+      "g": "usage.依赖...的;取决于...的;有瘾的"
+    },
+    {
+      "p": "be derived from sth",
+      "g": "phrv. 从...衍生出,起源于"
+    },
+    {
+      "p": "be designed to do",
+      "g": "usage. 为...而设计的,旨在,目的是"
+    },
+    {
+      "p": "be determined to do",
+      "g": "usage.下定决心做...的,决意做...的"
+    },
+    {
+      "p": "be devoted to",
+      "g": "usage.对...全心全意的,对...忠诚的usage.热衷的,致力于...的"
+    },
+    {
+      "p": "be dissatisfied with",
+      "g": "usage.对...不满意的"
+    },
+    {
+      "p": "be distinguished for sth",
+      "g": "usage. 以...著称的,因...而著名的"
+    },
+    {
+      "p": "be doubtful about sth",
+      "g": "usage.对...怀疑的"
+    },
+    {
+      "p": "be dying to do",
+      "g": "idm. 渴望做,极想做"
+    },
+    {
+      "p": "be eager to do",
+      "g": "usage.渴望做某事"
+    },
+    {
+      "p": "be enthusiastic about",
+      "g": "usage.对...充满热情的,对...热心的"
+    },
+    {
+      "p": "be equal to",
+      "g": "usage. 与...相等的,与...相同的 usage. 能胜任...的,能应付...的"
+    },
+    {
+      "p": "be equivalent to sth",
+      "g": "usage.与...相等的,与...相同的"
+    },
+    {
+      "p": "be essential to/for sth",
+      "g": "usage.对...来说是必不可少的"
+    },
+    {
+      "p": "be experienced in sth",
+      "g": "usage.在...方面经验丰富"
+    },
+    {
+      "p": "be faced with sth",
+      "g": "usage. 面临,必须对付 (某情况)"
+    },
+    {
+      "p": "be familiar to sb",
+      "g": "usage. 对某人来说熟悉的"
+    },
+    {
+      "p": "be familiar with sth",
+      "g": "usage. 对...熟知的"
+    },
+    {
+      "p": "be famous as sth",
+      "g": "usage. 作为...而闻名的"
+    },
+    {
+      "p": "be famous for sth",
+      "g": "usage.因...而著名的"
+    },
+    {
+      "p": "be fascinated by/with sth",
+      "g": "usage.对...入迷的,对...极感兴趣的"
+    },
+    {
+      "p": "be favorable for/to",
+      "g": "usage. 有利于...的,适宜...的"
+    },
+    {
+      "p": "be fed up with",
+      "g": "usage. 对...感到厌烦的"
+    },
+    {
+      "p": "be fit for",
+      "g": "usage.适合...的"
+    },
+    {
+      "p": "be fond of",
+      "g": "usage. 喜爱...的"
+    },
+    {
+      "p": "be free from sth",
+      "g": "usage. 无...的,不受...伤害 (或影响)"
+    },
+    {
+      "p": "be fresh from sth",
+      "g": "usage. 刚从...来,刚有过...经历"
+    },
+    {
+      "p": "be fundamental to sth",
+      "g": "usage. 对...而言必不可少的,基础的"
+    },
+    {
+      "p": "be grateful for sth",
+      "g": "usage. 对...感激"
+    },
+    {
+      "p": "be harmful to",
+      "g": "usage. 对...有害的"
+    },
+    {
+      "p": "be helpful in doing sth",
+      "g": "usage. 对做某事有帮助,有助于做某事"
+    },
+    {
+      "p": "be identical to/with",
+      "g": "usage. 与...完全相同的"
+    },
+    {
+      "p": "be ignorant of sth",
+      "g": "usage. 对...无知的,对...不知情的"
+    },
+    {
+      "p": "be immune to sth",
+      "g": "usage. 对...免疫的,不受...影响的"
+    },
+    {
+      "p": "be impatient with",
+      "g": "usage. 对...不耐烦的,对...没耐心的"
+    },
+    {
+      "p": "be in doubt",
+      "g": "idm. 不肯定,不确定,拿不准"
+    },
+    {
+      "p": "be in one's shoes",
+      "g": "idm. 处于某人的境地"
+    },
+    {
+      "p": "be inclined to do",
+      "g": "usage.倾向做某事,很可能做某事usage.愿意做某事"
+    },
+    {
+      "p": "be independent of",
+      "g": "usage. 与...无关的;不依靠...的"
+    },
+    {
+      "p": "be indicative of sth",
+      "g": "usage. 显示出...,是...的迹象"
+    },
+    {
+      "p": "be indifferent to",
+      "g": "usage. 对...不感兴趣的,对...不关心的"
+    },
+    {
+      "p": "be indispensable to",
+      "g": "usage. 对...必不可少的"
+    },
+    {
+      "p": "be inferior to",
+      "g": "usage. 比...差的,较...次的"
+    },
+    {
+      "p": "be inherent in",
+      "g": "usage. 内在的,固有的,与生俱来的"
+    },
+    {
+      "p": "be involved in sth",
+      "g": "usage. 参与...的,与...有密切关联的"
+    },
+    {
+      "p": "be known as sth",
+      "g": "usage. 被称为,被称作"
+    },
+    {
+      "p": "be known for sth",
+      "g": "usage. 以...知名,以...闻名"
+    },
+    {
+      "p": "be lacking in sth",
+      "g": "usage. 没有...的,缺乏...的"
+    },
+    {
+      "p": "be liable to do",
+      "g": "usage. 可能做某事,易于做某事"
+    },
+    {
+      "p": "be linked to/with sth",
+      "g": "usage. 与...相关联的,与...有联系的"
+    },
+    {
+      "p": "be located in",
+      "g": "phrv. 位于某处"
+    },
+    {
+      "p": "be made to do",
+      "g": "usage. 被迫做某事"
+    },
+    {
+      "p": "be native to",
+      "g": "usage. (动植物) 原产于某地的"
+    },
+    {
+      "p": "be nervous about sth",
+      "g": "usage. 对...紧张的,对...担忧的"
+    },
+    {
+      "p": "be obsessed with",
+      "g": "usage. 对...痴迷,对...迷恋"
+    },
+    {
+      "p": "be occupied with sth",
+      "g": "usage. 忙于...的"
+    },
+    {
+      "p": "be of importance",
+      "g": "collocation. 重要的"
+    },
+    {
+      "p": "be on good terms with sb",
+      "g": "idm. 与某人关系融洽"
+    },
+    {
+      "p": "be on the alert",
+      "g": "collocation. 保持警惕,处于警戒状态"
+    },
+    {
+      "p": "be on the move",
+      "g": "idm. (经常) 变换地点 idm. 在行进中,在进步中"
+    },
+    {
+      "p": "be on the phone",
+      "g": "idm. 正在打电话"
+    },
+    {
+      "p": "be open to",
+      "g": "usage. (比赛、建筑物等) 对...开放的 usage. 对...心态开放的,乐意接受...的 usage. 待由...决定的"
+    },
+    {
+      "p": "be opposed to sth",
+      "g": "usage.反对...的"
+    },
+    {
+      "p": "be optimistic about sth",
+      "g": "usage. 对...乐观的"
+    },
+    {
+      "p": "be out of touch",
+      "g": "idm.失去联系;不了解,脱离时代"
+    },
+    {
+      "p": "be parallel to sth",
+      "g": "usage. 与...平行的"
+    },
+    {
+      "p": "be particular about sth",
+      "g": "usage. 对...讲究,对...挑剔"
+    },
+    {
+      "p": "be passionate about sth",
+      "g": "usage. 热爱某事的,对某事有激情的"
+    },
+    {
+      "p": "be peculiar to",
+      "g": "usage.为...所特有的"
+    },
+    {
+      "p": "be pessimistic about sth",
+      "g": "usage. 对...悲观的"
+    },
+    {
+      "p": "be popular with/among sb",
+      "g": "usage. 受某人喜爱的,受某人欢迎的"
+    },
+    {
+      "p": "be predicted to do",
+      "g": "usage. 被预测到会做某事"
+    },
+    {
+      "p": "be preferable to sth",
+      "g": "usage. 较...而言更好的"
+    },
+    {
+      "p": "be prepared for sth",
+      "g": "usage. 准备好的,为...做好准备"
+    },
+    {
+      "p": "be prevalent in",
+      "g": "usage. 在...盛行的,普遍存在于...的"
+    },
+    {
+      "p": "be qualified for sth",
+      "g": "usage. 具备...的资历,能胜任..."
+    },
+    {
+      "p": "be ready to do",
+      "g": "usage. 准备好做某事;愿意做某事"
+    },
+    {
+      "p": "be related to",
+      "g": "usage.与...相关的"
+    },
+    {
+      "p": "be relevant to",
+      "g": "usage. 与...有关的"
+    },
+    {
+      "p": "be reluctant to do",
+      "g": "usage. 不情愿做某事"
+    },
+    {
+      "p": "be resistant to sth",
+      "g": "usage. 对...有抵抗力的,不受...损害的 usage. (对变化和新思想等) 抵制的"
+    },
+    {
+      "p": "be responsible for",
+      "g": "usage. 对...负责的,对...承担义务的usage. 对...应承担责任的usage. 引起...的,导致...的"
+    },
+    {
+      "p": "be rich in sth",
+      "g": "usage. 富含...的,含有大量...的"
+    },
+    {
+      "p": "be rooted in sth",
+      "g": "phrv. 起源于某事物"
+    },
+    {
+      "p": "be satisfied with",
+      "g": "usage. 对...满意的 (或满足的)"
+    },
+    {
+      "p": "be scared of",
+      "g": "usage. 害怕...的,对...感到恐惧的"
+    },
+    {
+      "p": "be sensitive to sth",
+      "g": "usage. 对...灵敏的;对...敏感的 usage. 对...体贴的"
+    },
+    {
+      "p": "be separate from",
+      "g": "usage. 独立于...的,与...分开的"
+    },
+    {
+      "p": "be similar to",
+      "g": "usage. 与...相似的"
+    },
+    {
+      "p": "be split on/over sth",
+      "g": "usage. 对...有分歧,对...无法达成一致"
+    },
+    {
+      "p": "be stressed out",
+      "g": "usage. 心力交瘁的,焦虑不安的"
+    },
+    {
+      "p": "be strict with sb",
+      "g": "usage. 对某人严格要求"
+    },
+    {
+      "p": "be subject to",
+      "g": "usage. 可能遭受...影响的 usage. 取决于,视...而定;受...支配"
+    },
+    {
+      "p": "be sufficient to do",
+      "g": "usage. 足以...的"
+    },
+    {
+      "p": "be suitable for",
+      "g": "usage.适合...的,对...来说恰当的"
+    },
+    {
+      "p": "be superior to",
+      "g": "usage.比...更好的usage.(在级别或重要性上)比...更高的"
+    },
+    {
+      "p": "be supposed to do",
+      "g": "idm.应该做,预计是idm.一般认为,人们普遍觉得"
+    },
+    {
+      "p": "be sure of/about sth",
+      "g": "usage. 对...确信的,对...有把握的"
+    },
+    {
+      "p": "be sure to do",
+      "g": "usage. 一定会做(或发生某事) idm. 务必做某事,一定要做某事"
+    },
+    {
+      "p": "be surprised at/by",
+      "g": "usage. 对...感到惊讶的 (或意外的)"
+    },
+    {
+      "p": "be suspicious of",
+      "g": "usage. 对...起疑的,认为...可疑的"
+    },
+    {
+      "p": "be sympathetic to",
+      "g": "usage. 对...表示赞成的 (或支持的)usage. 对...同情的"
+    },
+    {
+      "p": "be taken aback",
+      "g": "idm. 被...吓了一跳,大吃一惊"
+    },
+    {
+      "p": "be thankful to do",
+      "g": "usage. 对...感激的,为...感到欣慰的"
+    },
+    {
+      "p": "be thirsty for sth",
+      "g": "usage. 渴望某物,渴求某物"
+    },
+    {
+      "p": "be to blame",
+      "g": "idm. 对(坏事)负有责任"
+    },
+    {
+      "p": "be tolerant of",
+      "g": "usage. 对...宽容的,能容忍...的"
+    },
+    {
+      "p": "be true of",
+      "g": "usage. 适用于,对...适用"
+    },
+    {
+      "p": "be uncertain about/of sth",
+      "g": "usage. 对...不确定的,对...没把握的"
+    },
+    {
+      "p": "be unique to",
+      "g": "usage. 为...所特有的"
+    },
+    {
+      "p": "be up to sb",
+      "g": "idm. 由某人决定,是某人的职责"
+    },
+    {
+      "p": "be used to sth/doing sth",
+      "g": "usage.习惯于...的"
+    },
+    {
+      "p": "be useless to do",
+      "g": "usage. 做某事是无用的"
+    },
+    {
+      "p": "be visible to",
+      "g": "usage. 对...可见的"
+    },
+    {
+      "p": "be vital to sth",
+      "g": "usage. 对...至关重要的"
+    },
+    {
+      "p": "be vulnerable to",
+      "g": "usage. 易受...伤害的,易受...影响的"
+    },
+    {
+      "p": "be welcome to do",
+      "g": "usage. 可随意做某事 (用于邀请)"
+    },
+    {
+      "p": "be worse off",
+      "g": "idm.更穷,更不愉快,更差"
+    },
+    {
+      "p": "be worth doing sth",
+      "g": "usage. 值得做的"
+    },
+    {
+      "p": "be worthy of",
+      "g": "usage. 值得...的,应该获得...的"
+    },
+    {
+      "p": "be wrong with",
+      "g": "usage. ...有毛病,...出问题"
+    },
+    {
+      "p": "be/get carried away",
+      "g": "idm. 变得很激动,失去自制力"
+    },
+    {
+      "p": "be/have to do with",
+      "g": "idm. 关于,与...有关"
+    },
+    {
+      "p": "bear in mind",
+      "g": "idm. 把 (某事) 记在心里"
+    },
+    {
+      "p": "before long",
+      "g": "collocation. 不久,很快"
+    },
+    {
+      "p": "beg for sth",
+      "g": "usage. 恳求...,请求..."
+    },
+    {
+      "p": "beg off",
+      "g": "phrv. 推辞 (已答应做的事),反悔"
+    },
+    {
+      "p": "behind the scenes",
+      "g": "idm. 秘密地,背地里,在幕后"
+    },
+    {
+      "p": "believe it or not",
+      "g": "idm. 信不信由你"
+    },
+    {
+      "p": "belong in",
+      "g": "collocation. 应在 (某处),适合 (某种情形)"
+    },
+    {
+      "p": "benefit from/by sth",
+      "g": "usage. 得益于"
+    },
+    {
+      "p": "big deal",
+      "g": "idm. 重要的事"
+    },
+    {
+      "p": "blame sth on...",
+      "g": "usage. 把...归咎于"
+    },
+    {
+      "p": "blame...for sth",
+      "g": "usage. 因...而责怪...,把...归咎于..."
+    },
+    {
+      "p": "boast about/of sth",
+      "g": "usage. 自吹自擂,自夸"
+    },
+    {
+      "p": "boil sth down",
+      "g": "phrv. 概括,归纳"
+    },
+    {
+      "p": "border on sth",
+      "g": "phrv. 濒于,近乎"
+    },
+    {
+      "p": "bother to do",
+      "g": "usage. 费心,劳神做某事"
+    },
+    {
+      "p": "bounce back",
+      "g": "phrv. 恢复健康,重整旗鼓 phrv. (价格、股票等) 回升"
+    },
+    {
+      "p": "break away",
+      "g": "phrv. 突然挣脱,逃脱 phrv. 脱离,背叛 (政党、国家等)"
+    },
+    {
+      "p": "break in",
+      "g": "phrv. 强行进入,破门而入"
+    },
+    {
+      "p": "break into pieces",
+      "g": "collocation. 变成碎片"
+    },
+    {
+      "p": "break into sth",
+      "g": "phrv.强行闯入,撬开(汽车等)phrv.突然开始(笑、唱等);突然快跑phrv.启用(应急备用品);成功参与"
+    },
+    {
+      "p": "break through",
+      "g": "phrv. 冲破,突破;克服,战胜"
+    },
+    {
+      "p": "break up",
+      "g": "phrv. 粉碎,破碎;结束;分手,绝交 phrv. 解散,散会;拆开,打散"
+    },
+    {
+      "p": "bring about",
+      "g": "phrv. 导致,引起"
+    },
+    {
+      "p": "bring down",
+      "g": "phrv. 打垮,击败,使垮台phrv. 减少,降低;使 (飞机) 着陆"
+    },
+    {
+      "p": "bring forth",
+      "g": "phrv. 生产,产出"
+    },
+    {
+      "p": "bring forward",
+      "g": "phrv. 将 (日期) 提前;提议,提出讨论"
+    },
+    {
+      "p": "bring in",
+      "g": "phrv. 吸引,引入,带来;赚得,挣 phrv. 请...做,让...参与"
+    },
+    {
+      "p": "bring on",
+      "g": "phrv. 使发展,导致 (通常指坏事)"
+    },
+    {
+      "p": "bring sth under control",
+      "g": "idm. 把...控制住 (从而不造成损害)"
+    },
+    {
+      "p": "bring together",
+      "g": "phrv. 使联合,使走到一起 phr. 把...召集起来"
+    },
+    {
+      "p": "bring up",
+      "g": "phrv. 抚养,养育,教养;提出 (讨论等)"
+    },
+    {
+      "p": "broaden one's horizons",
+      "g": "collocation. 开阔某人的视野"
+    },
+    {
+      "p": "brush aside",
+      "g": "phrv. 不理会,漠视"
+    },
+    {
+      "p": "build sth on sth",
+      "g": "phrv. 把...作为...的基础"
+    },
+    {
+      "p": "build up",
+      "g": "phrv. 加大,加强,逐渐增多 phrv. 增强...的体质,使更加强壮 phrv. 使...增高,使...增强;创建,开发"
+    },
+    {
+      "p": "bulletin board",
+      "g": "n. 告示牌,布告板"
+    },
+    {
+      "p": "burden sb with sth",
+      "g": "usage.使某人为某事烦恼"
+    },
+    {
+      "p": "burn down",
+      "g": "phrv.(被)烧毁"
+    },
+    {
+      "p": "burst into sth",
+      "g": "phrv. (眼泪、笑声、歌声等)突然爆发"
+    },
+    {
+      "p": "but for",
+      "g": "idm. 若非,要不是;除了...外"
+    },
+    {
+      "p": "but then",
+      "g": "idm.然而,另一方面"
+    },
+    {
+      "p": "buy into sth",
+      "g": "phrv. 信从,相信,随大流开始相信"
+    },
+    {
+      "p": "by air",
+      "g": "collocation.乘飞机,通过航空途径"
+    },
+    {
+      "p": "by and large",
+      "g": "idm.大体上,总体上,一般来说"
+    },
+    {
+      "p": "by chance",
+      "g": "collocation. 偶然,碰巧,意外"
+    },
+    {
+      "p": "by contrast",
+      "g": "collocation. 相比之下"
+    },
+    {
+      "p": "by force",
+      "g": "collocation. 通过武力,通过暴力"
+    },
+    {
+      "p": "by hand",
+      "g": "idm. 手工地;(信件) 亲手交付"
+    },
+    {
+      "p": "by itself",
+      "g": "idm. 自动地,自主地;独自地"
+    },
+    {
+      "p": "by means of sth",
+      "g": "idm. 借助...手段,依靠...方法"
+    },
+    {
+      "p": "by mistake",
+      "g": "idm. 错误地,无意中"
+    },
+    {
+      "p": "by nature",
+      "g": "collocation. 天生地"
+    },
+    {
+      "p": "by no means",
+      "g": "idm. 决不,一点也不"
+    },
+    {
+      "p": "by the way",
+      "g": "idm. 顺便提一下,捎带说一声"
+    },
+    {
+      "p": "by virtue of sth",
+      "g": "idm. 凭借,由于"
+    },
+    {
+      "p": "by way of sth",
+      "g": "idm.路经,经过,经由idm.作为...的形式,作为...的手段"
+    },
+    {
+      "p": "by/in comparison",
+      "g": "idm. 比较起来,相比之下;相比较"
+    },
+    {
+      "p": "call for sth",
+      "g": "phrv. 需要某物;(公开) 要求某事"
+    },
+    {
+      "p": "call off",
+      "g": "phrv. 取消,停止进行"
+    },
+    {
+      "p": "call on sb",
+      "g": "usage. (短暂地) 拜访某人phrv. 要求,呼吁"
+    },
+    {
+      "p": "call out",
+      "g": "usage. 大声呼叫(以吸引注意力)"
+    },
+    {
+      "p": "call up",
+      "g": "phrv. 打电话;使回忆起,使想起"
+    },
+    {
+      "p": "cancel out",
+      "g": "phrv. 抵消,相消"
+    },
+    {
+      "p": "capture one's attention",
+      "g": "usage. 引起某人的注意"
+    },
+    {
+      "p": "care for sb",
+      "g": "phrv. 照顾,照料某人phrv. 深爱,非常喜欢某人"
+    },
+    {
+      "p": "carry out",
+      "g": "phrv. 实施 (计划),兑现 (诺言)phrv. 完成 (任务)"
+    },
+    {
+      "p": "carry sth through",
+      "g": "phrv. 成功完成,顺利实现"
+    },
+    {
+      "p": "cash a check",
+      "g": "usage.兑现支票"
+    },
+    {
+      "p": "catch one's eye",
+      "g": "idm. 引起某人注意"
+    },
+    {
+      "p": "catch up with",
+      "g": "phrv. 赶上,追上phrv. 通过交谈了解彼此的近况"
+    },
+    {
+      "p": "cater to",
+      "g": "phrv.满足,迎合(某群人的需要)"
+    },
+    {
+      "p": "cease to do",
+      "g": "usage.不再做某事"
+    },
+    {
+      "p": "center on",
+      "g": "phrv.把...当作中心"
+    },
+    {
+      "p": "chances are...",
+      "g": "idm. 很可能..."
+    },
+    {
+      "p": "characterize... as...",
+      "g": "usage. 将...描述为..."
+    },
+    {
+      "p": "charge for",
+      "g": "usage. 收费,要价"
+    },
+    {
+      "p": "charge sb with sth",
+      "g": "usage. 以...控告某人,以...起诉某人"
+    },
+    {
+      "p": "chat with sb",
+      "g": "usage. 与某人聊天"
+    },
+    {
+      "p": "check in",
+      "g": "phrv. (在旅馆、机场等) 登记phrv. 汇报,了解;托运(行李)"
+    },
+    {
+      "p": "check on",
+      "g": "phrv.核实,检查(是否一切正常)"
+    },
+    {
+      "p": "check out",
+      "g": "phrv. 结账离开;调查,查证,核实phrv. 察看,观察;(从图书馆等) 借出"
+    },
+    {
+      "p": "check up on sb",
+      "g": "phrv. 监督某人,督促某人"
+    },
+    {
+      "p": "check with sb",
+      "g": "usage. 与某人核实,与某人商量"
+    },
+    {
+      "p": "chip in",
+      "g": "phrv.共同出钱,凑份子"
+    },
+    {
+      "p": "choke up",
+      "g": "phrv.(因感情激动而)哽咽"
+    },
+    {
+      "p": "claim to do",
+      "g": "usage. 声称要做某事"
+    },
+    {
+      "p": "clean up",
+      "g": "phrv.(把...)打扫干净;清理,整顿phrv.赢钱,赚大钱,发财"
+    },
+    {
+      "p": "clear away",
+      "g": "phrv. 把...清除掉 (以留出空间) usage. (烟、雾等) 消散,散去,消失"
+    },
+    {
+      "p": "clear up",
+      "g": "phrv. 使整洁,清理;解决,解答 phrv. 放晴,变晴朗"
+    },
+    {
+      "p": "close by",
+      "g": "idm. 离...不远,在...不远处"
+    },
+    {
+      "p": "close down",
+      "g": "phrv. 停业,倒闭"
+    },
+    {
+      "p": "comb through sth",
+      "g": "usage.(在大量物件、信息中)仔细搜寻"
+    },
+    {
+      "p": "combine sth with sth",
+      "g": "usage. 使...结合,使...组合"
+    },
+    {
+      "p": "come about",
+      "g": "phrv. 发生"
+    },
+    {
+      "p": "come across",
+      "g": "phrv. 给人以...印象,使产生...印象 phrv. (偶然) 遇见,碰见,发现"
+    },
+    {
+      "p": "come along",
+      "g": "phrv. 到达,抵达,出现phrv. 跟随,跟着来;进步,进展"
+    },
+    {
+      "p": "come around",
+      "g": "phrv.再度发生,再次出现;短暂访问phrv.改变心态或观点;恢复知觉,苏醒"
+    },
+    {
+      "p": "come back to sth",
+      "g": "phrv.回到(主题、想法等)上来"
+    },
+    {
+      "p": "come by sth",
+      "g": "phrv.设法得到(或获得)"
+    },
+    {
+      "p": "come down to sth",
+      "g": "phrv.可归结为,可归纳为"
+    },
+    {
+      "p": "come in",
+      "g": "collocation.进入(某地);到达,被收到phrv.取得(某名次);变时髦,流行phrv.在...中起作用,参与;涨潮"
+    },
+    {
+      "p": "come in for sth",
+      "g": "phrv.遭到,受到"
+    },
+    {
+      "p": "come into being",
+      "g": "collocation. 开始存在"
+    },
+    {
+      "p": "come into existence",
+      "g": "collocation. 开始存在"
+    },
+    {
+      "p": "come of age",
+      "g": "idm. 成年,达到法定年龄;成熟,发达"
+    },
+    {
+      "p": "come on",
+      "g": "phrv.赶快,加把劲;得了吧,算了吧phrv.开始;开始运转(或运行)"
+    },
+    {
+      "p": "come out",
+      "g": "phrv. 出现;结果是,结局是;开花phrv. 出版,发表;(消息等)被获知phrv. 说出,讲出;公开表明"
+    },
+    {
+      "p": "come over",
+      "g": "phrv. (尤指到某人家中) 短智造访phrv. 使某人突然感觉到"
+    },
+    {
+      "p": "come through",
+      "g": "phrv.(消息等)传来;安然渡过(难关等)phrv.履行诺言,兑现承诺"
+    },
+    {
+      "p": "come to",
+      "g": "usage. 达到,进入 (某种状态) phrv. (想法等) 出现在某人的头脑里 phrv. 合计,共计,总共;达到 (某状况)"
+    },
+    {
+      "p": "come to an end",
+      "g": "collocation. 结束,终止"
+    },
+    {
+      "p": "come to know",
+      "g": "collocation.开始知道,开始了解"
+    },
+    {
+      "p": "come to light",
+      "g": "idm. 为人所知,变得众所周知,暴露"
+    },
+    {
+      "p": "come to mind",
+      "g": "idm.突然出现在脑海里,立即被想到"
+    },
+    {
+      "p": "come to the fore",
+      "g": "idm. 变得重要,变得显著"
+    },
+    {
+      "p": "come true",
+      "g": "idm. (希望、愿望等) 实现,成真"
+    },
+    {
+      "p": "come up",
+      "g": "phrv. 走到跟前;接近(期限)phrv. 即将发生;来到,马上备妥phrv. 被提及,被讨论;(植物)破土而出"
+    },
+    {
+      "p": "come up with sth",
+      "g": "phrv. 想出 (答案等),拿出 (钱款等)"
+    },
+    {
+      "p": "comment on sth",
+      "g": "usage. 对...作出评论,就...发表意见"
+    },
+    {
+      "p": "commit a crime",
+      "g": "collocation. 犯罪"
+    },
+    {
+      "p": "commit suicide",
+      "g": "usage. 自杀"
+    },
+    {
+      "p": "communicate with",
+      "g": "usage.与...交流,与...沟通"
+    },
+    {
+      "p": "compare A to B",
+      "g": "usage. 将 A 和 B 作比较usage. 认为 A 与 B 相似,将 A 比作 B"
+    },
+    {
+      "p": "compare A with B",
+      "g": "usage. 将A和B作比较"
+    },
+    {
+      "p": "compel sb to do",
+      "g": "usage.强迫某人做某事"
+    },
+    {
+      "p": "compete with/against",
+      "g": "usage. 与...竞争,与...对抗"
+    },
+    {
+      "p": "complain about/of",
+      "g": "usage. 抱怨..."
+    },
+    {
+      "p": "comply with sth",
+      "g": "usage.服从某事,遵守某事"
+    },
+    {
+      "p": "concentrate on sth",
+      "g": "usage. 全神贯注于,集中心思在"
+    },
+    {
+      "p": "conclude sth from sth",
+      "g": "usage. 从...中得出结论"
+    },
+    {
+      "p": "conclude with sth",
+      "g": "usage.以...结束,以...告终"
+    },
+    {
+      "p": "confess to sth",
+      "g": "usage.承认(尴尬或羞愧的事)"
+    },
+    {
+      "p": "conform to sth",
+      "g": "usage.顺应,顺从;遵守,遵从(规则等)usage.相一致,相吻合"
+    },
+    {
+      "p": "confuse A with B",
+      "g": "usage. 将A与B混淆"
+    },
+    {
+      "p": "congratulate sb on sth",
+      "g": "usage.因某事而祝贺某人"
+    },
+    {
+      "p": "consider... as sth",
+      "g": "usage. 认为...是"
+    },
+    {
+      "p": "consider... to be sth",
+      "g": "usage. 认为...是"
+    },
+    {
+      "p": "consist of",
+      "g": "phrv. 由...组成 (或构成),包括"
+    },
+    {
+      "p": "construction site",
+      "g": "n. 建筑工地"
+    },
+    {
+      "p": "consult sb about sth",
+      "g": "usage.向...咨询,求教,请教"
+    },
+    {
+      "p": "contempt for",
+      "g": "usage.对...的蔑视,对...的轻视"
+    },
+    {
+      "p": "contribute to sth",
+      "g": "usage.向...捐献,向...捐助usage.促使,是导致...的原因之一usage.为...做贡献"
+    },
+    {
+      "p": "convert sth into sth",
+      "g": "usage.使...转变为,使...转化为"
+    },
+    {
+      "p": "convict sb of sth",
+      "g": "usage. 宣判某人犯...罪"
+    },
+    {
+      "p": "convince sb of sth",
+      "g": "usage.使某人相信某事"
+    },
+    {
+      "p": "convince sb to do",
+      "g": "usage. 说服某人做某事"
+    },
+    {
+      "p": "cooperate with sb",
+      "g": "usage.与...合作,与...协作"
+    },
+    {
+      "p": "cope with",
+      "g": "usage. (成功地) 应付,处理"
+    },
+    {
+      "p": "correspond to sth",
+      "g": "usage.与...相符合,与...一致;相当于"
+    },
+    {
+      "p": "count on",
+      "g": "phrv. 依靠,指望"
+    },
+    {
+      "p": "count sb in",
+      "g": "phrv. 把某人算入,包括某人"
+    },
+    {
+      "p": "couple... with...",
+      "g": "phrv.把...与...结合"
+    },
+    {
+      "p": "cover sth with sth",
+      "g": "usage. 以...掩蔽,用...遮盖"
+    },
+    {
+      "p": "crash into sth",
+      "g": "usage. (因失控而) 撞上某物"
+    },
+    {
+      "p": "credit for sth",
+      "g": "usage. 对...的赞扬,...的功劳"
+    },
+    {
+      "p": "criticize... for sth",
+      "g": "usage.为某事而批评..."
+    },
+    {
+      "p": "cut away",
+      "g": "phrv.切除,割掉,砍掉,剪去"
+    },
+    {
+      "p": "cut back",
+      "g": "phrv.减少,削减,缩减"
+    },
+    {
+      "p": "cut down",
+      "g": "phrv.砍倒;削减,缩小(尺寸、数量)"
+    },
+    {
+      "p": "cut short",
+      "g": "collocation.中断,提前结束"
+    },
+    {
+      "p": "damage to",
+      "g": "usage.对...的损坏usage.对(情感、精神等的)伤害"
+    },
+    {
+      "p": "data on sth",
+      "g": "usage. 关于...的数据"
+    },
+    {
+      "p": "date back",
+      "g": "phrv.追溯到,始于,自...至今"
+    },
+    {
+      "p": "day and night",
+      "g": "idm.日日夜夜,夜以继日"
+    },
+    {
+      "p": "deal with",
+      "g": "phrv. 处理,应付;涉及,关于 phrv. 与...做生意"
+    },
+    {
+      "p": "decide on sth",
+      "g": "usage. 决定,选定"
+    },
+    {
+      "p": "decline to do",
+      "g": "usage. 婉拒做某事"
+    },
+    {
+      "p": "decorate sth with sth",
+      "g": "usage.用...装饰..."
+    },
+    {
+      "p": "define sth as sth",
+      "g": "usage. 把...定义为"
+    },
+    {
+      "p": "depart from sth",
+      "g": "phrv. 背离,违背 (传统或常规)"
+    },
+    {
+      "p": "depend on",
+      "g": "phrv. 依靠,信赖;受...影响,取决于"
+    },
+    {
+      "p": "deprive sb of sth",
+      "g": "phrv. 剥夺某人的某事物"
+    },
+    {
+      "p": "derive from sth",
+      "g": "phrv. 从...衍生出,起源于"
+    },
+    {
+      "p": "derive sth from sth",
+      "g": "phrv.从...中获得(快乐、益处等)phrv.从...中提取"
+    },
+    {
+      "p": "devote... to...",
+      "g": "usage.献身于...,致力于...;把...用于..."
+    },
+    {
+      "p": "diagnose sb with sth",
+      "g": "usage.诊断某人患有..."
+    },
+    {
+      "p": "die out",
+      "g": "phrv.灭绝,消失"
+    },
+    {
+      "p": "differ from",
+      "g": "usage. 与...相异,与...不同"
+    },
+    {
+      "p": "differ in sth",
+      "g": "usage. 在...方面不同"
+    },
+    {
+      "p": "dig out",
+      "g": "phrv. 挖掘出;找出,翻出"
+    },
+    {
+      "p": "dig up",
+      "g": "phrv. 掘起,挖掘出"
+    },
+    {
+      "p": "direct sb to sth",
+      "g": "usage. 给某人指路,为某人领路"
+    },
+    {
+      "p": "disappear from view",
+      "g": "collocation. 从视线中消失"
+    },
+    {
+      "p": "disapprove of",
+      "g": "usage. 不赞成,反对"
+    },
+    {
+      "p": "discourage sb from doing sth",
+      "g": "usage. 打消某人做某事的念头"
+    },
+    {
+      "p": "discriminate against sb",
+      "g": "usage.区别对待某人,歧视某人"
+    },
+    {
+      "p": "discrimination against sb",
+      "g": "usage. 对某人的歧视"
+    },
+    {
+      "p": "disguise... as...",
+      "g": "usage. 把...伪装成...,把...假扮成..."
+    },
+    {
+      "p": "dismiss... as sth",
+      "g": "usage. 因认为...而不予考虑"
+    },
+    {
+      "p": "dispose of",
+      "g": "phrv.丢掉,清除;解决,处理"
+    },
+    {
+      "p": "distinguish A from B",
+      "g": "usage. 区分 A 和 B"
+    },
+    {
+      "p": "distinguishoneself",
+      "g": "usage. 表现突出"
+    },
+    {
+      "p": "divide into sth",
+      "g": "usage. (使) 分开,分成"
+    },
+    {
+      "p": "do good",
+      "g": "idm.(对某人)有好处,有用处,有益"
+    },
+    {
+      "p": "do justice to",
+      "g": "idm. 公平对待...,给予公正的评价"
+    },
+    {
+      "p": "do the trick",
+      "g": "idm.奏效,起作用,达到目的"
+    },
+    {
+      "p": "donate sth to...",
+      "g": "usage.把...捐赠给(慈善机构)usage.向...献(血),向...捐献(器官)"
+    },
+    {
+      "p": "doze off",
+      "g": "phrv. (尤指在日间) 打瞌睡,打盹儿"
+    },
+    {
+      "p": "draw a conclusion",
+      "g": "collocation.得出结论,下结论"
+    },
+    {
+      "p": "draw on sth",
+      "g": "phrv.利用,动用(经验、知识等)"
+    },
+    {
+      "p": "draw sb into sth",
+      "g": "phrv.使某人卷入某事"
+    },
+    {
+      "p": "draw sb to sth",
+      "g": "usage. 吸引某人,使某人对...感兴趣"
+    },
+    {
+      "p": "draw sth from...",
+      "g": "phrv. 从...中得到,从...中获得 usage. 从...中推断出;从...取钱"
+    },
+    {
+      "p": "draw up",
+      "g": "phrv. 拟定,制订,起草;停下"
+    },
+    {
+      "p": "dress up",
+      "g": "phrv. 装扮,乔装打扮"
+    },
+    {
+      "p": "drift away",
+      "g": "collocation.散开,逐渐离开"
+    },
+    {
+      "p": "drive out",
+      "g": "phrv. 驱散,消除,使停止"
+    },
+    {
+      "p": "drive sb crazy",
+      "g": "collocation. 逼疯某人"
+    },
+    {
+      "p": "drop off",
+      "g": "usage. (开车) 顺便把...送到某处 phrv. 打盹;减少,下降"
+    },
+    {
+      "p": "drop out",
+      "g": "phrv.退出,不再参加;退学,辍学"
+    },
+    {
+      "p": "dry out",
+      "g": "phrv. (使) 变干,干透"
+    },
+    {
+      "p": "due to",
+      "g": "prep. 由于,因为"
+    },
+    {
+      "p": "early on",
+      "g": "idm. 在初期,在开始阶段,早先"
+    },
+    {
+      "p": "easier said than done",
+      "g": "idm. 说时容易做时难"
+    },
+    {
+      "p": "eat out",
+      "g": "phrv. 下馆子,在外用餐"
+    },
+    {
+      "p": "eat up",
+      "g": "phrv.吃完,吃光;(大量地)耗费,花费"
+    },
+    {
+      "p": "edge out",
+      "g": "phrv. 渐渐胜过...,逐步排挤掉..."
+    },
+    {
+      "p": "elaborate on sth",
+      "g": "usage. 详细阐述某事"
+    },
+    {
+      "p": "elect to do",
+      "g": "usage. 选择做某事,决定做某事"
+    },
+    {
+      "p": "emigrate to",
+      "g": "usage. 移民到..."
+    },
+    {
+      "p": "emphasis on sth",
+      "g": "usage.对...的强调,对...的重视"
+    },
+    {
+      "p": "employ sb to do",
+      "g": "usage.雇佣某人做某事"
+    },
+    {
+      "p": "enable sb to do",
+      "g": "usage. 使某人能够做某事"
+    },
+    {
+      "p": "encourage sb to do",
+      "g": "usage. 鼓励某人做某事usage. 怂恿某人做某事;促使某人做某事"
+    },
+    {
+      "p": "end up",
+      "g": "phrv.最终处于,到头来"
+    },
+    {
+      "p": "endangered species",
+      "g": "n. 濒危物种"
+    },
+    {
+      "p": "engage in sth",
+      "g": "phrv. 从事,参加"
+    },
+    {
+      "p": "engage sb in sth",
+      "g": "phrv. 使某人参加,使某人从事"
+    },
+    {
+      "p": "engage with",
+      "g": "usage.与...建立密切关系,尽力理解"
+    },
+    {
+      "p": "enroll in sth",
+      "g": "usage.加入,注册"
+    },
+    {
+      "p": "enthusiasm for sth",
+      "g": "usage. 对...的热爱"
+    },
+    {
+      "p": "entitle sb to do",
+      "g": "usage. 赋予某人做某事的权利(或资格)"
+    },
+    {
+      "p": "entitle sb to sth",
+      "g": "usage.给予某人...权利(或资格)"
+    },
+    {
+      "p": "equip... with sth",
+      "g": "usage. 给...装备,给...配备"
+    },
+    {
+      "p": "escape from",
+      "g": "usage. (从监禁或管制中) 逃跑,逃出 usage. (从危险处境中) 逃脱,摆脱"
+    },
+    {
+      "p": "establish oneself",
+      "g": "usage. 使自己立足,确立自己的地位"
+    },
+    {
+      "p": "ever so",
+      "g": "idm. 很,确实"
+    },
+    {
+      "p": "every bit",
+      "g": "idm.处处,从头到尾"
+    },
+    {
+      "p": "every other",
+      "g": "idm. 每隔一..."
+    },
+    {
+      "p": "excel in/at sth",
+      "g": "usage. 擅长 (某事)"
+    },
+    {
+      "p": "excellence in sth",
+      "g": "usage. 在...方面的优秀"
+    },
+    {
+      "p": "exchange A for B",
+      "g": "usage. 用A换取B"
+    },
+    {
+      "p": "exclude... from...",
+      "g": "usage. 不包括,对...不予考虑usage. 将...排斥在外"
+    },
+    {
+      "p": "excuse sb from sth",
+      "g": "usage. 同意某人免做..."
+    },
+    {
+      "p": "expertise in sth",
+      "g": "usage. 在...方面的专长"
+    },
+    {
+      "p": "expose... to...",
+      "g": "usage. 向...暴露,向...显露 usage. 使...遭受;使...接触,使...体验"
+    },
+    {
+      "p": "face up to sth",
+      "g": "phrv. 敢于面对 (困难或不快之事)"
+    },
+    {
+      "p": "factor in",
+      "g": "phrv. 把...因素包括进去"
+    },
+    {
+      "p": "fail to do",
+      "g": "usage.未能做成某事;未履行某事"
+    },
+    {
+      "p": "fair play",
+      "g": "usage. 按规则比赛,公平办事 idm. (表赞许) 做得对,公平合理"
+    },
+    {
+      "p": "fall apart",
+      "g": "phrv. 破碎,破裂;(组织、关系等) 崩溃"
+    },
+    {
+      "p": "fall back on",
+      "g": "phrv.求助于,转而依靠"
+    },
+    {
+      "p": "fall behind",
+      "g": "phrv.落后于...,落在...后面"
+    },
+    {
+      "p": "fall for sth",
+      "g": "phrv.对...信以为真,上...的当"
+    },
+    {
+      "p": "fall ill",
+      "g": "collocation. 生病"
+    },
+    {
+      "p": "fall into disuse",
+      "g": "collocation. 被弃用,被废弃"
+    },
+    {
+      "p": "fall into sth",
+      "g": "usage. 进入某状态,开始变成某事物 phrv. 可以分为,能够分成"
+    },
+    {
+      "p": "fall out",
+      "g": "phrv. 掉落,脱落;吵翻,闹翻"
+    },
+    {
+      "p": "fall short of sth",
+      "g": "idm. 达不到 (目的、期望、标准)"
+    },
+    {
+      "p": "fall victim to sth",
+      "g": "idm. 成为...的受害者"
+    },
+    {
+      "p": "far from sth",
+      "g": "usage. 远离... idm. 远非...,完全不..."
+    },
+    {
+      "p": "far too",
+      "g": "collocation. 非常,很大程度上"
+    },
+    {
+      "p": "fare well",
+      "g": "usage. (在某事上) 成功"
+    },
+    {
+      "p": "fasten A to B",
+      "g": "usage.把A系到B上"
+    },
+    {
+      "p": "fear for",
+      "g": "usage. 为...担心,为...担忧"
+    },
+    {
+      "p": "federal government",
+      "g": "n. 联邦政府"
+    },
+    {
+      "p": "feed on/off sth",
+      "g": "phrv. 因...而壮大,从...中得到滋养 phrv. (动物) 以...为食"
+    },
+    {
+      "p": "feel at home",
+      "g": "idm. 舒适自在,无拘无束 idm. 驾轻就熟,运用自如"
+    },
+    {
+      "p": "feel free to do",
+      "g": "collocation. 请随意做某事"
+    },
+    {
+      "p": "feel obliged to do",
+      "g": "collocation. 感到必须做某事"
+    },
+    {
+      "p": "fight off",
+      "g": "phrv. 抵抗...,击退..."
+    },
+    {
+      "p": "figure out",
+      "g": "phrv. 弄懂,弄清楚,想出 phrv. 计算出 (数量或成本)"
+    },
+    {
+      "p": "file for sth",
+      "g": "usage. 提起 (诉讼),提出 (申请)"
+    },
+    {
+      "p": "fill in",
+      "g": "phrv. 填写 (正式文件、表格等) phrv. 填满,塞满;暂时代替"
+    },
+    {
+      "p": "fill out",
+      "g": "phrv. 填写 (表格等);扩张,长胖"
+    },
+    {
+      "p": "fill sb up",
+      "g": "usage. 使某人吃饱"
+    },
+    {
+      "p": "fill up",
+      "g": "phrv. 充满,填满,装满"
+    },
+    {
+      "p": "find fault",
+      "g": "idm. 对...找碴儿,对...挑刺儿"
+    },
+    {
+      "p": "fine art",
+      "g": "usage. 艺术,美术 (尤指绘画和雕塑)"
+    },
+    {
+      "p": "first and foremost",
+      "g": "idm. 首先,首要的是"
+    },
+    {
+      "p": "fish out",
+      "g": "phrv. 取出,掏出"
+    },
+    {
+      "p": "fit into sth",
+      "g": "usage. (使) 与...一致,和...相称,符合"
+    },
+    {
+      "p": "flood sth with sth",
+      "g": "usage. 使某地充满某物"
+    },
+    {
+      "p": "focus on",
+      "g": "usage. 集中(注意力、精力等)于"
+    },
+    {
+      "p": "follow one's example",
+      "g": "collocation.以...为榜样"
+    },
+    {
+      "p": "follow suit",
+      "g": "idm. 效仿,照做"
+    },
+    {
+      "p": "follow through",
+      "g": "phrv. 把...进行到底,坚持完成"
+    },
+    {
+      "p": "follow up",
+      "g": "phrv. 对...采取进一步行动 phrv. 跟进,追查 (更多的信息)"
+    },
+    {
+      "p": "for a while",
+      "g": "collocation. 一会儿,一段时间"
+    },
+    {
+      "p": "for ages",
+      "g": "collocation. 很长时间,很久"
+    },
+    {
+      "p": "for all",
+      "g": "idm. 尽管,虽然"
+    },
+    {
+      "p": "for better or worse",
+      "g": "idm. 不论好坏,不管是福是祸"
+    },
+    {
+      "p": "for certain",
+      "g": "idm. 确定地,无疑地"
+    },
+    {
+      "p": "for fear of sth",
+      "g": "idm. 唯恐,以免 (发生危险)"
+    },
+    {
+      "p": "for free",
+      "g": "collocation. 免费的"
+    },
+    {
+      "p": "for good",
+      "g": "idm. 永远,永久"
+    },
+    {
+      "p": "for instance",
+      "g": "idm.例如,比如说"
+    },
+    {
+      "p": "for life",
+      "g": "collocation. 终身"
+    },
+    {
+      "p": "for one thing",
+      "g": "idm. 首先,一来,一方面"
+    },
+    {
+      "p": "for one's part",
+      "g": "idm. 就 (某人) 而言"
+    },
+    {
+      "p": "for short",
+      "g": "collocation.作为简称,作为缩写"
+    },
+    {
+      "p": "for starters",
+      "g": "idm. 首先,作为开头"
+    },
+    {
+      "p": "for the better",
+      "g": "idm. 有所好转"
+    },
+    {
+      "p": "for the moment",
+      "g": "idm. 目前,暂时"
+    },
+    {
+      "p": "for the most part",
+      "g": "idm. 多半,大体上,通常"
+    },
+    {
+      "p": "for the sake of",
+      "g": "idm. 为了...的缘故"
+    },
+    {
+      "p": "for the time being",
+      "g": "idm. 暂时,目前"
+    },
+    {
+      "p": "for/in the foreseeable future",
+      "g": "idm. 在可预见的将来"
+    },
+    {
+      "p": "forbid sb to do",
+      "g": "usage. 禁止某人做某事"
+    },
+    {
+      "p": "force sb to do",
+      "g": "usage.强迫某人做某事"
+    },
+    {
+      "p": "free of charge",
+      "g": "collocation. 免费的"
+    },
+    {
+      "p": "frighten...away/off",
+      "g": "phrv.把...吓跑,吓得...不敢做"
+    },
+    {
+      "p": "from a... perspective",
+      "g": "collocation. 从...的角度来看"
+    },
+    {
+      "p": "from afar",
+      "g": "idm. 从远处"
+    },
+    {
+      "p": "from scratch",
+      "g": "idm. 从头开始,白手起家"
+    },
+    {
+      "p": "function as",
+      "g": "phrv. 起...作用,具有...功能"
+    },
+    {
+      "p": "furnish... with sth",
+      "g": "usage. 向...提供某物"
+    },
+    {
+      "p": "gain from sth",
+      "g": "usage. 从...中受益"
+    },
+    {
+      "p": "gain the upper hand",
+      "g": "idm. 占上风,占优势,有控制权"
+    },
+    {
+      "p": "gaze at",
+      "g": "collocation. 凝视着,盯着看"
+    },
+    {
+      "p": "get across",
+      "g": "phrv. 解释清楚,传达"
+    },
+    {
+      "p": "get ahead",
+      "g": "phrv. 走在前面,领先"
+    },
+    {
+      "p": "get around",
+      "g": "phrv. 传播,流传,各处走动 phrv. 解决,克服;笼络或哄骗"
+    },
+    {
+      "p": "get back to sb",
+      "g": "phrv. 以后再答复 (或回复) 某人"
+    },
+    {
+      "p": "get by",
+      "g": "phrv. 维持生计,勉强应付"
+    },
+    {
+      "p": "get hold of sth",
+      "g": "idm. 找到所需要的东西;学会,理解"
+    },
+    {
+      "p": "get in the way",
+      "g": "idm. 挡...的路,妨碍"
+    },
+    {
+      "p": "get into sth",
+      "g": "phrv. 被录取;开始从事 (某职业);穿上 phrv. 参与,开始;陷入 (麻烦等) phrv. 养成某种习惯;对...产生兴趣"
+    },
+    {
+      "p": "get off",
+      "g": "phrv.(使某人)离开,出发,动身phrv.下车(或飞机、火车等);下班"
+    },
+    {
+      "p": "get on with sth",
+      "g": "phrv. (问及工作情况) 进展,进步 phrv. (尤指中断后) 继续做某事"
+    },
+    {
+      "p": "get on/along with sb",
+      "g": "phrv.(与某人)和睦相处,关系良好"
+    },
+    {
+      "p": "get out",
+      "g": "phrv. 从...出来 phr. 泄露,被人知道"
+    },
+    {
+      "p": "get out of sth",
+      "g": "phrv. 逃避,摆脱 (责任或义务) phrv. 放弃,戒除"
+    },
+    {
+      "p": "get over",
+      "g": "phrv. 解决,克服,控制 phrv. 从 (不愉快的经历) 中恢复常态"
+    },
+    {
+      "p": "get rid of",
+      "g": "idm. 摆脱,丢弃,赶走"
+    },
+    {
+      "p": "get sb wrong",
+      "g": "idm. 误解某人的意思"
+    },
+    {
+      "p": "get sth down",
+      "g": "phrv. 记录...,记下..."
+    },
+    {
+      "p": "get through",
+      "g": "phrv.挺过来,熬过来,渡过(难关)phrv.(使)正式通过,获得采纳;处理"
+    },
+    {
+      "p": "get through to sb",
+      "g": "phrv. (用电话) 打通,联系上 phrv. 使某人理解 (所讲的话)"
+    },
+    {
+      "p": "give away",
+      "g": "phrv. 赠送,捐赠;泄露,暴露"
+    },
+    {
+      "p": "give birth to",
+      "g": "idm. 生孩子,产崽"
+    },
+    {
+      "p": "give in",
+      "g": "phrv. 认输,投降;屈从,让步"
+    },
+    {
+      "p": "give off sth",
+      "g": "phrv. 发出,放出 (气味、热、光等)"
+    },
+    {
+      "p": "give out",
+      "g": "phrv.发出,放出(气味、热、光等)phrv.用完,耗尽;停止运行或运转phrv.分发,散发;公布,宣布"
+    },
+    {
+      "p": "give priority to",
+      "g": "collocation.优先考虑...,给...优先权"
+    },
+    {
+      "p": "give rise to sth",
+      "g": "idm.导致,引起,使...发生"
+    },
+    {
+      "p": "give way to",
+      "g": "idm. 被...代替;屈服,退让,让步idm. 让自己陷于 (某种情绪等)"
+    },
+    {
+      "p": "glance at",
+      "g": "usage.瞥一眼,扫视collocation.浏览,粗略地看"
+    },
+    {
+      "p": "go after",
+      "g": "phrv.追赶某人,跟在某人后面phrv.追求某人,谋求某事(或某物)"
+    },
+    {
+      "p": "go against",
+      "g": "phrv. 反抗 (或反对),与...相背 phrv. 违反,与...不符 (或相反)"
+    },
+    {
+      "p": "go along with",
+      "g": "phrv.和...观点一致,赞同..."
+    },
+    {
+      "p": "go bad",
+      "g": "collocation. 变质,腐烂"
+    },
+    {
+      "p": "go beyond sth",
+      "g": "phrv. 超过 (或超出) 某事"
+    },
+    {
+      "p": "go by",
+      "g": "phrv. (时间) 流逝,过去 phrv. 遵循 (或依照) 某事"
+    },
+    {
+      "p": "go for",
+      "g": "phrv. 适用于;选择某物 phrv. 努力争取;被...所吸引"
+    },
+    {
+      "p": "go into sth",
+      "g": "phrv. 加入某组织,从事某职业 phrv. 开始,进入 (某种状态或情况) phrv. 详细解释;(金钱等) 投入某事"
+    },
+    {
+      "p": "go on",
+      "g": "phrv. 发生;(形势等) 继续下去 phrv. (停顿后) 继续说;继续做 (某事)"
+    },
+    {
+      "p": "go on sth",
+      "g": "usage. 去做 (某事)"
+    },
+    {
+      "p": "go on to do",
+      "g": "phrv. (完成某事后) 接着做另一事"
+    },
+    {
+      "p": "go on to sth",
+      "g": "phrv. 进而转入另外一件事"
+    },
+    {
+      "p": "go out",
+      "g": "phrv. 外出交际,出门参加社交活动 phrv. (火或灯光) 熄灭;过时,不再流行"
+    },
+    {
+      "p": "go out of one's way",
+      "g": "idm. 特意,专门,不怕麻烦,尽力地"
+    },
+    {
+      "p": "go out with sb",
+      "g": "phrv.(尤指年轻人)与某人谈恋爱"
+    },
+    {
+      "p": "go over",
+      "g": "phrv. 仔细检查;反复研究,仔细琢磨 phrv. 从一处到 (另一处)"
+    },
+    {
+      "p": "go sightseeing",
+      "g": "collocation. 去观光,游览"
+    },
+    {
+      "p": "go too far",
+      "g": "idm. (将某事) 做得太过分"
+    },
+    {
+      "p": "go wild",
+      "g": "collocation. (气得或喜得) 发狂"
+    },
+    {
+      "p": "go without",
+      "g": "phrv. 没有...而勉强应付"
+    },
+    {
+      "p": "go wrong",
+      "g": "idm. 发生故障;出现问题,遇到困难 idm. 犯错误,做错事,搞错"
+    },
+    {
+      "p": "graduate from",
+      "g": "usage. 从...毕业"
+    },
+    {
+      "p": "green hand",
+      "g": "collocation. 初出茅庐者,新手"
+    },
+    {
+      "p": "guard against sth",
+      "g": "phrv. 防止,防范,提防 (某事)"
+    },
+    {
+      "p": "hand down",
+      "g": "phrv. 把某事物传下去,传给 (后代) phrv. 正式宣布,公布"
+    },
+    {
+      "p": "hand in",
+      "g": "phrv. 提交,呈交,上交"
+    },
+    {
+      "p": "hand in hand",
+      "g": "idm. 手拉手;紧密相连,息息相关"
+    },
+    {
+      "p": "hand over",
+      "g": "phrv. 把 (权力或责任) 移交phrv. 把...正式交给 (某人)"
+    },
+    {
+      "p": "hang about/around",
+      "g": "phrv. (在某处附近) 等待,逗留,闲荡"
+    },
+    {
+      "p": "hang on",
+      "g": "phrv. 等一下;别挂电话 phrv. (在逆境中) 坚持,不放弃"
+    },
+    {
+      "p": "happen to do",
+      "g": "usage. 碰巧...,恰好..."
+    },
+    {
+      "p": "hard feelings",
+      "g": "idm. 生气,敌意,愤怒"
+    },
+    {
+      "p": "have a bearing on sth",
+      "g": "usage. 对某事有影响"
+    },
+    {
+      "p": "have a word with sb",
+      "g": "collocation.和某人说几句话"
+    },
+    {
+      "p": "have an impact on",
+      "g": "collocation. 对...有影响"
+    },
+    {
+      "p": "have an influence on",
+      "g": "collocation. 对...有影响力"
+    },
+    {
+      "p": "have mixed feelings",
+      "g": "collocation. 百感交集"
+    },
+    {
+      "p": "have nothing to do with",
+      "g": "idm. 与...毫不相干,与...无关"
+    },
+    {
+      "p": "have something to do with",
+      "g": "idm. 与...有关"
+    },
+    {
+      "p": "have sth in common",
+      "g": "idm.有共同之处"
+    },
+    {
+      "p": "have the nerve to do",
+      "g": "collocation. 厚颜无耻地做某事"
+    },
+    {
+      "p": "have trouble doing sth",
+      "g": "usage.做...有困难"
+    },
+    {
+      "p": "have... in mind",
+      "g": "idm. 心中有适当人选 (或想做的事等)"
+    },
+    {
+      "p": "head for/towards",
+      "g": "collocation. 朝...行进"
+    },
+    {
+      "p": "heat up",
+      "g": "phrv. 激烈起来,更加活跃 phrv. (使)变热,(把...)加热"
+    },
+    {
+      "p": "help out",
+      "g": "phrv. 帮助...摆脱 (困境),帮助...做事"
+    },
+    {
+      "p": "help yourself",
+      "g": "usage. 自己取 (尤指食物等)"
+    },
+    {
+      "p": "hesitate to do",
+      "g": "usage. (因有顾虑而) 不愿做某事"
+    },
+    {
+      "p": "hit on sth",
+      "g": "phrv. 突然想出 (好主意)"
+    },
+    {
+      "p": "hold back",
+      "g": "phrv. 拦阻,阻挡;妨碍进展phrv. 抑制 (感情等);(使) 犹豫,踌躇"
+    },
+    {
+      "p": "hold down",
+      "g": "phrv. 按住 (某人) phrv. 使保持低水平;保住 (工作、职位)"
+    },
+    {
+      "p": "hold on",
+      "g": "phrv. 等一下,等等;别挂断,等一下 phrv. 坚持住,挺住;固定"
+    },
+    {
+      "p": "hold up",
+      "g": "phrv. 支撑,举起;支持住,承受住phrv. 耽搁,阻延;持枪抢劫phrv. 举出 (例子),(作为榜样) 提出"
+    },
+    {
+      "p": "home and abroad",
+      "g": "collocation. 国内外"
+    },
+    {
+      "p": "how come",
+      "g": "idm. 怎么回事"
+    },
+    {
+      "p": "I bet",
+      "g": "usage.我敢说...,我敢肯定..."
+    },
+    {
+      "p": "identify... with...",
+      "g": "phrv.认为...等同于phrv.与...有密切关联,支持"
+    },
+    {
+      "p": "idle away",
+      "g": "phrv. 虚度 (光阴),消磨 (时间)"
+    },
+    {
+      "p": "if only",
+      "g": "idm.要是...就好了,但愿"
+    },
+    {
+      "p": "ignorance of/about sth",
+      "g": "usage. 对...的无知 (或不了解)"
+    },
+    {
+      "p": "implications for sth",
+      "g": "usage. 对...可能的影响或后果"
+    },
+    {
+      "p": "impose sth on...",
+      "g": "usage. 强制实行,强加usage. 把(看法、信仰)强加于某人"
+    },
+    {
+      "p": "impress sb with...",
+      "g": "usage. 用...给某人留下深刻的印象"
+    },
+    {
+      "p": "in a dilemma",
+      "g": "usage. 处于进退两难的境地"
+    },
+    {
+      "p": "in a mess",
+      "g": "phr. 杂乱的,一团糟的phr. 混乱的,有麻烦的,陷入困境的"
+    },
+    {
+      "p": "in a moment",
+      "g": "collocation. 稍后,马上"
+    },
+    {
+      "p": "in a row",
+      "g": "collocation.成一行(或一排、一列)idm.连续地,接连地"
+    },
+    {
+      "p": "in a sense",
+      "g": "collocation. 从某种意义上说"
+    },
+    {
+      "p": "in a way",
+      "g": "idm. 在某种程度上"
+    },
+    {
+      "p": "in a whisper",
+      "g": "collocation. 低声地,悄声地"
+    },
+    {
+      "p": "in a... fashion",
+      "g": "idm. 以...方式"
+    },
+    {
+      "p": "in action",
+      "g": "idm. 在活动中,在运转 collocation. 在战斗中,在作战时"
+    },
+    {
+      "p": "in addition",
+      "g": "idm. 此外,另外"
+    },
+    {
+      "p": "in advance",
+      "g": "idm. 事先,提前"
+    },
+    {
+      "p": "in agreement",
+      "g": "usage. (意见或看法) 一致的"
+    },
+    {
+      "p": "in all",
+      "g": "idm. 总共,共计"
+    },
+    {
+      "p": "in any case",
+      "g": "idm. 无论如何,不管怎样"
+    },
+    {
+      "p": "in any event",
+      "g": "idm.不管怎样,无论如何"
+    },
+    {
+      "p": "in any way",
+      "g": "idm. 以任何方式"
+    },
+    {
+      "p": "in between",
+      "g": "usage. 在中间,当中"
+    },
+    {
+      "p": "in brief",
+      "g": "idm.简言之,一言以蔽之"
+    },
+    {
+      "p": "in business",
+      "g": "collocation.在经营中,在商界"
+    },
+    {
+      "p": "in case",
+      "g": "idm.以防,万一,如果"
+    },
+    {
+      "p": "in case of sth",
+      "g": "idm. 如果,假使"
+    },
+    {
+      "p": "in cash",
+      "g": "collocation. 用现金(支付)"
+    },
+    {
+      "p": "in charge of",
+      "g": "collocation. 负责...的,主管...的"
+    },
+    {
+      "p": "in collaboration with sb",
+      "g": "usage.与某人合作"
+    },
+    {
+      "p": "in common with",
+      "g": "idm. 与...相同"
+    },
+    {
+      "p": "in conjunction with",
+      "g": "idm. 连同...,与...共同"
+    },
+    {
+      "p": "in connection with",
+      "g": "idm. 与...有关"
+    },
+    {
+      "p": "in contact",
+      "g": "collocation.与...有联络"
+    },
+    {
+      "p": "in contrast",
+      "g": "collocation. 与此相反,相反地"
+    },
+    {
+      "p": "in contrast to",
+      "g": "collocation. 与...形成对照"
+    },
+    {
+      "p": "in danger of sth",
+      "g": "collocation.有...的危险"
+    },
+    {
+      "p": "in debt",
+      "g": "collocation.处于负债状态"
+    },
+    {
+      "p": "in demand",
+      "g": "idm. 很受欢迎,需求量大"
+    },
+    {
+      "p": "in depth",
+      "g": "idm. 全面地,深入地,详细地"
+    },
+    {
+      "p": "in detail",
+      "g": "collocation. 详细地"
+    },
+    {
+      "p": "in disguise",
+      "g": "collocation. 伪装的,乔装的"
+    },
+    {
+      "p": "in effect",
+      "g": "idm. 实际上,事实上idm. (法律或规则)在实施中,有效"
+    },
+    {
+      "p": "in exchange for sth",
+      "g": "collocation. 作为对...的交换"
+    },
+    {
+      "p": "in existence",
+      "g": "collocation. 现有的,现实存在的"
+    },
+    {
+      "p": "in fashion",
+      "g": "collocation. 流行的,时尚的"
+    },
+    {
+      "p": "in favor of",
+      "g": "idm.赞同,支持"
+    },
+    {
+      "p": "in general",
+      "g": "idm. 通常,在多数情况下 idm. 整体上看,总体来说"
+    },
+    {
+      "p": "in good faith",
+      "g": "idm. 出于善意,诚心诚意地"
+    },
+    {
+      "p": "in groups",
+      "g": "collocation.以组的方式,以群的方式"
+    },
+    {
+      "p": "in hand",
+      "g": "idm. 在手头,可供使用;正在处理中"
+    },
+    {
+      "p": "in harmony with",
+      "g": "collocation. 与...和谐,和...协调"
+    },
+    {
+      "p": "in honor of",
+      "g": "idm. 为向...表示敬意"
+    },
+    {
+      "p": "in itself",
+      "g": "idm. 它本身,本质上"
+    },
+    {
+      "p": "in large part",
+      "g": "idm. 在很大程度上"
+    },
+    {
+      "p": "in light of sth",
+      "g": "idm. 考虑到,鉴于"
+    },
+    {
+      "p": "in line with sth",
+      "g": "idm.与某事物一致,按照某事物"
+    },
+    {
+      "p": "in memory of sb",
+      "g": "idm. 作为对某人的纪念"
+    },
+    {
+      "p": "in nature",
+      "g": "collocation. 本质上;在大自然中"
+    },
+    {
+      "p": "in need",
+      "g": "collocation. 在穷困中,在危难中"
+    },
+    {
+      "p": "in need of",
+      "g": "collocation. 需要...的"
+    },
+    {
+      "p": "in no time",
+      "g": "idm.很快,马上"
+    },
+    {
+      "p": "in office",
+      "g": "collocation. 在任,在位"
+    },
+    {
+      "p": "in one",
+      "g": "idm. 集于一身,多功能,多用途"
+    },
+    {
+      "p": "in operation",
+      "g": "idm. 工作中,使用中,有效"
+    },
+    {
+      "p": "in other words",
+      "g": "idm.换句话说,也就是说,换言之"
+    },
+    {
+      "p": "in pairs",
+      "g": "idm. 成对的,成双的"
+    },
+    {
+      "p": "in part",
+      "g": "idm. 部分地,在某种程度上"
+    },
+    {
+      "p": "in particular",
+      "g": "idm.尤其,特别,格外idm.特殊的,专门的,具体的"
+    },
+    {
+      "p": "in peace",
+      "g": "collocation.和平地,太平地"
+    },
+    {
+      "p": "in person",
+      "g": "idm. 当面,亲自"
+    },
+    {
+      "p": "in place",
+      "g": "idm. 在合适的位置,到位 idm. 被启用,在工作"
+    },
+    {
+      "p": "in place of",
+      "g": "idm. 代替,顶替"
+    },
+    {
+      "p": "in principle",
+      "g": "idm.原则上,理论上;大体上,基本上"
+    },
+    {
+      "p": "in prison",
+      "g": "collocation. 在监狱里,坐牢"
+    },
+    {
+      "p": "in private",
+      "g": "idm. 私下地,单独地"
+    },
+    {
+      "p": "in proportion to sth",
+      "g": "collocation. 与...成比例"
+    },
+    {
+      "p": "in public",
+      "g": "idm. 公开地,当众"
+    },
+    {
+      "p": "in pursuit of sth",
+      "g": "collocation.追求,寻求"
+    },
+    {
+      "p": "in question",
+      "g": "idm. 正被讨论的;有疑问的,不确定的"
+    },
+    {
+      "p": "in reality",
+      "g": "idm. 实际上,事实上"
+    },
+    {
+      "p": "in relation to",
+      "g": "collocation. 关于...,涉及..."
+    },
+    {
+      "p": "in response to",
+      "g": "collocation. 对...的回答 (或答复) collocation. 对...的反应 (或响应)"
+    },
+    {
+      "p": "in return",
+      "g": "idm.作为回报,作为交换;作为回应"
+    },
+    {
+      "p": "in search of",
+      "g": "collocation.为寻找..."
+    },
+    {
+      "p": "in shape",
+      "g": "collocation. 身体或事物状况良好"
+    },
+    {
+      "p": "in short",
+      "g": "idm.简而言之,总之"
+    },
+    {
+      "p": "in short supply",
+      "g": "idm.短缺,供应不足"
+    },
+    {
+      "p": "in silence",
+      "g": "collocation.沉默地,不说话地"
+    },
+    {
+      "p": "in some ways",
+      "g": "idm. 在某种程度上"
+    },
+    {
+      "p": "in spite of sth",
+      "g": "idm. 尽管,不顾"
+    },
+    {
+      "p": "in sum",
+      "g": "idm. 总而言之,总之"
+    },
+    {
+      "p": "in support of",
+      "g": "collocation. 支持,拥护,鼓励"
+    },
+    {
+      "p": "in tears",
+      "g": "collocation. 哭泣,流泪"
+    },
+    {
+      "p": "in terms of sth",
+      "g": "idm. 就...而言,在...方面"
+    },
+    {
+      "p": "in that case",
+      "g": "idm. 既然那样,那样的话"
+    },
+    {
+      "p": "in the absence of",
+      "g": "collocation. 不存在...,没有...,缺乏..."
+    },
+    {
+      "p": "in the act",
+      "g": "idm. 正在(做某事),当场"
+    },
+    {
+      "p": "in the background",
+      "g": "collocation. 在背景里;在幕后"
+    },
+    {
+      "p": "in the case of sth",
+      "g": "usage. 在...的情况下,就...而言"
+    },
+    {
+      "p": "in the company of sb",
+      "g": "usage. 在某人的陪伴下"
+    },
+    {
+      "p": "in the course of",
+      "g": "idm. 在...期间,在...的时候"
+    },
+    {
+      "p": "in the distance",
+      "g": "idm. 在远处,在远方"
+    },
+    {
+      "p": "in the event of sth",
+      "g": "idm.如果...发生,万一,倘若"
+    },
+    {
+      "p": "in the face of sth",
+      "g": "idm. 面对某事物(指问题、困难等)"
+    },
+    {
+      "p": "in the first place",
+      "g": "idm. 当初,一开始;(用于句首) 第一"
+    },
+    {
+      "p": "in the form of",
+      "g": "collocation. 以...的形式"
+    },
+    {
+      "p": "in the habit of doing sth",
+      "g": "collocation. 有做某事的习惯"
+    },
+    {
+      "p": "in the hope of/that...",
+      "g": "idm. 抱着...的希望"
+    },
+    {
+      "p": "in the long run",
+      "g": "idm. 从长远来看"
+    },
+    {
+      "p": "in the long term",
+      "g": "idm. 从长远来看"
+    },
+    {
+      "p": "in the main",
+      "g": "idm. 大体上,基本上"
+    },
+    {
+      "p": "in the matter of",
+      "g": "idm. 至于,关于,在...方面"
+    },
+    {
+      "p": "in the meantime",
+      "g": "idm.在此期间,与此同时"
+    },
+    {
+      "p": "in the middle of sth",
+      "g": "usage. 在...的中间idm. 在...期间,在...过程中"
+    },
+    {
+      "p": "in the mood",
+      "g": "collocation.有做某事的心情,有意做某事"
+    },
+    {
+      "p": "in the name of",
+      "g": "idm. 以...的名义,以...为借口"
+    },
+    {
+      "p": "in the presence of",
+      "g": "idm.在某人面前;在...的情况下"
+    },
+    {
+      "p": "in the short term",
+      "g": "idm.在短期内"
+    },
+    {
+      "p": "in the wake of",
+      "g": "idm. 随...之后而来,跟随在...后"
+    },
+    {
+      "p": "in the way",
+      "g": "idm. 妨碍,挡着...的路"
+    },
+    {
+      "p": "in the way of sth",
+      "g": "idm. 关于,就...而言"
+    },
+    {
+      "p": "in theory",
+      "g": "idm. 从理论上说,按理说"
+    },
+    {
+      "p": "in time",
+      "g": "idm. 及时,来得及"
+    },
+    {
+      "p": "in total",
+      "g": "collocation. 总共,总计"
+    },
+    {
+      "p": "in truth",
+      "g": "idm. 的确,事实上"
+    },
+    {
+      "p": "in turn",
+      "g": "idm. 依次,轮流,逐个;相应地,转而"
+    },
+    {
+      "p": "in use",
+      "g": "collocation. 在使用中"
+    },
+    {
+      "p": "in vain",
+      "g": "idm.徒劳,白费力气"
+    },
+    {
+      "p": "in view of sth",
+      "g": "idm.鉴于,考虑到"
+    },
+    {
+      "p": "in... respect",
+      "g": "collocation. 在...方面"
+    },
+    {
+      "p": "incorporate sth into sth",
+      "g": "usage. 把...并入,把...包含进"
+    },
+    {
+      "p": "indifference to",
+      "g": "usage. 对...缺乏兴趣,对...漠不关心"
+    },
+    {
+      "p": "infect...with sth",
+      "g": "usage.使...感染(疾病、电脑病毒)usage.使...受(情绪等的)感染"
+    },
+    {
+      "p": "infer sth from sth",
+      "g": "usage. 从...推断,从...推理"
+    },
+    {
+      "p": "inform sb of sth",
+      "g": "usage.通知,告知某人某事"
+    },
+    {
+      "p": "inherit sth from sb",
+      "g": "usage. 从某人继承 (金钱或财产)usage. 经遗传获得 (特征、特质等)"
+    },
+    {
+      "p": "innovation in sth",
+      "g": "usage.在...方面的革新usage.在...方面的新方法"
+    },
+    {
+      "p": "inquire about",
+      "g": "usage. 询问,打听 (某事)"
+    },
+    {
+      "p": "insist on doing sth",
+      "g": "phrv.执意做(令人讨厌的事)usage.坚决要求做某事"
+    },
+    {
+      "p": "inspire sb to do",
+      "g": "usage. 激励某人做某事"
+    },
+    {
+      "p": "instruct sb to do",
+      "g": "usage. 指示某人做某事"
+    },
+    {
+      "p": "integrate into",
+      "g": "usage.(使)合并,与...成为一体usage.(使)融入群体,(使)融入社会"
+    },
+    {
+      "p": "intend to do",
+      "g": "usage. 打算做某事"
+    },
+    {
+      "p": "interact with",
+      "g": "usage.相互交流,相互沟通usage.相互作用,相互影响"
+    },
+    {
+      "p": "interfere in sth",
+      "g": "usage. 干涉某事,介入某事"
+    },
+    {
+      "p": "interfere with sth",
+      "g": "phrv. 妨碍某事,干扰某事;弄坏(器材)"
+    },
+    {
+      "p": "interference in sth",
+      "g": "usage. 对...的干涉,对...的介入"
+    },
+    {
+      "p": "interpersonal relationship",
+      "g": "n. 人际关系"
+    },
+    {
+      "p": "interpret sth as sth",
+      "g": "usage.把...理解为,把...解释为"
+    },
+    {
+      "p": "intervene in sth",
+      "g": "usage.干预,介入"
+    },
+    {
+      "p": "into action",
+      "g": "idm. 实行,实施"
+    },
+    {
+      "p": "introduce... to...",
+      "g": "usage. 把...介绍给...;推行,实施 usage. 使初次了解,使尝试 usage. 引进 (动植物),传入 (疾病)"
+    },
+    {
+      "p": "invest in sth",
+      "g": "usage.投资"
+    },
+    {
+      "p": "investment in sth",
+      "g": "usage. 对...的投资"
+    },
+    {
+      "p": "involve sb in sth",
+      "g": "phrv. 把某人牵扯到某事里 usage. 使某人参与 (或介入)"
+    },
+    {
+      "p": "irrespective of sth",
+      "g": "usage.不顾,不考虑,不论"
+    },
+    {
+      "p": "isolate... from...",
+      "g": "usage. 使孤立,使隔离;使离析"
+    },
+    {
+      "p": "it's no use doing sth",
+      "g": "idm. 做某事没有意义"
+    },
+    {
+      "p": "job offer",
+      "g": "n. 工作邀约,工作机会"
+    },
+    {
+      "p": "join in",
+      "g": "phrv. 参加,加入(活动)"
+    },
+    {
+      "p": "judging by/from sth",
+      "g": "usage.依据...来判断"
+    },
+    {
+      "p": "jump the lights",
+      "g": "idm. 闯红灯"
+    },
+    {
+      "p": "keep (on) doing sth",
+      "g": "usage. 继续,重复做某事"
+    },
+    {
+      "p": "keep a diary",
+      "g": "collocation. 写日记"
+    },
+    {
+      "p": "keep a promise",
+      "g": "collocation.信守诺言"
+    },
+    {
+      "p": "keep a record",
+      "g": "collocation. 留有记录"
+    },
+    {
+      "p": "keep an eye on",
+      "g": "idm. 照看,留神,留意"
+    },
+    {
+      "p": "keep fit",
+      "g": "collocation. 保持健康"
+    },
+    {
+      "p": "keep in touch",
+      "g": "idm.保持联系;了解...的最新情况"
+    },
+    {
+      "p": "keep pace with",
+      "g": "idm. 与...并驾齐驱,与...步调一致"
+    },
+    {
+      "p": "keep sb from sth",
+      "g": "usage. 保护某人免于... phrv. 忍住不做某事;阻止某人做某事"
+    },
+    {
+      "p": "keep sth in check",
+      "g": "idm. 控制,制止"
+    },
+    {
+      "p": "keep to sth",
+      "g": "phrv. 不偏离道路等;不偏离 (主题) phrv. 遵守 (诺言等);坚守,不离开"
+    },
+    {
+      "p": "keep track of",
+      "g": "idm. 了解...的动态"
+    },
+    {
+      "p": "keep up with",
+      "g": "phrv. (与...)齐步前进,并驾齐驱 phrv. 熟悉,了解 (消息等);继续做"
+    },
+    {
+      "p": "kick around",
+      "g": "phrv. 非正式谈论某事"
+    },
+    {
+      "p": "kick in",
+      "g": "phrv. 开始生效 (或见效);捐献,捐助"
+    },
+    {
+      "p": "kick off",
+      "g": "phrv. (会议、活动) 开始;踢开,踢掉"
+    },
+    {
+      "p": "kill off",
+      "g": "phrv. 大量杀死 (动植物等) phrv. 使某事物停止,除掉,排除"
+    },
+    {
+      "p": "kill time",
+      "g": "idm. 打发时间"
+    },
+    {
+      "p": "knock down",
+      "g": "phrv. 打倒 (或击倒、撞倒) 某人 phrv. 推倒 (或拆掉、拆毁) 建筑物"
+    },
+    {
+      "p": "lack of sth",
+      "g": "usage. ...的短缺,...的不足"
+    },
+    {
+      "p": "lag behind",
+      "g": "usage. 落后,落在后面"
+    },
+    {
+      "p": "late in life",
+      "g": "collocation. 在晚年"
+    },
+    {
+      "p": "later on",
+      "g": "idm. 后来,以后,随后"
+    },
+    {
+      "p": "lay down",
+      "g": "usage. 铺,铺放 (尤指在地板上) phrv. 规定,制订 (条例或原则)"
+    },
+    {
+      "p": "lay off",
+      "g": "phrv.(因工作不多而)解雇phrv.停止做,停止使用"
+    },
+    {
+      "p": "lead sb to do",
+      "g": "usage. 引导某人做某事"
+    },
+    {
+      "p": "lead the way",
+      "g": "collocation. 带路;处于领先地位"
+    },
+    {
+      "p": "lead to sth",
+      "g": "usage. 导致,引起"
+    },
+    {
+      "p": "lean on/against",
+      "g": "usage. 靠在...,倚在..."
+    },
+    {
+      "p": "leave a message",
+      "g": "collocation. 留言"
+    },
+    {
+      "p": "leave off",
+      "g": "phrv. 停止 (做某事),中断"
+    },
+    {
+      "p": "leave sb alone",
+      "g": "idm. 不打扰某人,不惊动某人"
+    },
+    {
+      "p": "leave sb with sth",
+      "g": "usage. 给某人留下..."
+    },
+    {
+      "p": "leave... behind",
+      "g": "phrv. 把...抛在后面,超过;永久离开 collocation. 忘了带,丢下"
+    },
+    {
+      "p": "let alone",
+      "g": "idm. 更不用说"
+    },
+    {
+      "p": "let go",
+      "g": "idm.放弃,摒弃(想法、态度或控制)idm.放开,松手"
+    },
+    {
+      "p": "level off/out",
+      "g": "phrv.(停止升降而)保持水平;平稳发展"
+    },
+    {
+      "p": "liberate sb from sth",
+      "g": "usage. 使某人从...中解放"
+    },
+    {
+      "p": "lie behind sth",
+      "g": "phrv. 是...的真实原因"
+    },
+    {
+      "p": "lie in sth",
+      "g": "usage. 位于,坐落于;存在于,在于"
+    },
+    {
+      "p": "lie with sb",
+      "g": "phrv. 是...的职责(或责任)"
+    },
+    {
+      "p": "light up",
+      "g": "phrv. 照亮,发亮;喜形于色,喜气洋洋"
+    },
+    {
+      "p": "liken... to...",
+      "g": "phrv. 把...比作..."
+    },
+    {
+      "p": "limit... to...",
+      "g": "usage. 限制,限定phrv. 使某事只在...存在 (或发生)usage. 限量,减量"
+    },
+    {
+      "p": "link up",
+      "g": "phrv.(使)连接,(使)结合"
+    },
+    {
+      "p": "live up to sth",
+      "g": "phrv. 达到 (标准),不辜负 (期望)"
+    },
+    {
+      "p": "live with sth",
+      "g": "phrv.忍受(不快的事)"
+    },
+    {
+      "p": "load... into sth",
+      "g": "usage. 把大量...装入某物"
+    },
+    {
+      "p": "log in",
+      "g": "phrv.登录,注册,登入(计算机)"
+    },
+    {
+      "p": "long for",
+      "g": "usage. 渴望..."
+    },
+    {
+      "p": "long for sb to do",
+      "g": "usage. 盼望某人做某事"
+    },
+    {
+      "p": "long to do",
+      "g": "usage. 渴望做某事"
+    },
+    {
+      "p": "look back",
+      "g": "phrv.回首(往事)"
+    },
+    {
+      "p": "look forward to sth",
+      "g": "phrv. (高兴地) 盼望,期待"
+    },
+    {
+      "p": "look into sth",
+      "g": "phrv.考察,调查,研究"
+    },
+    {
+      "p": "look on... as...",
+      "g": "phrv.把...看作,把...视为"
+    },
+    {
+      "p": "look out for",
+      "g": "phrv. 当心,提防 phrv. 关照,考虑...的利益;留心寻觅"
+    },
+    {
+      "p": "lose contact",
+      "g": "collocation.失去联系,失去联络"
+    },
+    {
+      "p": "lose faith in",
+      "g": "collocation. 失去对...的信任"
+    },
+    {
+      "p": "lose one's temper",
+      "g": "idm.发脾气"
+    },
+    {
+      "p": "lose weight",
+      "g": "collocation. 减肥,减轻体重"
+    },
+    {
+      "p": "major in sth",
+      "g": "phrv. 主修"
+    },
+    {
+      "p": "make a contribution",
+      "g": "collocation. 做贡献"
+    },
+    {
+      "p": "make a difference",
+      "g": "idm. 有影响,起作用"
+    },
+    {
+      "p": "make a fortune",
+      "g": "collocation. 发财,挣一大笔钱"
+    },
+    {
+      "p": "make a fuss",
+      "g": "collocation. 大惊小怪,大吵大闹"
+    },
+    {
+      "p": "make a habit of sth",
+      "g": "collocation.养成...的习惯"
+    },
+    {
+      "p": "make a mess of sth",
+      "g": "collocation.把...搞得一团糟"
+    },
+    {
+      "p": "make a point of doing sth",
+      "g": "idm.特别重视做某事,必定做某事"
+    },
+    {
+      "p": "make a profit",
+      "g": "collocation. 盈利,获利"
+    },
+    {
+      "p": "make animpression",
+      "g": "collocation. 留下深刻印象,留下好印象"
+    },
+    {
+      "p": "make contact with",
+      "g": "collocation.与...联络"
+    },
+    {
+      "p": "make ends meet",
+      "g": "idm. 使收支相抵,勉强维持生计"
+    },
+    {
+      "p": "make for sth",
+      "g": "phrv.促成,使可能;朝...前进,走向"
+    },
+    {
+      "p": "make history",
+      "g": "idm. 载入史册,创造历史"
+    },
+    {
+      "p": "make off with sth",
+      "g": "phrv. 偷走某物,顺手牵羊"
+    },
+    {
+      "p": "make one's way",
+      "g": "idm. 前往,到...地方去"
+    },
+    {
+      "p": "make out",
+      "g": "phrv. 看清,听清,辨认出 phrv. (用于询问或描述) 进展 phrv. 把...说成,声称;开具,填写"
+    },
+    {
+      "p": "make peace",
+      "g": "collocation.(使)和平idm.(与...)言归于好"
+    },
+    {
+      "p": "make progress",
+      "g": "collocation.取得进步,取得进展"
+    },
+    {
+      "p": "make sense of sth",
+      "g": "idm. 弄懂 (不易理解的事物)"
+    },
+    {
+      "p": "make sure",
+      "g": "idm. 查明,核实,确保"
+    },
+    {
+      "p": "make the most of",
+      "g": "idm.充分利用,尽情享受"
+    },
+    {
+      "p": "make up",
+      "g": "phrv.形成,构成;编造(故事等)phrv.补上,补偿;化妆;和好,和解"
+    },
+    {
+      "p": "make up one's mind",
+      "g": "idm. 做出决定,下定决心"
+    },
+    {
+      "p": "make use of",
+      "g": "idm.使用,利用(以谋私利等)"
+    },
+    {
+      "p": "make way for",
+      "g": "idm. 让...通过,给...让路"
+    },
+    {
+      "p": "make/earn a living",
+      "g": "collocation. 谋生"
+    },
+    {
+      "p": "manage to do",
+      "g": "usage. 成功做到,设法完成,能够对付"
+    },
+    {
+      "p": "many a",
+      "g": "collocation. 许多"
+    },
+    {
+      "p": "map out",
+      "g": "phrv. 仔细筹划,详细筹划"
+    },
+    {
+      "p": "masses of sth",
+      "g": "usage.大量的东西"
+    },
+    {
+      "p": "may well",
+      "g": "usage. 很可能"
+    },
+    {
+      "p": "mean to do",
+      "g": "usage.打算做某事"
+    },
+    {
+      "p": "meet up",
+      "g": "phrv.见面,会面"
+    },
+    {
+      "p": "meet with sth",
+      "g": "phrv. 遭遇,经历 (不愉快的事)"
+    },
+    {
+      "p": "merge into sth",
+      "g": "usage. 并入,合并为;逐渐融入"
+    },
+    {
+      "p": "mess up",
+      "g": "phrv. 搞砸phrv. 使心情恶劣;使不整洁,弄乱"
+    },
+    {
+      "p": "mess with",
+      "g": "phrv. 试图改变 (尤指毁坏某事物) phrv. 欺骗,给...制造麻烦;与...有牵连"
+    },
+    {
+      "p": "miss out",
+      "g": "phrv. 错失机会,错过"
+    },
+    {
+      "p": "mistake A for B",
+      "g": "phrv. 把 A 错当成 B"
+    },
+    {
+      "p": "mix A with B",
+      "g": "usage. 使 A 和 B 混合"
+    },
+    {
+      "p": "mix up",
+      "g": "phrv. 弄乱 (某物);混淆,弄混"
+    },
+    {
+      "p": "more often than not",
+      "g": "idm. 通常,往往"
+    },
+    {
+      "p": "more or less",
+      "g": "idm. 几乎;大概,大约"
+    },
+    {
+      "p": "mount sth on sth",
+      "g": "usage.把...安置在"
+    },
+    {
+      "p": "move away",
+      "g": "usage. 搬家,搬走"
+    },
+    {
+      "p": "move on",
+      "g": "usage.前进,进步,进展phrv.开始做(别的事),换话题"
+    },
+    {
+      "p": "much as",
+      "g": "idm. 尽管,虽然"
+    },
+    {
+      "p": "much too",
+      "g": "collocation.太,过于"
+    },
+    {
+      "p": "nail down",
+      "g": "phrv. 达成一致,最终确定"
+    },
+    {
+      "p": "narrow down",
+      "g": "phrv. 缩小范围"
+    },
+    {
+      "p": "narrow escape",
+      "g": "collocation. 死里逃生,险些遇险"
+    },
+    {
+      "p": "needless to say",
+      "g": "idm. 不用说,当然"
+    },
+    {
+      "p": "neglect of",
+      "g": "usage. 对...的疏忽"
+    },
+    {
+      "p": "next to",
+      "g": "usage. 紧邻,在...近旁;紧接,仅次于 usage. 几乎;与...相比"
+    },
+    {
+      "p": "no match for",
+      "g": "collocation.不是...的对手,比不上..."
+    },
+    {
+      "p": "no sooner... than...",
+      "g": "idm. 一...就...,刚...就..."
+    },
+    {
+      "p": "no way",
+      "g": "idm. 不可能,决不,没门儿"
+    },
+    {
+      "p": "no wonder",
+      "g": "idm. 难怪,怪不得,不足为奇"
+    },
+    {
+      "p": "not in the least",
+      "g": "idm.一点也不"
+    },
+    {
+      "p": "not much of a...",
+      "g": "idm. 不是很好,不怎么样"
+    },
+    {
+      "p": "not nearly",
+      "g": "idm. 远非,根本不"
+    },
+    {
+      "p": "not necessarily",
+      "g": "idm. 未必,不一定"
+    },
+    {
+      "p": "not so much... as...",
+      "g": "idm. 与其说是...不如说是..."
+    },
+    {
+      "p": "not think much of",
+      "g": "idm.对...评价不高"
+    },
+    {
+      "p": "not to mention",
+      "g": "idm. 更不用说"
+    },
+    {
+      "p": "not yet",
+      "g": "collocation. 还没,尚未"
+    },
+    {
+      "p": "nothing but",
+      "g": "idm. 只,只有,只是"
+    },
+    {
+      "p": "now and then",
+      "g": "idm.有时,偶尔"
+    },
+    {
+      "p": "now that",
+      "g": "usage.既然,由于"
+    },
+    {
+      "p": "object to",
+      "g": "usage. 不同意,反对"
+    },
+    {
+      "p": "oblige sb to do",
+      "g": "usage. (规定或法律) 规定某人做某事"
+    },
+    {
+      "p": "occur to sb",
+      "g": "phrv. (想法或主意) 被想到"
+    },
+    {
+      "p": "off campus",
+      "g": "collocation. 在校外"
+    },
+    {
+      "p": "on a diet",
+      "g": "collocation.节食"
+    },
+    {
+      "p": "on account of",
+      "g": "idm. 由于,因为"
+    },
+    {
+      "p": "on average",
+      "g": "collocation. 平均"
+    },
+    {
+      "p": "on board",
+      "g": "idm. 在船上 (或飞机上、火车上); 支持"
+    },
+    {
+      "p": "on business",
+      "g": "collocation. 因公,为了公事"
+    },
+    {
+      "p": "on campus",
+      "g": "collocation. 在校内"
+    },
+    {
+      "p": "on condition that",
+      "g": "collocation.如果,在...条件下"
+    },
+    {
+      "p": "on display",
+      "g": "idm. 在展出"
+    },
+    {
+      "p": "on duty",
+      "g": "idm. 在值班 (或上班)"
+    },
+    {
+      "p": "on end",
+      "g": "idm.竖着,直立着;连续地,不断地"
+    },
+    {
+      "p": "on hand",
+      "g": "idm. 在手头,在近旁"
+    },
+    {
+      "p": "on impulse",
+      "g": "collocation. 一时兴起,心血来潮"
+    },
+    {
+      "p": "on leave",
+      "g": "collocation. 在休假"
+    },
+    {
+      "p": "on loan",
+      "g": "collocation.(物)借来的,借出的"
+    },
+    {
+      "p": "on offer",
+      "g": "idm. 提供的,可买到的,可使用的 idm. 特价出售的"
+    },
+    {
+      "p": "on one's mind",
+      "g": "idm. 在某人心上,被惦记着"
+    },
+    {
+      "p": "on paper",
+      "g": "idm. 纸上,书面上;照字面看,理论上"
+    },
+    {
+      "p": "on purpose",
+      "g": "idm.故意地"
+    },
+    {
+      "p": "on record",
+      "g": "collocation. 记录在案的"
+    },
+    {
+      "p": "on sale",
+      "g": "idm.(在商店)上市,出售idm.折价销售,减价出售"
+    },
+    {
+      "p": "on that score",
+      "g": "idm. 在那个问题上,关于那一点"
+    },
+    {
+      "p": "on the basis of sth",
+      "g": "collocation. 基于...,在...的基础上"
+    },
+    {
+      "p": "on the contrary",
+      "g": "idm. 正相反,恰恰相反"
+    },
+    {
+      "p": "on the grounds that",
+      "g": "collocation.根据...,以...为由"
+    },
+    {
+      "p": "on the increase",
+      "g": "collocation. 在增长中"
+    },
+    {
+      "p": "on the loose",
+      "g": "idm.(罪犯或危险动物)在逃"
+    },
+    {
+      "p": "on the market",
+      "g": "idm. 出售,上市,有现货供应"
+    },
+    {
+      "p": "on the part of sb",
+      "g": "idm. 由某人所为,就某人而言"
+    },
+    {
+      "p": "on the right track",
+      "g": "idm.思路对头,做法对路"
+    },
+    {
+      "p": "on the rise",
+      "g": "collocation. (数量或水平) 在上升,在增长"
+    },
+    {
+      "p": "on the road",
+      "g": "idm. 在途中,长途旅行中;漂泊idm. (汽车) (状况良好) 可行驶"
+    },
+    {
+      "p": "on the spot",
+      "g": "idm. 当场,当下,立即;在现场"
+    },
+    {
+      "p": "on the tip of one's tongue",
+      "g": "idm. 话在嘴边 (却一时想不起来)"
+    },
+    {
+      "p": "on the whole",
+      "g": "idm.总的说来,大体上,基本上"
+    },
+    {
+      "p": "on time",
+      "g": "phr. 准时,按时"
+    },
+    {
+      "p": "on top of",
+      "g": "idm. 在...上面,在...顶部;除...之外idm. 紧挨着,紧靠着;控制着,掌握着"
+    },
+    {
+      "p": "on/upon arrival",
+      "g": "usage.到达时"
+    },
+    {
+      "p": "once again",
+      "g": "idm. 再一次,再次"
+    },
+    {
+      "p": "once in a while",
+      "g": "idm. 偶尔地,间或"
+    },
+    {
+      "p": "once more",
+      "g": "idm. 再一次,再次"
+    },
+    {
+      "p": "one another",
+      "g": "pron. 互相"
+    },
+    {
+      "p": "one of a kind",
+      "g": "idm. 独特的,独一无二的"
+    },
+    {
+      "p": "only if",
+      "g": "idm.只有,除非"
+    },
+    {
+      "p": "open up",
+      "g": "phrv. 打开,翻开;(使) 张开,裂开phrv. (使) 出现,(使) 产生phrv. 开门营业;开张,开业"
+    },
+    {
+      "p": "oppose doing sth",
+      "g": "usage.反对做某事,阻挠做某事"
+    },
+    {
+      "p": "opposition to",
+      "g": "usage.对...的反对"
+    },
+    {
+      "p": "opt for sth",
+      "g": "usage.选择某物"
+    },
+    {
+      "p": "opt to do",
+      "g": "usage.选择做某事,决定做某事"
+    },
+    {
+      "p": "or else",
+      "g": "idm. 否则,不然的话idm. (表示另一种可能) 或者"
+    },
+    {
+      "p": "ought to do",
+      "g": "usage. 应该,应当"
+    },
+    {
+      "p": "out of breath",
+      "g": "idm. 喘不上气,透不过气来"
+    },
+    {
+      "p": "out of control",
+      "g": "idm. 无法管理,失去控制"
+    },
+    {
+      "p": "out of date",
+      "g": "usage.过时的;失效的,过期的"
+    },
+    {
+      "p": "out of fashion",
+      "g": "usage. 过时的,不流行的"
+    },
+    {
+      "p": "out of hand",
+      "g": "idm. 难以控制,无法控制idm. 不假思索地 (拒绝等)"
+    },
+    {
+      "p": "out of order",
+      "g": "idm. (机器等) 有毛病,出故障"
+    },
+    {
+      "p": "out of practice",
+      "g": "idm.生疏的,荒废的"
+    },
+    {
+      "p": "out of shape",
+      "g": "idm. 变形的,走样的 idm. 身体不好的,不健康的"
+    },
+    {
+      "p": "out of sight",
+      "g": "collocation. 在视野之外,在看不见的地方"
+    },
+    {
+      "p": "out of stock",
+      "g": "collocation.无现货的,脱销的,卖光的"
+    },
+    {
+      "p": "out of work",
+      "g": "collocation. 处于失业状态"
+    },
+    {
+      "p": "out of/from nowhere",
+      "g": "idm.突然发生,突然出现"
+    },
+    {
+      "p": "over and over",
+      "g": "idm. 多次,反复地,一再"
+    },
+    {
+      "p": "over time",
+      "g": "collocation. 渐渐地,随着时间的流逝"
+    },
+    {
+      "p": "overflow with",
+      "g": "usage. 充满,挤满,装满"
+    },
+    {
+      "p": "owe sth to...",
+      "g": "usage.欠(某人)钱;欠(某人)人情usage.把...归功于,把...归因于"
+    },
+    {
+      "p": "parking lot",
+      "g": "n.停车场"
+    },
+    {
+      "p": "part with sth",
+      "g": "phrv. 放弃 (尤指不舍得的东西)"
+    },
+    {
+      "p": "participate in sth",
+      "g": "usage. 参与 (某活动)"
+    },
+    {
+      "p": "participation in sth",
+      "g": "usage.参与某事"
+    },
+    {
+      "p": "pass away",
+      "g": "phrv. 去世,逝世"
+    },
+    {
+      "p": "pass down",
+      "g": "phrv. 使世代相传,使流传"
+    },
+    {
+      "p": "pass off",
+      "g": "phrv. (顺利地)进行并完成"
+    },
+    {
+      "p": "pass on",
+      "g": "phrv. 传递,传达"
+    },
+    {
+      "p": "pass over",
+      "g": "phrv. 提职时不考虑(某人)phrv. 避免提及,不考虑(某事)"
+    },
+    {
+      "p": "pay for sth",
+      "g": "usage.(为...)付费"
+    },
+    {
+      "p": "pay off",
+      "g": "phrv.取得成功,得到好结果;付清"
+    },
+    {
+      "p": "perceive... as sth",
+      "g": "usage. 把...视为..."
+    },
+    {
+      "p": "permit sb to do",
+      "g": "usage. 准许某人做某事"
+    },
+    {
+      "p": "persuade sb into sth",
+      "g": "usage. 说服某人做某事"
+    },
+    {
+      "p": "persuade sb to do",
+      "g": "usage. 劝说某人做..."
+    },
+    {
+      "p": "phase out",
+      "g": "phrv.逐步废除"
+    },
+    {
+      "p": "pick up",
+      "g": "phrv.拿起;接电话;(开车)接人phrv.得到,学会;改善,增强;辨认phrv.收集;接收(信号等);买到phrv.感染,得到;找到,跟踪;收拾"
+    },
+    {
+      "p": "piece together",
+      "g": "phrv. 把...拼凑起来;拼凑,拼合"
+    },
+    {
+      "p": "pile up",
+      "g": "phrv. 积累,堆积"
+    },
+    {
+      "p": "pit... against sth",
+      "g": "phrv. 使...与...竞争,使...经受考验"
+    },
+    {
+      "p": "pitch in",
+      "g": "phrv. 投入,参与,支援"
+    },
+    {
+      "p": "place an order",
+      "g": "collocation. 订购,下订单"
+    },
+    {
+      "p": "plan on sth",
+      "g": "usage. 打算做某事,有...的计划"
+    },
+    {
+      "p": "play a role in sth",
+      "g": "usage. 在...中起作用,对...有影响"
+    },
+    {
+      "p": "pledge to do",
+      "g": "usage.保证做某事,承诺做某事"
+    },
+    {
+      "p": "plug in",
+      "g": "phrv. 把 (插头) 插进...,接通 (电源)"
+    },
+    {
+      "p": "point of view",
+      "g": "usage. 观点,看法,意见;视角"
+    },
+    {
+      "p": "point to sth",
+      "g": "phrv. 提出,指出 (重要的事或理由)phrv. 暗示,预示,表明"
+    },
+    {
+      "p": "pop up",
+      "g": "phrv.突然出现"
+    },
+    {
+      "p": "pose a threat",
+      "g": "collocation. 构成威胁"
+    },
+    {
+      "p": "postpone doing sth",
+      "g": "usage.推迟做某事"
+    },
+    {
+      "p": "postpone sth to/until...",
+      "g": "usage. 把某事推迟到..."
+    },
+    {
+      "p": "pour sth into sth",
+      "g": "phrv. 向...投入大量金钱、感情等phrv. 把...倒入..."
+    },
+    {
+      "p": "preface sth with sth",
+      "g": "usage. 为...写序言"
+    },
+    {
+      "p": "prefer to do rather than do",
+      "g": "usage. 更喜欢...而不是..."
+    },
+    {
+      "p": "prejudice sb against...",
+      "g": "usage. 使某人对...有偏见"
+    },
+    {
+      "p": "prejudiceagainst",
+      "g": "usage. 对...的偏见"
+    },
+    {
+      "p": "pretend to do",
+      "g": "usage. 假装做某事"
+    },
+    {
+      "p": "pretty much",
+      "g": "idm. 几乎,差不多"
+    },
+    {
+      "p": "prevail against/over sb",
+      "g": "usage. 战胜某人"
+    },
+    {
+      "p": "prevail in sth",
+      "g": "usage. 在...盛行,普遍存在于"
+    },
+    {
+      "p": "prevent... (from) doing sth",
+      "g": "usage. 阻止某人做某事,防止...发生"
+    },
+    {
+      "p": "prior to sth",
+      "g": "usage.在...之前,先于"
+    },
+    {
+      "p": "proceed to do",
+      "g": "usage. (做完某事后) 接着做..."
+    },
+    {
+      "p": "profit from sth",
+      "g": "usage. 从...中受益,从...中获利"
+    },
+    {
+      "p": "prohibit sb from doing sth",
+      "g": "usage.禁止某人做某事"
+    },
+    {
+      "p": "prompt sb to do",
+      "g": "usage.促使某人做某事"
+    },
+    {
+      "p": "propose doing sth",
+      "g": "usage. 提议做某事"
+    },
+    {
+      "p": "propose to do",
+      "g": "usage. 打算做某事"
+    },
+    {
+      "p": "prove to be sth",
+      "g": "usage.证明是,被发现是"
+    },
+    {
+      "p": "provide sb with sth",
+      "g": "usage.为某人提供某物"
+    },
+    {
+      "p": "provide sth for sb",
+      "g": "usage.为某人提供某物"
+    },
+    {
+      "p": "public figure",
+      "g": "usage. 公众人物"
+    },
+    {
+      "p": "public transportation",
+      "g": "usage.公共交通"
+    },
+    {
+      "p": "pull down",
+      "g": "phrv. 拆毁,摧毁 (建筑物)"
+    },
+    {
+      "p": "pull in",
+      "g": "phrv. (火车) 进站停靠;靠路边停车"
+    },
+    {
+      "p": "pull over",
+      "g": "phrv. 把 (车) 驶到路边停下"
+    },
+    {
+      "p": "pull together",
+      "g": "phrv. 齐心协力,通力合作"
+    },
+    {
+      "p": "punish sb for sth",
+      "g": "usage.因...惩罚某人"
+    },
+    {
+      "p": "push back",
+      "g": "phrv. 推迟,延迟 (某事)"
+    },
+    {
+      "p": "push for sth",
+      "g": "phrv.反复要求,努力争取..."
+    },
+    {
+      "p": "put an end to sth",
+      "g": "collocation. 结束某事,停止某事"
+    },
+    {
+      "p": "put down",
+      "g": "phrv. 放下,搁在;写下,记下 phrv. 下订金,付部分费用"
+    },
+    {
+      "p": "put forward",
+      "g": "phrv.提出(计划、建议、意见等)"
+    },
+    {
+      "p": "put off",
+      "g": "phrv. 推迟...,使...延期"
+    },
+    {
+      "p": "put sb on notice",
+      "g": "idm. 警告某人"
+    },
+    {
+      "p": "put sth into effect",
+      "g": "idm. 使生效,实行,实施"
+    },
+    {
+      "p": "put together",
+      "g": "idm. 合计,加起来 phrv. 组装,汇集"
+    },
+    {
+      "p": "put up with",
+      "g": "phrv. 容忍,忍受"
+    },
+    {
+      "p": "qualify for sth",
+      "g": "usage.有资格做某事,有权做某事"
+    },
+    {
+      "p": "quite a few",
+      "g": "idm.相当多,不少"
+    },
+    {
+      "p": "rail against",
+      "g": "usage. 怒斥...,抱怨..."
+    },
+    {
+      "p": "raise one's eyebrows",
+      "g": "idm.扬起眉毛(表示不赞同或惊讶)"
+    },
+    {
+      "p": "range from A to B",
+      "g": "usage.(在从A到B的范围内)变化usage.包括(从A到B的)各类事物"
+    },
+    {
+      "p": "rate... as...",
+      "g": "usage. 将...评价为..."
+    },
+    {
+      "p": "rather than",
+      "g": "idm.而不是"
+    },
+    {
+      "p": "react to sth",
+      "g": "usage. 对...作出反应"
+    },
+    {
+      "p": "real estate",
+      "g": "n. 房地产,不动产"
+    },
+    {
+      "p": "reckon with",
+      "g": "phrv. 重视,认真对待"
+    },
+    {
+      "p": "recognize... as sth",
+      "g": "usage.承认...是...;正式认可...是..."
+    },
+    {
+      "p": "recommend doing sth",
+      "g": "usage. 建议做某事"
+    },
+    {
+      "p": "recover from sth",
+      "g": "usage.恢复健康,痊愈;复原,恢复常态"
+    },
+    {
+      "p": "reflect on sth",
+      "g": "usage.认真思考某事"
+    },
+    {
+      "p": "refrain from sth",
+      "g": "usage. 避免做某事,忍住不做某事"
+    },
+    {
+      "p": "refuse to do",
+      "g": "usage.拒绝做某事"
+    },
+    {
+      "p": "regard... as sth",
+      "g": "usage.把...视为...,认为...是..."
+    },
+    {
+      "p": "regardless of sth",
+      "g": "usage. 不管,无论"
+    },
+    {
+      "p": "register for sth",
+      "g": "usage. 登记,注册(信息)"
+    },
+    {
+      "p": "regret doing sth",
+      "g": "usage. 后悔做了某事"
+    },
+    {
+      "p": "relate to",
+      "g": "phrv. 涉及,关于;产生共鸣,有同感"
+    },
+    {
+      "p": "reliance on",
+      "g": "usage.对...的依赖(或依靠)"
+    },
+    {
+      "p": "relieve sb of sth",
+      "g": "phrv. 帮助某人减轻 (负担)"
+    },
+    {
+      "p": "rely on",
+      "g": "phrv. 依赖,依靠;信赖,信任"
+    },
+    {
+      "p": "remind sb of...",
+      "g": "phrv. 使某人想起..."
+    },
+    {
+      "p": "remind sb to do",
+      "g": "usage. 提醒某人去做某事"
+    },
+    {
+      "p": "render sth to...",
+      "g": "usage.给予...帮助,为...提供服务"
+    },
+    {
+      "p": "reply to",
+      "g": "usage. 回复,对...做出答复usage. 回应,对...作出回应"
+    },
+    {
+      "p": "report on sth",
+      "g": "usage. 汇报...,报告...;报道...,公布 ..."
+    },
+    {
+      "p": "request sb to do",
+      "g": "usage.要求某人做某事"
+    },
+    {
+      "p": "research into/on",
+      "g": "usage.关于...的研究(或调查)usage.对...做研究(或调查)"
+    },
+    {
+      "p": "resolve to do",
+      "g": "usage. 下定决心做某事"
+    },
+    {
+      "p": "resort to sth",
+      "g": "phrv.诉诸,求助于"
+    },
+    {
+      "p": "respond to",
+      "g": "usage. 回复...,回答...;对...作出回应"
+    },
+    {
+      "p": "rest on",
+      "g": "phrv. 依靠,依赖;基于,以...为基础 phrv. (目光) 落在...上,凝视着"
+    },
+    {
+      "p": "restrict... to...",
+      "g": "usage. 把 (大小、规模等) 限制在... usage. 约束 (某人) 只做 (某事)"
+    },
+    {
+      "p": "result from sth",
+      "g": "usage. 由...造成,因...而产生"
+    },
+    {
+      "p": "result in sth",
+      "g": "phrv. 导致,造成"
+    },
+    {
+      "p": "retire from sth",
+      "g": "usage. 从...退休"
+    },
+    {
+      "p": "return to sth",
+      "g": "usage.回到...;恢复到...的状态usage.重新开始做某事"
+    },
+    {
+      "p": "revolve around",
+      "g": "phrv. 围绕...旋转;以...为中心"
+    },
+    {
+      "p": "reward sb for sth",
+      "g": "usage.因...奖励某人,为...酬谢某人"
+    },
+    {
+      "p": "reward sb with sth",
+      "g": "usage. 用...奖励某人,以...酬谢某人"
+    },
+    {
+      "p": "rid... of...",
+      "g": "phrv. 使...去除,使...摆脱"
+    },
+    {
+      "p": "rise to sth",
+      "g": "phrv. 有能力处理 (突发情况、问题等)"
+    },
+    {
+      "p": "rob sb of sth",
+      "g": "usage. 抢劫,剥夺"
+    },
+    {
+      "p": "roll in",
+      "g": "phrv. 大量涌入,滚滚而来"
+    },
+    {
+      "p": "rule out",
+      "g": "phrv.把...排除在外phrv.防止...发生,阻止某人做某事"
+    },
+    {
+      "p": "run counter to sth",
+      "g": "collocation.违背...,与...背道而驰"
+    },
+    {
+      "p": "run down",
+      "g": "phrv. 逐渐失去作用,萎缩,衰减 phrv. (电池) 耗尽,停止工作;把...撞倒"
+    },
+    {
+      "p": "run for",
+      "g": "usage. 竞选(职位)"
+    },
+    {
+      "p": "run into",
+      "g": "phrv.偶然遇见,碰到(某人)phrv.遇到(困难等);撞在...上"
+    },
+    {
+      "p": "run out",
+      "g": "phrv.被用完,被耗尽;用完,耗尽"
+    },
+    {
+      "p": "run over",
+      "g": "phrv. 溢出,漫出;(开车)撞倒并碾过"
+    },
+    {
+      "p": "run through sth",
+      "g": "phrv. 匆匆讨论,快速浏览;迅速传遍 phrv. 遍布,贯穿;排练,反复练习"
+    },
+    {
+      "p": "run wild",
+      "g": "idm. 自由生长,任其发展"
+    },
+    {
+      "p": "rush hour",
+      "g": "n.(上下班时的)交通高峰期"
+    },
+    {
+      "p": "save for",
+      "g": "usage. 为...攒钱;除了"
+    },
+    {
+      "p": "save sth for a rainy day",
+      "g": "idm.有备无患,未雨绸缪"
+    },
+    {
+      "p": "scold sb for sth",
+      "g": "usage. 因某事训斥某人"
+    },
+    {
+      "p": "scores of",
+      "g": "usage.大量,很多"
+    },
+    {
+      "p": "search out",
+      "g": "phrv. 找出,查到,搜寻到"
+    },
+    {
+      "p": "see off",
+      "g": "phrv.为...送行;击败,阻止"
+    },
+    {
+      "p": "see to it that",
+      "g": "phrv. 确保...,务使..."
+    },
+    {
+      "p": "seek out",
+      "g": "phrv. 找出,找到"
+    },
+    {
+      "p": "sell out",
+      "g": "phrv. (票) 售完;卖完,售空,售罄 phrv. 出售 (财产、企业等)"
+    },
+    {
+      "p": "send in",
+      "g": "phrv. 寄去 (处理)phrv. 派某人去 (应付困难局面)"
+    },
+    {
+      "p": "send out",
+      "g": "phrv. 分发,散发;发出 (光、信号等)"
+    },
+    {
+      "p": "separate... from...",
+      "g": "usage.使...从...分开;把...和...隔开usage.使...与...分离,使...与...分散usage.将...和...区分开"
+    },
+    {
+      "p": "serve as sth",
+      "g": "usage. 可用作...,可当...使usage. 产生...的效果;担任 (某一职位)"
+    },
+    {
+      "p": "set about sth",
+      "g": "phrv. 开始做,着手做"
+    },
+    {
+      "p": "set an example",
+      "g": "collocation. 树立榜样"
+    },
+    {
+      "p": "set aside",
+      "g": "phrv.把...放到一旁;省出,留出(钱等)phrv.暂时不考虑,把...先放一放"
+    },
+    {
+      "p": "set back",
+      "g": "phrv. 使...推迟,耽误,阻碍;使花费"
+    },
+    {
+      "p": "set foot in/on sth",
+      "g": "idm. 进入,访问,参观 (某地)"
+    },
+    {
+      "p": "set off",
+      "g": "phrv.出发,动身,启程phrv.使(炸弹等)爆炸;触响(警报)phrv.引发,激起(尤指意外事件)"
+    },
+    {
+      "p": "set out",
+      "g": "phrv. 出发,动身,启程;开始做某事phrv. (有条理地) 陈述,阐明"
+    },
+    {
+      "p": "set up",
+      "g": "phrv. (临时) 建起,竖起;成立 (公司等)phrv. 安装好,调试好;安排,策划phrv. 使某人更健康 (或精力旺盛)"
+    },
+    {
+      "p": "set... apart from...",
+      "g": "phrv. 使...和...不同,使...突出于..."
+    },
+    {
+      "p": "settle down",
+      "g": "phrv. (尤指结婚或买房后) 安顿下来phrv. 舒适地坐下或躺下;(使)平静下来"
+    },
+    {
+      "p": "shake off",
+      "g": "usage. 去除,摆脱"
+    },
+    {
+      "p": "shake up",
+      "g": "phrv. 彻底调整,重组(机构、行业等)"
+    },
+    {
+      "p": "share in sth",
+      "g": "usage.分享(感情、成功等)usage.分担(责任等)"
+    },
+    {
+      "p": "shed light on sth",
+      "g": "idm. 使 (问题等) 较容易理解"
+    },
+    {
+      "p": "shift from...to...",
+      "g": "usage. (情况、政策等) 由...转变成...usage. (观点、态度等) 从...变为..."
+    },
+    {
+      "p": "shoot up",
+      "g": "phrv. 迅速长高;陡增,猛涨"
+    },
+    {
+      "p": "shop around",
+      "g": "phrv.货比三家后再买"
+    },
+    {
+      "p": "show off",
+      "g": "phrv.炫耀,显摆"
+    },
+    {
+      "p": "show up",
+      "g": "phrv.出现,露面,如约赶到phrv.(使)看得见,显现出来"
+    },
+    {
+      "p": "shut down",
+      "g": "phrv. (使) 倒闭,(使) 停止运转"
+    },
+    {
+      "p": "shut off",
+      "g": "phrv.(使)(机器、工具等)停止运转phrv.切断(流动、供应等)"
+    },
+    {
+      "p": "shut up",
+      "g": "phrv.住口,闭嘴"
+    },
+    {
+      "p": "shy away from sth",
+      "g": "phrv. (因害怕等而) 回避某事"
+    },
+    {
+      "p": "side by side",
+      "g": "idm. 并排地,肩并肩地idm. (不同的东西或团体) 并存,共处"
+    },
+    {
+      "p": "sign up",
+      "g": "phrv. 报名加入 (某项有组织的活动)"
+    },
+    {
+      "p": "single out",
+      "g": "phrv. 选出,挑出"
+    },
+    {
+      "p": "sit around",
+      "g": "phrv. 无所事事地消磨时间,闲坐"
+    },
+    {
+      "p": "sit back",
+      "g": "phrv. 舒舒服服地坐好phrv. 袖手旁观,不采取行动"
+    },
+    {
+      "p": "sleep through sth",
+      "g": "phrv. 没被...吵醒,一直睡"
+    },
+    {
+      "p": "slip into",
+      "g": "collocation. 陷入 (困难或不愉快的处境)"
+    },
+    {
+      "p": "smooth over",
+      "g": "phrv. 缓和,平息,试图开脱"
+    },
+    {
+      "p": "so as to do",
+      "g": "idm. 为了做某事,以便做某事"
+    },
+    {
+      "p": "soak up",
+      "g": "phrv. 吸收,吸干 (液体);吸取,沉浸于"
+    },
+    {
+      "p": "solar energy",
+      "g": "n. 太阳能"
+    },
+    {
+      "p": "soldier on",
+      "g": "phrv. 坚持不懈,迎难而上"
+    },
+    {
+      "p": "sort of",
+      "g": "idm. 有点,好像,可以说是"
+    },
+    {
+      "p": "space out",
+      "g": "phrv. 使拉开间距,使隔开"
+    },
+    {
+      "p": "speak for oneself",
+      "g": "idm.不言而喻,有目共睹"
+    },
+    {
+      "p": "speak highly of",
+      "g": "idm. 称赞,赞扬"
+    },
+    {
+      "p": "speak out",
+      "g": "phrv.公开发表意见"
+    },
+    {
+      "p": "speak up",
+      "g": "phrv. (用于要求别人) 大声点说phrv. 大胆地说,公开表态"
+    },
+    {
+      "p": "specialize in sth",
+      "g": "usage.专门研究(或从事),专攻"
+    },
+    {
+      "p": "speed up",
+      "g": "phrv. (使) 加速"
+    },
+    {
+      "p": "spell out",
+      "g": "phrv. 拼写出;解释明白"
+    },
+    {
+      "p": "split sth into sth",
+      "g": "usage. 把...分成 (几个部分)"
+    },
+    {
+      "p": "split up",
+      "g": "phrv. (使) 断绝关系,分手;把...划分成"
+    },
+    {
+      "p": "spring up",
+      "g": "phrv. 迅速出现,突然兴起"
+    },
+    {
+      "p": "spur sb on",
+      "g": "usage. 激励某人,鼓励某人"
+    },
+    {
+      "p": "spur sb to do",
+      "g": "usage. 激励某人做某事"
+    },
+    {
+      "p": "stand a chance",
+      "g": "idm. 有可能 (成功),有机会 (获得)"
+    },
+    {
+      "p": "stand by sb",
+      "g": "phrv. (尤指在困难情况下) 支持某人"
+    },
+    {
+      "p": "stand for sth",
+      "g": "phrv. 是...的意思,代表phrv. 支持,主张;容忍,忍受"
+    },
+    {
+      "p": "stand out",
+      "g": "phrv. (比其他类似的人或物) 出色phrv. 引人注目,显眼"
+    },
+    {
+      "p": "stand up to sb",
+      "g": "phrv. 抵抗某人,勇敢反对某人"
+    },
+    {
+      "p": "stand up to sth",
+      "g": "phrv. 经得起"
+    },
+    {
+      "p": "stare at",
+      "g": "usage. 凝视着,盯着看"
+    },
+    {
+      "p": "start off",
+      "g": "phrv. 开始活动,动身phrv. 进行(或开展) 起来;首先进行"
+    },
+    {
+      "p": "start out",
+      "g": "usage. 出发,动身;以...起步,起初是phrv. 开始 (某工作等);最初打算"
+    },
+    {
+      "p": "start up",
+      "g": "usage. 成立,创办(公司或机构)phrv. (使) 启动,发动"
+    },
+    {
+      "p": "state of mind",
+      "g": "n.心态"
+    },
+    {
+      "p": "stay behind",
+      "g": "collocation. 留下来"
+    },
+    {
+      "p": "stay on",
+      "g": "phrv. 留下来继续 (学习、工作等)"
+    },
+    {
+      "p": "stay up",
+      "g": "phrv.熬夜"
+    },
+    {
+      "p": "steer clear of",
+      "g": "idm. 避开,回避"
+    },
+    {
+      "p": "step in",
+      "g": "phrv. 插手,介入,干涉"
+    },
+    {
+      "p": "stick around",
+      "g": "phrv. (在某处) 逗留,待在...附近"
+    },
+    {
+      "p": "stick to sth",
+      "g": "phrv. 坚持;信守,遵守 (信念、规则等)"
+    },
+    {
+      "p": "stick together",
+      "g": "phrv. 互相支持,团结一致"
+    },
+    {
+      "p": "stir up",
+      "g": "usage. 引起,激起(兴趣、想象力等)phrv. 挑起(不愉快);(水或空气中)搅起"
+    },
+    {
+      "p": "stock market",
+      "g": "n.证券交易(所),股市"
+    },
+    {
+      "p": "stock price",
+      "g": "collocation. 股票价格"
+    },
+    {
+      "p": "stop by",
+      "g": "phrv. 顺便拜访,顺路探望"
+    },
+    {
+      "p": "strike a balance",
+      "g": "idm. 在...之间达到平衡,两者兼顾"
+    },
+    {
+      "p": "strike sb as sth",
+      "g": "usage.给某人以某种印象"
+    },
+    {
+      "p": "strike up sth",
+      "g": "phrv. 建立关系,开始交谈"
+    },
+    {
+      "p": "strive for sth",
+      "g": "usage. 为...而努力 (或奋斗)"
+    },
+    {
+      "p": "strive to do",
+      "g": "usage. 努力做某事"
+    },
+    {
+      "p": "struggle to do",
+      "g": "usage. 努力做某事,为...而奋斗"
+    },
+    {
+      "p": "struggle with",
+      "g": "usage. 与...做斗争"
+    },
+    {
+      "p": "submit sth to...",
+      "g": "usage. 向...提交 (建议、报告或请求)"
+    },
+    {
+      "p": "substitute A for B",
+      "g": "usage. 用A代替B"
+    },
+    {
+      "p": "succeed in sth",
+      "g": "usage. 成功做到,达到目的,办到 usage. 在(事业等)方面取得成功"
+    },
+    {
+      "p": "suffer from sth",
+      "g": "usage. 经受 (疼痛、疾病)usage. 遭受,蒙受 (不愉快的事)"
+    },
+    {
+      "p": "sum up",
+      "g": "phrv. 总结,概括"
+    },
+    {
+      "p": "swallow... up",
+      "g": "usage. 吞没,吞并"
+    },
+    {
+      "p": "swear at sb",
+      "g": "usage. 咒骂某人"
+    },
+    {
+      "p": "switch off",
+      "g": "phrv. 关(电灯、机器等)"
+    },
+    {
+      "p": "switch on",
+      "g": "phrv. 开(电灯、机器等)"
+    },
+    {
+      "p": "switch to sth",
+      "g": "usage.转变为,改为"
+    },
+    {
+      "p": "tailor sth to/for...",
+      "g": "usage. 为...量身打造..."
+    },
+    {
+      "p": "take a nap",
+      "g": "collocation. (尤指在白天) 打个盹,小睡"
+    },
+    {
+      "p": "take a risk",
+      "g": "idm. 冒险"
+    },
+    {
+      "p": "take a toll on",
+      "g": "idm. 对...产生恶果,造成重大损失"
+    },
+    {
+      "p": "take accountof sth",
+      "g": "idm. 考虑到,顾及"
+    },
+    {
+      "p": "take advantage of",
+      "g": "idm. 利用某物 (做某事) idm. 利用某人,占某人的便宜"
+    },
+    {
+      "p": "take apart",
+      "g": "phrv. 拆卸,拆开 (机器等)"
+    },
+    {
+      "p": "take charge of",
+      "g": "collocation. 负责,主管"
+    },
+    {
+      "p": "take effect",
+      "g": "idm. 开始起作用,见效"
+    },
+    {
+      "p": "take hold",
+      "g": "idm. 开始完全控制,开始起作用"
+    },
+    {
+      "p": "take in",
+      "g": "phrv. 吸入,吞入 (体内);理解,领会 phrv. 收留,收养;观看;欺骗,蒙骗"
+    },
+    {
+      "p": "take legal action",
+      "g": "collocation. 诉讼,起诉"
+    },
+    {
+      "p": "take measures to do",
+      "g": "collocation. 采取措施做某事"
+    },
+    {
+      "p": "take medicine",
+      "g": "collocation. 吃药,服药"
+    },
+    {
+      "p": "take notes",
+      "g": "collocation.记笔记,做记录"
+    },
+    {
+      "p": "take office",
+      "g": "collocation. 就职,任职"
+    },
+    {
+      "p": "take on",
+      "g": "phrv. 聘用,雇用;开始呈现 (某特征等) phrv. 承担 (责任),同意负责 (工作) phrv. 接纳 (乘客),装载"
+    },
+    {
+      "p": "take one's place",
+      "g": "idm. 代替,取代"
+    },
+    {
+      "p": "take over",
+      "g": "phrv. 取而代之;接任,接替;接管"
+    },
+    {
+      "p": "take pains to do",
+      "g": "idm. 煞费苦心,努力做"
+    },
+    {
+      "p": "take place",
+      "g": "idm. 发生,进行"
+    },
+    {
+      "p": "take pride in",
+      "g": "collocation. 为...感到骄傲"
+    },
+    {
+      "p": "take steps",
+      "g": "collocation. 采取措施"
+    },
+    {
+      "p": "take sth into account",
+      "g": "idm. 考虑到,顾及"
+    },
+    {
+      "p": "take sth into consideration",
+      "g": "idm. 考虑到,顾及"
+    },
+    {
+      "p": "take sth to heart",
+      "g": "idm. 对某事耿耿于怀"
+    },
+    {
+      "p": "take the lead",
+      "g": "collocation. 带头 (做某事)"
+    },
+    {
+      "p": "take... seriously",
+      "g": "idm. 认真对待...,把...看得很重要"
+    },
+    {
+      "p": "tap into sth",
+      "g": "usage. 利用,开发(已有的资源等)"
+    },
+    {
+      "p": "team up with sb",
+      "g": "phrv. 与某人组队,与某人合作"
+    },
+    {
+      "p": "tear apart",
+      "g": "phrv. 把...撕碎(或撕开) phrv. 使...四分五裂,使...分崩离析"
+    },
+    {
+      "p": "tear down",
+      "g": "phrv. 拆毁(建筑物、墙等)"
+    },
+    {
+      "p": "tear oneself away from sth",
+      "g": "phrv. 依依不舍地离开"
+    },
+    {
+      "p": "tear up",
+      "g": "phrv. 撕毁,撕碎 (文件等)"
+    },
+    {
+      "p": "tell (the) time",
+      "g": "idm. (从钟表上) 看时间"
+    },
+    {
+      "p": "tell A and B apart",
+      "g": "usage. 把A和B区分开"
+    },
+    {
+      "p": "tell A from B",
+      "g": "usage. 区分A和B"
+    },
+    {
+      "p": "tempt sb to do",
+      "g": "usage. 引诱某人做某事"
+    },
+    {
+      "p": "tend to do",
+      "g": "usage. 倾向于做某事,易于做某事"
+    },
+    {
+      "p": "tension between A and B",
+      "g": "usage. A 与 B 之间的紧张局势usage. A 与 B 之间的矛盾"
+    },
+    {
+      "p": "thanks to",
+      "g": "idm. 幸亏,由于"
+    },
+    {
+      "p": "that is to say",
+      "g": "idm. 也就是说,换句话说"
+    },
+    {
+      "p": "that said",
+      "g": "idm. 话虽如此,尽管如此"
+    },
+    {
+      "p": "the bulk of sth",
+      "g": "usage. ...的主体,...的大部分"
+    },
+    {
+      "p": "the key to sth",
+      "g": "usage. ...的关键"
+    },
+    {
+      "p": "the necessity of/for sth",
+      "g": "usage. ...的必要性"
+    },
+    {
+      "p": "the nuts and bolts",
+      "g": "idm. 基本要点"
+    },
+    {
+      "p": "the odds are stacked against sb",
+      "g": "idm. 形势对某人不利"
+    },
+    {
+      "p": "the other way around",
+      "g": "collocation. 正好相反"
+    },
+    {
+      "p": "the passage of time",
+      "g": "usage. 时间的流逝"
+    },
+    {
+      "p": "the potential for sth",
+      "g": "usage. ...的可能性"
+    },
+    {
+      "p": "the thrill of doing sth",
+      "g": "usage. 做某事的兴奋感"
+    },
+    {
+      "p": "then and there",
+      "g": "collocation. 立即,当场"
+    },
+    {
+      "p": "thereby doing sth",
+      "g": "usage. 从而能做某事"
+    },
+    {
+      "p": "think through",
+      "g": "phrv.充分考虑,全盘考虑,想透"
+    },
+    {
+      "p": "thirst for sth",
+      "g": "phrv. 渴望,渴求"
+    },
+    {
+      "p": "threaten to do",
+      "g": "usage. 威胁要...,扬言要...usage. (坏事) 可能发生,可能引发"
+    },
+    {
+      "p": "thumb through sth",
+      "g": "phrv. 快速翻阅,浏览 (图书、杂志等)"
+    },
+    {
+      "p": "tide over",
+      "g": "phrv. 帮助某人渡过 (困难时期)"
+    },
+    {
+      "p": "tidy up",
+      "g": "usage. 使整洁,整理好"
+    },
+    {
+      "p": "tie up",
+      "g": "phrv. 系紧,捆绑;(把动物) 拴住phrv. 使某人脱不开身phrv. 占用,搁死(资金);完成,处理完"
+    },
+    {
+      "p": "time and again",
+      "g": "idm.一次又一次,一再,屡屡"
+    },
+    {
+      "p": "to be sure",
+      "g": "idm. 不可否认,诚然,固然"
+    },
+    {
+      "p": "to begin with",
+      "g": "idm. 起初,开始;首先,第一点"
+    },
+    {
+      "p": "to date",
+      "g": "idm. 到目前为止"
+    },
+    {
+      "p": "to death",
+      "g": "idm. 非常,极度"
+    },
+    {
+      "p": "to excess",
+      "g": "collocation.过度,过分,过多"
+    },
+    {
+      "p": "to go",
+      "g": "idm. 还剩下"
+    },
+    {
+      "p": "to some extent",
+      "g": "collocation. 在某种程度上"
+    },
+    {
+      "p": "to start with",
+      "g": "idm. 首先,第一;起初,一开始"
+    },
+    {
+      "p": "to the limit",
+      "g": "collocation. 到极点,到最大限度"
+    },
+    {
+      "p": "to the point of sth",
+      "g": "idm. 达到某种程度,近乎"
+    },
+    {
+      "p": "tone down",
+      "g": "phrv. 缓和...的语气;使(颜色)柔和"
+    },
+    {
+      "p": "tone up",
+      "g": "usage. 使(皮肤、肌肉等)更强健"
+    },
+    {
+      "p": "too good to be true",
+      "g": "idm. 好得令人难以置信"
+    },
+    {
+      "p": "touch off",
+      "g": "phrv.触发,引起(困难或暴力的局面)"
+    },
+    {
+      "p": "trace sth to sth",
+      "g": "usage. 追溯到,追查到"
+    },
+    {
+      "p": "track down",
+      "g": "phrv.搜寻到,跟踪到,追查到"
+    },
+    {
+      "p": "traffic jam",
+      "g": "usage. 堵车,交通阻塞"
+    },
+    {
+      "p": "transform... into sth",
+      "g": "usage. 把...转换为,把...改变为"
+    },
+    {
+      "p": "translate into sth",
+      "g": "usage. 转变为,转化为"
+    },
+    {
+      "p": "translate sth into sth",
+      "g": "usage. 把...翻译为..."
+    },
+    {
+      "p": "transmit sth to...",
+      "g": "usage. 传送(信号)到...;传达(思想)给 usage. 传染(疾病等)给..."
+    },
+    {
+      "p": "trap sb into sth",
+      "g": "usage. 使某人陷入圈套,使某人上当"
+    },
+    {
+      "p": "treat sb to sth",
+      "g": "usage. 用...犒劳,以...款待"
+    },
+    {
+      "p": "treat... as sth",
+      "g": "usage. 把...当作...对待,把...当...处理"
+    },
+    {
+      "p": "treat... with sth",
+      "g": "usage. 以...对待,以...看待usage. 以...医治,用...治疗;用...处理"
+    },
+    {
+      "p": "trick sb into sth",
+      "g": "phrv.骗某人做某事"
+    },
+    {
+      "p": "trip over",
+      "g": "usage. (被...) 绊倒"
+    },
+    {
+      "p": "triumph over",
+      "g": "usage. 成功战胜"
+    },
+    {
+      "p": "trust sb with...",
+      "g": "phrv. 把...委托给某人照管"
+    },
+    {
+      "p": "tune in",
+      "g": "phrv. 收听,收看"
+    },
+    {
+      "p": "turn a deaf ear",
+      "g": "idm.(对...)置之不理,充耳不闻"
+    },
+    {
+      "p": "turn in",
+      "g": "phrv. 交还,退还;上交,提交"
+    },
+    {
+      "p": "turn into sth",
+      "g": "phrv. 变成某事物"
+    },
+    {
+      "p": "turn over",
+      "g": "phrv. 翻身,翻转;把...翻面,使...翻转phrv. 认真思考;把...移交给他人 (管理)"
+    },
+    {
+      "p": "turn the tables",
+      "g": "idm. 扭转局面,反败为胜,转弱为强"
+    },
+    {
+      "p": "turn up",
+      "g": "phrv. 开大,调高(音量等);露面,出现phrv. (尤指失去后偶然) 被发现phrv. (机会) 偶然出现,到来"
+    },
+    {
+      "p": "under control",
+      "g": "idm. 被控制住,处于控制之下"
+    },
+    {
+      "p": "under no circumstances",
+      "g": "idm. 无论如何都不"
+    },
+    {
+      "p": "under pressure",
+      "g": "idm. (液体或气体) 受压力,压缩idm. 在压力下,承受着压力"
+    },
+    {
+      "p": "under way",
+      "g": "idm. 已经开始,在进行中"
+    },
+    {
+      "p": "under... conditions",
+      "g": "collocation.在...的环境下,在...的条件下"
+    },
+    {
+      "p": "up against sth",
+      "g": "idm. 遇到 (问题),遭到 (反对)"
+    },
+    {
+      "p": "up to sth",
+      "g": "idm. 到达(某数量、程度等),多达 idm. 直到,不迟于;与...一样好 idm. 正在干,从事着;能胜任"
+    },
+    {
+      "p": "up until",
+      "g": "collocation. 到...时,直到...为止"
+    },
+    {
+      "p": "ups and downs",
+      "g": "idm. 起伏,兴衰"
+    },
+    {
+      "p": "upside down",
+      "g": "usage. 颠倒地 (的),翻转地 (的)"
+    },
+    {
+      "p": "urge sb to do",
+      "g": "usage.敦促某人做某事"
+    },
+    {
+      "p": "vary from... to...",
+      "g": "usage. 在...间变化,因...而异"
+    },
+    {
+      "p": "view... as sth",
+      "g": "usage. 把...视为,以...看待"
+    },
+    {
+      "p": "vote for",
+      "g": "usage. 投票赞成"
+    },
+    {
+      "p": "vow to do",
+      "g": "usage. 发誓做某事"
+    },
+    {
+      "p": "wake up to sth",
+      "g": "phrv.开始意识到"
+    },
+    {
+      "p": "wanderaround",
+      "g": "collocation. 闲逛,四处游荡"
+    },
+    {
+      "p": "ward off",
+      "g": "phrv. 避开,抵御(危险、疾病等)"
+    },
+    {
+      "p": "warn (sb) of sth",
+      "g": "usage. 提醒 (某人) 某事"
+    },
+    {
+      "p": "warn sb about sth",
+      "g": "usage. 提醒某人注意某事"
+    },
+    {
+      "p": "warn sb not to do",
+      "g": "usage. 告诫某人不要做某事"
+    },
+    {
+      "p": "wash up",
+      "g": "phrv. (餐后) 洗餐具 phrv. (水) 把...冲到陆地上"
+    },
+    {
+      "p": "waste disposal",
+      "g": "n. 废物处理,垃圾处理"
+    },
+    {
+      "p": "watch out for",
+      "g": "phrv. 小心,当心;照顾,照应"
+    },
+    {
+      "p": "watch over",
+      "g": "phrv. 保护,照看"
+    },
+    {
+      "p": "wear and tear",
+      "g": "idm. 磨损,损耗,损坏"
+    },
+    {
+      "p": "wear out",
+      "g": "phrv. 穿破,磨损,用坏"
+    },
+    {
+      "p": "what is more",
+      "g": "idm. 而且,更为重要的是"
+    },
+    {
+      "p": "win out",
+      "g": "phrv. (克服困难) 终获成功"
+    },
+    {
+      "p": "wind up",
+      "g": "usage. 给(钟表等)上发条phrv. (人) 以...告终;惹...生气,戏弄"
+    },
+    {
+      "p": "wipe out",
+      "g": "phrv. 彻底消灭,全部摧毁;使疲惫不堪"
+    },
+    {
+      "p": "with reference to",
+      "g": "idm.(所述内容)关于"
+    },
+    {
+      "p": "with respect to sth",
+      "g": "idm. 关于,就...而言"
+    },
+    {
+      "p": "with the exception of",
+      "g": "idm. 除...之外,不包括...在内"
+    },
+    {
+      "p": "within reason",
+      "g": "collocation. 合情合理地"
+    },
+    {
+      "p": "without question",
+      "g": "collocation. 毫无疑问"
+    },
+    {
+      "p": "word for word",
+      "g": "idm.一字不差地,(翻译时)逐字地"
+    },
+    {
+      "p": "work on sth",
+      "g": "phrv. 致力于,改善"
+    },
+    {
+      "p": "work overtime",
+      "g": "collocation. 加班"
+    },
+    {
+      "p": "work through sth",
+      "g": "phrv. 解决(问题),调整(情绪)"
+    },
+    {
+      "p": "worn out",
+      "g": "usage. 磨损的,破旧不堪的,废旧的usage. 疲惫不堪的,精疲力竭的"
+    },
+    {
+      "p": "would rather do than do",
+      "g": "idm. 宁愿...也不..."
+    },
+    {
+      "p": "wrap up",
+      "g": "phrv. 顺利结束 (协议或会议等) phrv. (使) 穿得暖和;包,裹 (礼物等)"
+    },
+    {
+      "p": "your best bet",
+      "g": "idm. 你最好的办法 (用于提建议)"
+    }
+  ]
+}

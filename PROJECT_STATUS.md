@@ -37,11 +37,12 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 ## 2026-09-03 重点词组高亮（feature: key phrases）
 
 - 功能：阅读页新增「重点词组」开关（右上角更多弹层，`role="switch"`，`reading_phrase_highlighting` 持久化，默认开）。开启后文章标题、正文段落、逐句导读英文原句中的词组以 moss 绿色块高亮；点击词组弹词组释义卡（Tooltip.showPhrase），非词组词仍走单词查词。
-- 数据：`public/data/key-phrases/`（manifest + 按 track 分片，schemaVersion/packVersion 校验）。词组资料尚未导入——资料到位后运行 `node scripts/build-key-phrases.mjs --input <资料文件> [--track general|cet4|cet6|kaoyan]` 生成，支持 TXT(TAB/| 分隔)/CSV/JSON，同 track 重复导入按规范化词组合并。**当前包不存在，开关开启时静默降级为不高亮。**
+- 数据：`public/data/key-phrases/`（manifest + 按 track 分片，schemaVersion/packVersion 校验）。**2026-09-04 已导入用户资料**（`D:\资料\english\词组` 四份清单 CSV）：cet4 1510 条（四级核心+扩展）、kaoyan 1302 条（考研核心+扩展）、general 2104 条（并集兜底，cet6/未设目标时使用）。条目含来源类型前缀（usage./idm./phrv./collocation.）与中文释义。
 - 实现：`src/components/word-marking.mjs` 新增词组最长匹配层（规范化 + 常规屈折折叠 + 连接符约束，`renderPhraseAwareMarking`/`matchKeyPhraseAt`/`buildKeyPhraseMatcherIndex`，单词标记签名不变）；`src/key-phrase-library.mjs` 词组库运行时（manifest 校验、track 解析 kaoyan1/2→kaoyan、未知 track 回落 general、memoize）；`reading-word-lookup.js` 词组优先分支（keydown 同步）；reading.js 首帧后惰性加载 matcher 并重渲染（`_scheduleAfterFirstPaint` 既有模式），词组 span 嵌在 `.reading-sentence` 内部、续读定位结构不变。
-- 已知限制：不规则动词变形不折叠（dealt/went）；跨句不匹配；词组只按表面序列完整匹配。
+- 已知限制：不规则动词变形不折叠（如 made/went 无法命中 make a contribution）；跨句不匹配；词组只按表面序列完整匹配。
+- 通配符匹配：资料中约 1/3 条目含 sth/sb/one's/A/B/do 占位符，运行时将其记为通配位（匹配任意单个词），如 "respond to sth" 命中 "respond to the challenge"；通配开头条目按第二个词建桶索引（24k 字符渲染 ~5ms）。
 - 顺手修正：`tests/build-apk-script.test.mjs` 的构建链断言仍是合并前旧值（上次合并验证时序缺口），已同步为无 release-artifact 的新链。
-- 验证：`node --test tests/*.test.mjs` 1265/1265 通过（新增 24 项）；`npm run build` 通过。版本保持 1.9.5/41。
+- 验证：`node --test tests/*.test.mjs` 1269/1269 通过；`npm run build` 通过。版本保持 1.9.5/41。
 
 ## 范围与限制
 

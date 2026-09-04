@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "packVersion": "2026-09-04",
+  "tracks": {
+    "cet4": {
+      "path": "cet4.json",
+      "phraseCount": 1510
+    },
+    "general": {
+      "path": "general.json",
+      "phraseCount": 2104
+    },
+    "kaoyan": {
+      "path": "kaoyan.json",
+      "phraseCount": 1302
+    }
+  }
+}
