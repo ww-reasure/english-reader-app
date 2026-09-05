@@ -58,7 +58,6 @@ export const SettingsView = {
   // Render settings page
   render(container) {
     const currentTheme = Config.get('theme') || 'light';
-    const examWordLookupEnabled = Config.get('exam_word_lookup_enabled') !== 'false';
     const storedTrack = Config.get('exam_level');
     const targetMigrationRequired = Config.get('target_track_selection_required') === 'true' || storedTrack === 'graduate';
     // A legacy or unselected target must remain visibly unselected. Falling
@@ -224,57 +223,38 @@ export const SettingsView = {
           </div>
         </section>
 
-        <section class="settings-grouped-list" aria-label="更多设置">
-          <details class="settings-disclosure">
-            <summary class="settings-disclosure-summary">
-              <span class="settings-disclosure-icon"><i class="fa-solid fa-file-pen" aria-hidden="true"></i></span>
-              <span><strong>真题练习</strong><small>点词翻译 ${examWordLookupEnabled ? '已开启' : '已关闭'}</small></span>
-              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
-            </summary>
-            <div class="settings-disclosure-body">
-              <div class="settings-switch-row">
-                <div class="settings-switch-copy"><strong>做题时点词翻译</strong><span>控制作答过程中的英文点词查词；提交后查看解析时始终可用。</span></div>
-                <label class="settings-switch-control">
-                  <span class="sr-only">做题时点词翻译</span>
-                  <input id="settingsExamWordLookup" type="checkbox" role="switch" aria-checked="${examWordLookupEnabled ? 'true' : 'false'}" ${examWordLookupEnabled ? 'checked' : ''}>
-                  <b id="settingsExamWordLookupState">${examWordLookupEnabled ? '开' : '关'}</b>
-                </label>
-              </div>
+        <details class="settings-disclosure">
+          <summary class="settings-disclosure-summary">
+            <span class="settings-disclosure-icon"><i class="fa-solid fa-sun" aria-hidden="true"></i></span>
+            <span><strong>外观</strong><small>${currentTheme === 'dark' ? '暗黑模式' : '亮色模式'}</small></span>
+            <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+          </summary>
+          <div class="settings-disclosure-body">
+            <div class="settings-theme-grid">
+              <label class="settings-choice"><input type="radio" name="theme" value="light" ${currentTheme === 'light' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">亮色模式</span><span class="settings-choice-desc">温暖纸张与深色文字</span></span></label>
+              <label class="settings-choice"><input type="radio" name="theme" value="dark" ${currentTheme === 'dark' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">暗黑模式</span><span class="settings-choice-desc">低光环境更舒适</span></span></label>
             </div>
-          </details>
+          </div>
+        </details>
 
-          <details class="settings-disclosure">
-            <summary class="settings-disclosure-summary">
-              <span class="settings-disclosure-icon"><i class="fa-solid fa-sun" aria-hidden="true"></i></span>
-              <span><strong>外观</strong><small>${currentTheme === 'dark' ? '暗黑模式' : '亮色模式'}</small></span>
-              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
-            </summary>
-            <div class="settings-disclosure-body">
-              <div class="settings-theme-grid">
-                <label class="settings-choice"><input type="radio" name="theme" value="light" ${currentTheme === 'light' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">亮色模式</span><span class="settings-choice-desc">温暖纸张与深色文字</span></span></label>
-                <label class="settings-choice"><input type="radio" name="theme" value="dark" ${currentTheme === 'dark' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">暗黑模式</span><span class="settings-choice-desc">低光环境更舒适</span></span></label>
+        <details class="settings-disclosure">
+          <summary class="settings-disclosure-summary">
+            <span class="settings-disclosure-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+            <span><strong>AI 与模型</strong><small>${homeLearningResponseModeLabel} · ${modelOptions.includes(`value="${currentModel}" selected`) ? 'DeepSeek 预设模型' : '自定义模型'}</small></span>
+            <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
+          </summary>
+          <div class="settings-disclosure-body settings-form-stack">
+            <fieldset class="settings-fieldset settings-home-learning-mode">
+              <legend>首页英语学习回答</legend>
+              <p>只影响首页里直接发送英文词句或“帮我看看这个”等学习请求；日报、文章生成、普通聊天和其他页面不受影响。</p>
+              <div class="settings-home-learning-grid">
+                <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="ask" ${homeLearningResponseMode === 'ask' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">每次询问</span><span class="settings-choice-desc">先选择详细解析或互动教学</span></span></label>
+                <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="detailed" ${homeLearningResponseMode === 'detailed' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认详细解析</span><span class="settings-choice-desc">一次展示完整解释</span></span></label>
+                <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="guided" ${homeLearningResponseMode === 'guided' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认互动教学</span><span class="settings-choice-desc">分步理解、提示与练习</span></span></label>
               </div>
-            </div>
-          </details>
-
-          <details class="settings-disclosure">
-            <summary class="settings-disclosure-summary">
-              <span class="settings-disclosure-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
-              <span><strong>AI 与模型</strong><small>${homeLearningResponseModeLabel} · ${modelOptions.includes(`value="${currentModel}" selected`) ? 'DeepSeek 预设模型' : '自定义模型'}</small></span>
-              <i class="fa-solid fa-chevron-down settings-disclosure-chevron" aria-hidden="true"></i>
-            </summary>
-            <div class="settings-disclosure-body settings-form-stack">
-              <fieldset class="settings-fieldset settings-home-learning-mode">
-                <legend>首页英语学习回答</legend>
-                <p>只影响首页里直接发送英文词句或“帮我看看这个”等学习请求；日报、文章生成、普通聊天和其他页面不受影响。</p>
-                <div class="settings-home-learning-grid">
-                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="ask" ${homeLearningResponseMode === 'ask' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">每次询问</span><span class="settings-choice-desc">先选择详细解析或互动教学</span></span></label>
-                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="detailed" ${homeLearningResponseMode === 'detailed' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认详细解析</span><span class="settings-choice-desc">一次展示完整解释</span></span></label>
-                  <label class="settings-choice"><input type="radio" name="homeLearningResponseMode" value="guided" ${homeLearningResponseMode === 'guided' ? 'checked' : ''}><span class="settings-choice-label"><span class="settings-choice-title">默认互动教学</span><span class="settings-choice-desc">分步理解、提示与练习</span></span></label>
-                </div>
-              </fieldset>
-              <div class="form-group"><label for="settingsApiKey">API Key</label><input type="password" id="settingsApiKey" value="${esc(Config.get('api_key'))}" placeholder="sk-..."></div>
-              <div class="form-group"><label for="settingsBaseUrl">Base URL</label><input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1"></div>
+            </fieldset>
+            <div class="form-group"><label for="settingsApiKey">API Key</label><input type="password" id="settingsApiKey" value="${esc(Config.get('api_key'))}" placeholder="sk-..."></div>
+            <div class="form-group"><label for="settingsBaseUrl">Base URL</label><input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1"></div>
               <div class="form-group">
                 <label for="settingsModelPreset">模型</label>
                 <div class="model-select"><select id="settingsModelPreset" onchange="SettingsView.onModelChange()">${modelOptions}<option value="custom" ${customModelSelected ? 'selected' : ''}>自定义模型</option></select><input type="text" id="settingsModelInput" value="${customModelSelected ? esc(currentModel) : ''}" placeholder="输入模型名称" style="display:${customModelSelected ? 'block' : 'none'}"></div>
@@ -389,7 +369,6 @@ export const SettingsView = {
               <p id="settingsDiagnosticActionStatus" class="settings-form-status" role="status"></p>
             </div>
           </details>
-        </section>
 
         <div class="settings-actions"><button class="btn btn-primary" onclick="SettingsView.save()">保存设置</button></div>
       </section>`;
@@ -401,14 +380,6 @@ export const SettingsView = {
     });
 
     const findInContainer = selector => typeof container.querySelector === 'function' ? container.querySelector(selector) : null;
-    const examWordLookupToggle = findInContainer('#settingsExamWordLookup');
-    examWordLookupToggle?.addEventListener('change', event => {
-      const enabled = Boolean(event.target.checked);
-      event.target.setAttribute('aria-checked', String(enabled));
-      const state = findInContainer('#settingsExamWordLookupState');
-      if (state) state.textContent = enabled ? '开' : '关';
-      void Config.set('exam_word_lookup_enabled', String(enabled));
-    });
 
     // Load cache info
     this.loadTitleTranslationCacheInfo();

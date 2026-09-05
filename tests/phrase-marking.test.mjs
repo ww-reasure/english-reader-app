@@ -111,10 +111,47 @@ test('capture one\u2019s attention style possessive placeholders are wildcards',
   assert.match(renderPhraseAwareMarking("capture one's attention", matcher, {}), /data-key-phrase-id="capture one&#39;s attention"/);
 });
 
-test('a phrase whose first token is a wildcard still matches from any position', () => {
+test('first-token placeholders stay literal: do/anything phrases cannot hijack real text', () => {
+  const matcher = buildKeyPhraseMatcherIndex([
+    { id: 'do good', phrase: 'do good', glossZh: '' },
+    { id: 'do the trick', phrase: 'do the trick', glossZh: '' },
+    { id: 'anything like', phrase: 'anything like', glossZh: '' }
+  ]);
+  // 资料里 do/anything 开头的词组是实义词，绝不能把 feels good / just like 误判成词组。
+  assert.doesNotMatch(renderPhraseAwareMarking('She feels good about it.', matcher, {}), /data-key-phrase-id/);
+  assert.doesNotMatch(renderPhraseAwareMarking('It was just like a dream.', matcher, {}), /data-key-phrase-id/);
+  assert.doesNotMatch(renderPhraseAwareMarking('He knows the trick.', matcher, {}), /data-key-phrase-id/);
+  // 字面形式照常命中，且 do 的常规变形（doing/did/does）也命中。
+  assert.match(renderPhraseAwareMarking('do good every day', matcher, {}), /data-key-phrase-id="do good"/);
+  assert.match(renderPhraseAwareMarking('doing good deeds', matcher, {}), /data-key-phrase-id="do good"/);
+});
+
+test('first-token placeholder tokens are literal, so sb-initial phrases need the exact word', () => {
   const matcher = buildKeyPhraseMatcherIndex([{ id: 'sb else', phrase: 'sb else', glossZh: '' }]);
-  assert.match(renderPhraseAwareMarking('somebody else', matcher, {}), /data-key-phrase-id="sb else"/);
-  assert.match(renderPhraseAwareMarking('anyone else', matcher, {}), /data-key-phrase-id="sb else"/);
+  assert.doesNotMatch(renderPhraseAwareMarking('somebody else', matcher, {}), /data-key-phrase-id/);
+});
+
+test('gap no longer tolerates commas or ampersands', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'carry out', phrase: 'carry out', glossZh: '' }]);
+  assert.doesNotMatch(renderPhraseAwareMarking('carried, out the plan', matcher, {}), /data-key-phrase-id="carry out"/);
+  assert.doesNotMatch(renderPhraseAwareMarking('carried & out', matcher, {}), /data-key-phrase-id="carry out"/);
+});
+
+test('-es words with silent-e bases fold onto the -s form', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'size up', phrase: 'size up', glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('sizes up the room', matcher, {}), /data-key-phrase-id="size up"/);
+});
+
+test('short -ed and -ing forms fold onto their base verbs', () => {
+  const useUp = buildKeyPhraseMatcherIndex([{ id: 'use up', phrase: 'use up', glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('used up everything', useUp, {}), /data-key-phrase-id="use up"/);
+  const goAgainst = buildKeyPhraseMatcherIndex([{ id: 'go against', phrase: 'go against', glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('going against the rules', goAgainst, {}), /data-key-phrase-id="go against"/);
+});
+
+test('news keeps its own surface and does not fold onto new', () => {
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'new deal', phrase: 'new deal', glossZh: '' }]);
+  assert.doesNotMatch(renderPhraseAwareMarking('The news deal was signed.', matcher, {}), /data-key-phrase-id="new deal"/);
 });
 
 test('the articles a/an/b stay literal so "many a" cannot jump across words', () => {

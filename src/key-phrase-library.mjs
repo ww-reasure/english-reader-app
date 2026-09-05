@@ -29,10 +29,16 @@ export function assertKeyPhrasePack(value, { track }) {
 }
 
 const KAOYAN_TRACKS = new Set(['kaoyan', 'kaoyan1', 'kaoyan2', 'kaoyan-general']);
-const KNOWN_TRACKS = new Set(['general', 'cet4', 'cet6']);
+// 只有真正存在分片的 track 才按原名加载；cet6 等未打包目标一律回落 general 并集，
+// 否则六级用户会拿到空 matcher、零高亮。
+const KNOWN_TRACKS = new Set(['general', 'cet4']);
 
 function normalizePhraseId(value) {
-  return String(value || '').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
+  return String(value || '')
+    .replace(/[’]/gu, "'")
+    .trim()
+    .toLocaleLowerCase('en-US')
+    .replace(/\s+/g, ' ');
 }
 
 export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '/data' } = {}) {
@@ -49,7 +55,13 @@ export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '
   }
 
   function loadManifest() {
-    manifestPromise ||= fetchJson(`${baseUrl}/key-phrases/manifest.json`).then(assertKeyPhraseManifest);
+    // 失败必须复位：否则一次弱网失败会让整个会话的词组高亮+词组卡全部失效直到刷新。
+    manifestPromise ||= fetchJson(`${baseUrl}/key-phrases/manifest.json`)
+      .then(assertKeyPhraseManifest)
+      .catch(error => {
+        manifestPromise = undefined;
+        throw error;
+      });
     return manifestPromise;
   }
 
@@ -63,11 +75,21 @@ export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '
   }
 
   async function loadPack(track) {
-    const manifest = await loadManifest();
-    const meta = manifest.tracks?.[track];
-    if (!meta?.path) return null;
-    const path = String(meta.path).replace(/^\//, '');
-    return fetchJson(`${baseUrl}/key-phrases/${path}`).then(value => assertKeyPhrasePack(value, { track }));
+    // 分片按 track 记忆化：matcher 与跨包索引不会重复拉取同一分片。
+    if (packPromises.has(track)) return packPromises.get(track);
+    const promise = loadManifest()
+      .then(async manifest => {
+        const meta = manifest.tracks?.[track];
+        if (!meta?.path) return null;
+        const path = String(meta.path).replace(/^\//, '');
+        return fetchJson(`${baseUrl}/key-phrases/${path}`).then(value => assertKeyPhrasePack(value, { track }));
+      })
+      .catch(error => {
+        packPromises.delete(track);
+        throw error;
+      });
+    packPromises.set(track, promise);
+    return promise;
   }
 
   async function getMatcher({ targetTrack = '', track } = {}) {

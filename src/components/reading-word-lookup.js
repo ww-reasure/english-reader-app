@@ -74,6 +74,9 @@ export function bindLearningTextLookup({
   let disposed = false;
   let suppressedClickTarget = null;
   let suppressionTimer = null;
+  // 每次取词调用都推进代数：词组释义异步解析完成后，只有仍是最新一次交互才允许弹卡，
+  // 避免迟到的解析把用户当前打开/刚关闭的卡片顶掉。
+  let lookupGeneration = 0;
   const isolatedSurface = surface === 'guide' || surface === 'isolated';
 
   const clearClickSuppression = () => {
@@ -94,6 +97,7 @@ export function bindLearningTextLookup({
 
   const lookupWord = async (event, { mode = 'click', allowControl = false } = {}) => {
     if (disposed) return;
+    const generation = ++lookupGeneration;
     if (!isEnabled()) return hide();
     if (shouldIgnoreClick(event)) {
       event.stopPropagation?.();
@@ -126,8 +130,9 @@ export function bindLearningTextLookup({
       const phraseTarget = target.closest?.('[data-key-phrase-id]');
       const phraseId = String(phraseTarget?.dataset?.keyPhraseId || '').trim();
       if (phraseTarget && phraseId) {
-        const phraseData = await resolveKeyPhrase(phraseId);
-        if (disposed) return;
+        const phraseData = await resolveKeyPhrase(phraseId).catch(() => null);
+        // 异步解析期间用户又点了别处（代数推进）或绑定已销毁 → 放弃本次结果。
+        if (disposed || generation !== lookupGeneration) return;
         if (phraseData) {
           event.stopPropagation?.();
           onHide();

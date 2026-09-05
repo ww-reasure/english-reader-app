@@ -26,6 +26,7 @@ import { SentenceGuide } from '../components/sentence-guide.js';
 import { resolveArticleTrack } from '../cloud-article-metadata.mjs';
 import { buildExactWordFormIndex, renderExactWordMarking, renderPhraseAwareMarking, matchKeyPhraseAt } from '../components/word-marking.mjs';
 import { KeyPhraseLibrary } from '../key-phrase-library.mjs';
+import { scheduleAfterFirstPaint } from '../first-paint-scheduler.mjs';
 import { bindLearningTextLookup, getContextSentenceAtPoint } from '../components/reading-word-lookup.js';
 import { exportArticlePdf } from '../components/article-pdf.mjs';
 import { splitSentences } from '../components/sentence-selection.mjs';
@@ -127,7 +128,8 @@ export const ReadingView = {
 
   _renderGuideSource(sentence) {
     const source = String(sentence || '');
-    const tokenPattern = /[A-Za-z]+(?:['’\-][A-Za-z]+)*/gu;
+    // 与 word-marking.mjs 的 TOKEN_PATTERN 保持一致（含 en dash –），避免两个表面分词漂移。
+    const tokenPattern = /[A-Za-z]+(?:['’–-][A-Za-z]+)*/gu;
     const matches = [...source.matchAll(tokenPattern)];
     const matcher = this.phraseHighlightingEnabled ? this.keyPhraseMatcher : null;
     let cursor = 0;
@@ -428,21 +430,7 @@ export const ReadingView = {
   },
 
   _scheduleAfterFirstPaint(callback) {
-    const frame = globalThis.requestAnimationFrame;
-    if (typeof frame === 'function') {
-      // 后台标签页的 rAF 会被浏览器冻结，双 rAF 永不触发；用超时兜底保证
-      // 后台加载（切走再回来、预加载场景）也能完成首帧后增强。
-      let started = false;
-      const run = () => {
-        if (started) return;
-        started = true;
-        callback();
-      };
-      frame(() => frame(run));
-      globalThis.setTimeout?.(run, 1200);
-      return;
-    }
-    globalThis.setTimeout?.(callback, 0);
+    scheduleAfterFirstPaint(callback);
   },
 
   async _startPostPaintEnhancements({ article, container, session, learnWordsPromise }) {
@@ -895,8 +883,10 @@ export const ReadingView = {
   },
 
   _applyPhraseMarkingToTitle(article) {
-    if (!this.phraseHighlightingEnabled || !this.keyPhraseMatcher) return;
+    if (!article) return;
     const titleNode = this.container?.querySelector?.('#readingTitleLookup .reading-title');
+    // 总是按当前状态重写：开启且 matcher 就绪 → 词组标注；关闭或未加载 → 纯转义标题。
+    // 不能在关闭路径早退，否则标题残留词组高亮而正文已清除。
     if (titleNode) titleNode.innerHTML = this._renderTitleText(article);
   },
 
@@ -1043,6 +1033,8 @@ export const ReadingView = {
     this.learningWords = [];
     this.learningWordFormIndex = new Map();
     this.reviewWordFormIndex = new Map();
+    // 词组 matcher 随文章重置：旧文章的 track 可能与本文不同，phraseTask 会按需重载。
+    this.keyPhraseMatcher = null;
     this.wordMarkingEnabled = Config.get('reading_word_marking') === 'true';
     this.phraseHighlightingEnabled = Config.get('reading_phrase_highlighting') === 'true';
     this.englishParagraphs = [];
@@ -1541,15 +1533,20 @@ export const ReadingView = {
   },
 
   async togglePhraseHighlighting() {
+    // 会话守卫：等待期间发生换页/重渲（wordMarkingSession 变化）就放弃本次续体，
+    // 避免用 A 文章的错轨 matcher 覆盖 B 文章状态（phraseTask 有 isCurrent，这里必须对等）。
+    const session = this.wordMarkingSession;
     this.phraseHighlightingEnabled = !this.phraseHighlightingEnabled;
     Config.set('reading_phrase_highlighting', this.phraseHighlightingEnabled ? 'true' : 'false');
     const button = document.getElementById('phraseHighlightBtn');
     if (button) button.setAttribute('aria-busy', 'true');
     if (this.phraseHighlightingEnabled && !this.keyPhraseMatcher) {
       try {
-        this.keyPhraseMatcher = await KeyPhraseLibrary.getMatcher({
+        const matcher = await KeyPhraseLibrary.getMatcher({
           targetTrack: resolveArticleTrack(this.articleData || {}).targetTrack
         });
+        if (session !== this.wordMarkingSession) return;
+        this.keyPhraseMatcher = matcher;
       } catch (error) {
         // 包缺失/网络失败时保持不高亮，开关状态本身照常切换。
         diagnosticLogger()?.record('reading.key_phrase_load_failed', {
@@ -1559,6 +1556,7 @@ export const ReadingView = {
         });
       }
     }
+    if (session !== this.wordMarkingSession) return;
     if (!this.phraseHighlightingEnabled) this.keyPhraseMatcher = null;
     this._rerenderEnglishParagraphs();
     this._applyPhraseMarkingToTitle(this.articleData);

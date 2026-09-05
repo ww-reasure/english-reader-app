@@ -125,6 +125,27 @@ test('default track falls back to general when no target is given', async () => 
   assert.equal(matcher.size, 2);
 });
 
+test('a failed manifest fetch does not poison later retries', async () => {
+  let attempts = 0;
+  const library = createKeyPhraseLibrary({ fetchFn: async url => {
+    if (String(url).endsWith('manifest.json')) {
+      attempts += 1;
+      if (attempts === 1) return { ok: false, json: async () => null };
+      return { ok: true, json: async () => MANIFEST };
+    }
+    return { ok: true, json: async () => PACKS['key-phrases/general.json'] };
+  } });
+  await assert.rejects(() => library.getMatcher({ track: 'general' }));
+  const matcher = await library.getMatcher({ track: 'general' });
+  assert.equal(matcher.size, 2);
+});
+
+test('cet6 targets fall back to the general union pack', () => {
+  const { fetchFn } = stubFetch();
+  const library = createKeyPhraseLibrary({ fetchFn });
+  assert.equal(library.resolveTargetTrack('cet6'), 'general');
+});
+
 test('resolveTargetTrack maps kaoyan variants onto the kaoyan shard', () => {
   const library = createKeyPhraseLibrary({ fetchFn: async () => ({ ok: true, json: async () => MANIFEST }) });
   assert.equal(library.resolveTargetTrack('kaoyan1'), 'kaoyan');

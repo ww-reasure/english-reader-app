@@ -20,7 +20,7 @@ test('settings follows the selected preference overview and grouped information 
   assert.match(settingsSource, /settings-target-grid/);
   assert.match(settingsSource, /settings-pressure-grid/);
 
-  for (const label of ['真题练习', '外观', 'AI 与模型', '联网检索', '存储与缓存']) {
+  for (const label of ['外观', 'AI 与模型', '联网检索', '存储与缓存']) {
     assert.match(settingsSource, new RegExp(`<details[^>]*class="settings-disclosure[^"]*"[\\s\\S]*?>[\\s\\S]*?${label}`));
   }
 
@@ -30,7 +30,7 @@ test('settings follows the selected preference overview and grouped information 
 
 test('settings redesign preserves every interactive configuration contract', () => {
   for (const id of [
-    'settingsExamWordLookup', 'coverageSlider', 'coverageMin', 'coverageDisplay', 'coverageMax', 'coverageHint',
+    'coverageSlider', 'coverageMin', 'coverageDisplay', 'coverageMax', 'coverageHint',
     'settingsApiKey', 'settingsBaseUrl', 'settingsModelPreset', 'settingsModelInput',
     'settingsWebResearchMode', 'webResearchModeStatus', 'settingsNativeTestBtn', 'deepSeekNativeStatus',
     'tavilyFields', 'settingsTavilyKey', 'tavilyKeyToggle', 'tavilyConnectionStatus',

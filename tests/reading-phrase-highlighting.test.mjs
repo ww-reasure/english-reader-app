@@ -64,10 +64,20 @@ test('phrase spans stay inside the sentence spans that reading progress depends 
 });
 
 test('post-paint enhancements survive background-tab rAF freezing via timeout fallback', async () => {
+  const [source, scheduler] = await Promise.all([
+    read('../src/views/reading.js'),
+    read('../src/first-paint-scheduler.mjs')
+  ]);
+  // reading.js 委托独立模块；超时兜底与防重入行为由 first-paint-scheduler.test.mjs 行为验证。
+  assert.match(source, /_scheduleAfterFirstPaint\(callback\) \{\s*scheduleAfterFirstPaint\(callback\);?\s*\}/);
+  assert.match(scheduler, /setTimeoutFn\?\.\(run, fallbackDelay\)/);
+  assert.match(scheduler, /started = true/);
+});
+
+test('togglePhraseHighlighting guards against article switches while loading', async () => {
   const source = await read('../src/views/reading.js');
-  // 词组 matcher 在 _scheduleAfterFirstPaint 之后加载；后台标签页 rAF 被冻结时必须由超时兜底触发。
-  const scheduler = source.match(/_scheduleAfterFirstPaint\(callback\) \{[\s\S]*?\n  \},/);
-  assert.ok(scheduler, 'scheduler not found');
-  assert.match(scheduler[0], /setTimeout\?\.\(run, 1200\)/);
-  assert.match(scheduler[0], /started = true/);
+  const toggle = source.match(/async togglePhraseHighlighting\(\) \{[\s\S]*?\n  \},/);
+  assert.ok(toggle, 'toggle not found');
+  assert.match(toggle[0], /const session = this\.wordMarkingSession;/);
+  assert.match(toggle[0], /session !== this\.wordMarkingSession/);
 });

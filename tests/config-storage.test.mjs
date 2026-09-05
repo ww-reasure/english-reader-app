@@ -145,7 +145,7 @@ test('persists the separate target, recommendation and calibration migration set
     'target_track_selection_required',
     'calibration_status',
     'lexicon_version',
-    'exam_word_lookup_enabled'
+    'reading_phrase_highlighting'
   ]) {
     assert.ok(CONFIG_STORAGE_KEYS.includes(key), `${key} should survive the native-settings migration`);
   }

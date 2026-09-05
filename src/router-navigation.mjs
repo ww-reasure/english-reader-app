@@ -8,7 +8,7 @@
 
 const noop = () => {};
 
-export const ROUTE_RENDER_ERROR_HTML = '<section class="app-standard-page route-render-error"><p class="page-eyebrow">TEMPORARY ERROR</p><h2>页面暂时无法打开</h2><p>请返回后重试；已有学习记录不会丢失。</p><a class="btn btn-primary" href="#/exam">返回真题训练</a></section>';
+export const ROUTE_RENDER_ERROR_HTML = '<section class="app-standard-page route-render-error"><p class="page-eyebrow">TEMPORARY ERROR</p><h2>页面暂时无法打开</h2><p>请返回后重试；已有学习记录不会丢失。</p><a class="btn btn-primary" href="#/chat">返回首页</a></section>';
 
 export function renderRouteError(outlet) {
   if (!outlet) return;

@@ -100,12 +100,13 @@ export function renderExactWordMarking(text, index, className = 'learning-word',
 }
 
 // 词组高亮：跨 token 的最长匹配优先，单词标记作为回退。
-// 词组内部只允许空白和连字符类连接符，禁止跨句号等句子标点。
-const PHRASE_TOKEN_GAP_PATTERN = /^[\s'’\-,&]*$/;
+// 相邻 token 之间只允许空白/撇号/连字符连接（不跨句读，也禁止逗号与 &）。
+const PHRASE_TOKEN_GAP_PATTERN = /^[\s'’\-]*$/;
 
-// 词组资料里的占位符（sth/sb/one's/do 等）：匹配任意单个词。
-// 注意 'a'/'b' 不作通配：资料里 "many a"、"a range of sth" 的 a 是实义冠词，
-// 通配会产生 "many aging" 这类跨词误报。
+// 词组资料里的占位符（sth/sb/one's/do 等）：非首位的 token 匹配任意单个词。
+// 注意：'a'/'b' 不作通配（"many a"、"a range of sth" 的 a 是实义冠词）；
+// 首位 token 也永远按字面处理——资料里 "do good"、"anything like" 的
+// do/anything 是实义词，首词通配会把 "feels good"、"just like" 误判成词组。
 const PHRASE_WILDCARD_TOKENS = new Set([
   'sth', 'sb', 'somebody', 'someone', 'something', 'anything', 'anyone',
   "one's", 'ones', 'do'
@@ -131,6 +132,9 @@ function unwrapDoubledConsonant(stem) {
   return /(?:bb|dd|gg|ll|mm|nn|pp|rr|tt)$/u.test(stem) ? stem.slice(0, -1) : '';
 }
 
+// -s 兜底折叠的例外：这些词去掉 s 会变成另一个实义词（news→new、means→mean）。
+const NON_FOLDING_S_FORMS = new Set(['news', 'lens', 'means', 'summons']);
+
 /**
  * 一个表面 token 可能对应的基础形集合。词组匹配时两侧都折到基础形：
  * 表面侧折（looks → look），词组侧存的就是基础形。
@@ -140,16 +144,23 @@ function foldTokenMatchKeys(token) {
   const keys = new Set([key]);
   const push = value => { if (value) keys.add(value); };
   if (/ies$/u.test(key)) push(`${key.slice(0, -3)}y`);
-  if (/(?:ches|shes|sses|xes|zes|oes)$/u.test(key)) push(key.slice(0, -2));
-  else if (/s$/u.test(key) && !/ss$/u.test(key) && key.length > 3) push(key.slice(0, -1));
+  if (/(?:ches|shes|sses|xes|zes|oes)$/u.test(key)) {
+    push(key.slice(0, -2));
+    // sizes/shoes/toes 这类以不发音 e 结尾的基词，-s 兜底才是正确折叠。
+    push(key.slice(0, -1));
+  } else if (/s$/u.test(key) && !/ss$/u.test(key) && key.length > 3 && !NON_FOLDING_S_FORMS.has(key)) {
+    push(key.slice(0, -1));
+  }
   if (/ied$/u.test(key)) push(`${key.slice(0, -3)}y`);
-  if (/ing$/u.test(key) && key.length > 5) {
+  // 长度下限放到 4/3：used/going/doing/died 这类短变形同样要折回基词；
+  // 更短的词（red/sing/ring/king）保持不折叠，避免 sing→s 类误折。
+  if (/ing$/u.test(key) && key.length > 4) {
     const stem = key.slice(0, -3);
     push(stem);
     push(`${stem}e`);
     push(unwrapDoubledConsonant(stem));
   }
-  if (/ed$/u.test(key) && key.length > 4) {
+  if (/ed$/u.test(key) && key.length > 3) {
     const stem = key.slice(0, -2);
     push(stem);
     push(key.slice(0, -1));
@@ -162,53 +173,47 @@ function foldTokenMatchKeys(token) {
 
 /**
  * phrases: [{ id?, phrase | p, glossZh? | g }]。id 缺省用规范化词组文本。
- * 占位符 token（sth/sb/one's/a/b/do...）记为通配位。
- * 通配开头的词组按其第一个字面 token 建桶（wildcardBySecond），避免逐位置全量扫描。
+ * 占位符 token（sth/sb/one's/do...）在非首位记为通配位，首位永远按字面入桶。
+ * 词组内 token 间隙含省略号（.../…）时标记 skipBefore：匹配时允许跨过任意词语。
+ * 返回 { byFirst: Map<首token基础形, 候选[]>, byId, size }，
+ * 桶内按 token 数降序，配合匹配端的"取最长命中"保证最长匹配优先。
  */
 export function buildKeyPhraseMatcherIndex(phrases) {
   const byFirst = new Map();
-  const wildcardBySecond = new Map();
-  const wildcardInitialAny = [];
   const byId = new Map();
   for (const phrase of Array.isArray(phrases) ? phrases : []) {
     const text = normalizePhraseText(phrase?.phrase ?? phrase?.p);
     if (!text) continue;
     const id = normalizePhraseText(phrase?.id) || text;
     if (byId.has(id)) continue;
+    const rawTokens = [...text.matchAll(TOKEN_PATTERN)];
     const tokens = [];
-    for (const raw of text.match(TOKEN_PATTERN) || []) {
-      const normalized = normalizeSurface(raw).replace(/[’]/gu, "'");
-      tokens.push(phraseWildcardToken(normalized) ? null : stripPossessive(normalized));
-    }
+    const skipBefore = [];
+    let previousEnd = -1;
+    rawTokens.forEach((match, tokenIndex) => {
+      const gap = previousEnd >= 0 ? text.slice(previousEnd, match.index) : '';
+      skipBefore.push(/\.{3,}|…/u.test(gap));
+      const normalized = normalizeSurface(match[0]).replace(/[’]/gu, "'");
+      tokens.push(tokenIndex > 0 && phraseWildcardToken(normalized) ? null : stripPossessive(normalized));
+      previousEnd = match.index + match[0].length;
+    });
     if (!tokens.some(token => token !== null)) continue;
     const entry = { id, phrase: text, glossZh: String(phrase?.glossZh ?? phrase?.g ?? '') };
-    const record = { id, entry, tokens };
-    if (tokens[0] === null) {
-      if (tokens.length > 1 && tokens[1] !== null) {
-        const bucket = wildcardBySecond.get(tokens[1]);
-        if (bucket) bucket.push(record);
-        else wildcardBySecond.set(tokens[1], [record]);
-      } else {
-        wildcardInitialAny.push(record);
-      }
-    } else {
-      const bucket = byFirst.get(tokens[0]);
-      if (bucket) bucket.push(record);
-      else byFirst.set(tokens[0], [record]);
-    }
+    const record = { id, entry, tokens, skipBefore };
+    const bucket = byFirst.get(tokens[0]);
+    if (bucket) bucket.push(record);
+    else byFirst.set(tokens[0], [record]);
     byId.set(id, entry);
   }
   for (const bucket of byFirst.values()) bucket.sort((left, right) => right.tokens.length - left.tokens.length);
-  for (const bucket of wildcardBySecond.values()) bucket.sort((left, right) => right.tokens.length - left.tokens.length);
-  wildcardInitialAny.sort((left, right) => right.tokens.length - left.tokens.length);
-  return { byFirst, wildcardBySecond, wildcardInitialAny, byId, size: byId.size };
+  return { byFirst, byId, size: byId.size };
 }
 
 /**
  * 从 matches[index] 起尝试词组匹配，取 token 数最多的命中。
- * 返回 { id, entry, tokenCount } 或 null。
- * 相邻 token 之间的间隙只允许空白/连字符/逗号类连接符（不跨句）；
- * 通配位匹配任意单个词。
+ * 返回 { id, entry, tokenCount } 或 null；tokenCount 是实际消耗的连续 token 数
+ * （省略号跨词时大于词组自身的 token 数），渲染层据此取词组 span 的结束位置。
+ * 通配位匹配任意单个词（首位 token 除外，见 buildKeyPhraseMatcherIndex）。
  */
 export function matchKeyPhraseAt(matcher, matches, index, source) {
   if (!matcher || !matcher.size) return null;
@@ -227,32 +232,37 @@ export function matchKeyPhraseAt(matcher, matches, index, source) {
   let best = null;
   const consider = candidate => {
     if (best && best.tokenCount >= candidate.tokens.length) return;
-    const lastIndex = index + candidate.tokens.length - 1;
-    if (lastIndex >= matches.length) return;
+    if (index + candidate.tokens.length > matches.length) return;
+    let cursor = index;
     for (let step = 1; step < candidate.tokens.length; step += 1) {
-      const previous = matches[index + step - 1];
-      const gap = text.slice(previous.index + previous[0].length, matches[index + step].index);
-      if (!PHRASE_TOKEN_GAP_PATTERN.test(gap)) return;
       const expected = candidate.tokens[step];
-      if (expected === null) continue;
-      if (!foldOf(index + step).has(expected)) return;
+      const skipAllowed = Boolean(candidate.skipBefore?.[step]);
+      const previous = matches[cursor];
+      let found = -1;
+      for (let next = cursor + 1; next < matches.length; next += 1) {
+        const gap = text.slice(previous.index + previous[0].length, matches[next].index);
+        if (skipAllowed) {
+          // 词组自己的省略号代表"此处隔任意内容"；文本侧只拒绝真正的句读。
+          if (/[.!?;。]/u.test(gap.replace(/\.{3,}|…/gu, ' '))) return;
+        } else if (!PHRASE_TOKEN_GAP_PATTERN.test(gap)) {
+          return;
+        }
+        if (expected === null || foldOf(next).has(expected)) {
+          found = next;
+          break;
+        }
+        if (!skipAllowed) return;
+      }
+      if (found === -1) return;
+      cursor = found;
     }
-    best = { id: candidate.id, entry: candidate.entry, tokenCount: candidate.tokens.length };
+    best = { id: candidate.id, entry: candidate.entry, tokenCount: cursor - index + 1 };
   };
 
   for (const key of foldOf(index)) {
     const bucket = matcher.byFirst.get(key);
     if (bucket) bucket.forEach(consider);
   }
-  // 通配开头：第二个词命中的桶 + 完全通配开头兜底。
-  const second = matches[index + 1];
-  if (second) {
-    for (const key of foldOf(index + 1)) {
-      const bucket = matcher.wildcardBySecond?.get(key);
-      if (bucket) bucket.forEach(consider);
-    }
-  }
-  (matcher.wildcardInitialAny || []).forEach(consider);
   return best;
 }
 

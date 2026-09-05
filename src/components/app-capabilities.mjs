@@ -13,9 +13,6 @@ const entries = Object.freeze([
   { id: 'context_review', name: '语境识词', category: '复习', route: '#/flashcard/context', summary: '在英文句子中判断到期单词，先作答再显示本句义。', keywords: ['复习', '语境', '例句', '识词'], prerequisites: ['存在到期学习词'], limitations: ['语境认识只形成较弱的正向证据'] },
   { id: 'calibration', name: '3 分钟阅读校准', category: '档案', route: '#/assessment', summary: '用 24 道分层词义题和短阅读推荐材料压力。', keywords: ['校准', '测评', '难度'], prerequisites: ['选择目标考试'], limitations: ['不估算虚假词汇量'] },
   { id: 'learning_profile', name: '学习档案', category: '档案', route: '#/profile', summary: '查看有效阅读、阅读时长、速度和复习概览。', keywords: ['档案', '统计', '进度'], prerequisites: [], limitations: ['只统计达到有效阅读门槛的阅读'] },
-  { id: 'exam_training', name: '真题训练', category: '真题', route: '#/exam', summary: '选择整卷或专项进行考研英语一、英语四级真题训练。', keywords: ['真题', '训练', '做题'], prerequisites: ['已安装真题题包'], limitations: ['必须由用户点击后开始'] },
-  { id: 'exam_review', name: '错题复习', category: '真题', route: '#/exam/review', summary: '查看到期错题与翻译复习安排。', keywords: ['错题', '复习', '真题'], prerequisites: ['存在复习记录'], limitations: ['不会自动开始复习'] },
-  { id: 'exam_history', name: '真题记录', category: '真题', route: '#/exam/history', summary: '查看已提交和进行中的真题练习。', keywords: ['真题', '记录', '历史'], prerequisites: [], limitations: [] },
   { id: 'learning_report', name: '学习报告', category: '档案', route: '#/report', summary: '查看阶段阅读与词汇复习报告。', keywords: ['报告', '周报', '总结'], prerequisites: [], limitations: [] },
   { id: 'settings', name: '学习设置', category: '设置', route: '#/settings', summary: '设置目标考试、材料压力、主题和 AI 服务。', keywords: ['设置', '目标', '难度'], prerequisites: [], limitations: [] }
 ]);

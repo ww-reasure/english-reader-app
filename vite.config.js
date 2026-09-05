@@ -36,12 +36,14 @@ function releaseArtifactPlugin({ flavor }) {
 
       const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
       const versionManifest = JSON.parse(readFileSync(resolve(__dirname, 'version.json'), 'utf8'));
+      // 按实际产物声明：没有私有题包目录时不得宣称包含它们。
+      const privateExamPacksIncluded = includePrivatePacks && existsSync(resolve(publicDir, 'exam-packs', 'private'));
       writeFileSync(resolve(outDir, 'release-manifest.json'), `${JSON.stringify({
         schemaVersion: 1,
         flavor,
         version: packageJson.version,
         versionCode: Number(versionManifest.versionCode),
-        privateExamPacksIncluded: includePrivatePacks,
+        privateExamPacksIncluded,
         distribution: includePrivatePacks ? 'internal-authorized' : 'public'
       }, null, 2)}\n`, 'utf8');
     },
