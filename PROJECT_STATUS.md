@@ -3,7 +3,8 @@
 ## 本轮结果
 
 以开发线 `feat/english-practice-machine`（fa02328）为参考源，把全部非真题功能移植到 main 线。
-main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工作树干净，未推送。
+main 从 1.9.4 前进到 **1.9.5（versionCode 41）**：截至发布提交 faf9372 共 8 个提交（0597d92 → faf9372），
+`4813508`（tooltip/知识画像对齐）在发布之后、af4bde8 之前。
 
 2026-08-31 又以真正的 git merge 把 `feat/app-wide-word-lookup`（fa02328 + `021cfcc` 全局取词功能）合并进 main：
 历史统一，但按既定原则解决冲突——真题代码不落地，main 继续无真题。
@@ -49,6 +50,17 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 - 验证：`node --test tests/*.test.mjs` 1273/1273 通过；`npm run build` 通过。浏览器实测：词组高亮、等级卡（四级+考研双徽章）、释义显示全部正常。
 - 发布：`npm run version:patch` 升至 **1.9.6 / versionCode 42**；`build-apk.js` 对已剥离 release-artifact/verify-apk 模块的引用改为 www 产物存在性检查；APK `EnglishReader-private-qa-v1.9.6-42-debug.apk`（SHA-256 见 .sha256 伴随文件）已复制到共享根 `E:\play\claude\`。
 - Windows 本地浏览器版：沿用 v1.9.4 的 PowerShell 静态服务器方案（`EnglishReaderServer.psm1` + `Start-EnglishReader.cmd`，127.0.0.1:17841），`app/` 取自本次 www 构建（含词组分片）；烟测通过（index/词组清单/JS 资产 200）。产物 `E:\play\claude\EnglishReader-Windows-v1.9.6\` 与同名 zip（28 MB）。
+
+## 2026-09-05 全方位审查与修复（1.9.7 / versionCode 43）
+
+四路只读子代理并行审查（匹配渲染层/词组库与数据/回归与发布一致性/测试缺口），关键结论由主代理逐条复核后全部修复：
+
+- P1：首 token 通配导致 "feels good"→"do good" 类误高亮（首词改字面、移除通配头机制）；keyPhraseMatcher 跨文章不复位 + toggle 无会话守卫（错轨词组可驻留，已随文章重置并加守卫）；app 能力注册表残留三个真题能力指向死路由（已删）。
+- P2：manifest 失败永久缓存（可重试）；词组卡异步解析无新鲜度检查（代数守卫）；关闭开关标题残留高亮（标题对称重渲）；release-manifest 虚标 privateExamPacksIncluded（按实际产物声明）；渲染错误页死链（改 #/chat）；cet6 目标零高亮（回落 general 并集）。
+- 数据：OCR 粘连 21 条修正表；斜杠替代表/括号可选词展开为可命中变体（约 170 条挽回）；省略号（...）词组实现"跨任意词"跳词匹配且不跨句；分片重建为 cet4 1558 / kaoyan 1347 / general 2160。
+- 折叠修复：-es else-if 链漏 size 类、-ing/-ed 长度阈值漏 used/going/doing、news/lens/means 保持表面形；gap 收紧禁逗号与 &；导读分词补 en dash。
+- 新测试 15 项：first-paint-scheduler 行为、词组点击行为（含迟到丢弃与拒绝回落）、build 脚本 spawn 套件、发布数据 artifact+全量自匹配；deepseek-vision-release 版本契约改为四方同步断言（不再硬编码版本号）。
+- 发布 **1.9.7 / versionCode 43**：APK `EnglishReader-private-qa-v1.9.7-43-debug.apk` 与 Windows 包 `EnglishReader-Windows-v1.9.7`（含 zip）复制到共享根 `E:\play\claude\`。
 
 ## 范围与限制
 

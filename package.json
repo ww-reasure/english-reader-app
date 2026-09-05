@@ -1,6 +1,6 @@
 {
   "name": "english-reader-app",
-  "version": "1.9.6",
+  "version": "1.9.7",
   "private": true,
   "description": "AI-powered English reading learning app with word translation, sentence analysis, and smart review",
   "main": "index.js",
