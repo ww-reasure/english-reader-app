@@ -48,6 +48,7 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 - 顺手修正：`tests/build-apk-script.test.mjs` 的构建链断言仍是合并前旧值（上次合并验证时序缺口），已同步为无 release-artifact 的新链。
 - 验证：`node --test tests/*.test.mjs` 1273/1273 通过；`npm run build` 通过。浏览器实测：词组高亮、等级卡（四级+考研双徽章）、释义显示全部正常。
 - 发布：`npm run version:patch` 升至 **1.9.6 / versionCode 42**；`build-apk.js` 对已剥离 release-artifact/verify-apk 模块的引用改为 www 产物存在性检查；APK `EnglishReader-private-qa-v1.9.6-42-debug.apk`（SHA-256 见 .sha256 伴随文件）已复制到共享根 `E:\play\claude\`。
+- Windows 本地浏览器版：沿用 v1.9.4 的 PowerShell 静态服务器方案（`EnglishReaderServer.psm1` + `Start-EnglishReader.cmd`，127.0.0.1:17841），`app/` 取自本次 www 构建（含词组分片）；烟测通过（index/词组清单/JS 资产 200）。产物 `E:\play\claude\EnglishReader-Windows-v1.9.6\` 与同名 zip（28 MB）。
 
 ## 范围与限制
 
