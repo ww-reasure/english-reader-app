@@ -430,7 +430,16 @@ export const ReadingView = {
   _scheduleAfterFirstPaint(callback) {
     const frame = globalThis.requestAnimationFrame;
     if (typeof frame === 'function') {
-      frame(() => frame(callback));
+      // 后台标签页的 rAF 会被浏览器冻结，双 rAF 永不触发；用超时兜底保证
+      // 后台加载（切走再回来、预加载场景）也能完成首帧后增强。
+      let started = false;
+      const run = () => {
+        if (started) return;
+        started = true;
+        callback();
+      };
+      frame(() => frame(run));
+      globalThis.setTimeout?.(run, 1200);
       return;
     }
     globalThis.setTimeout?.(callback, 0);
@@ -488,6 +497,8 @@ export const ReadingView = {
         });
         if (!isCurrent() || !this.phraseHighlightingEnabled) return;
         this.keyPhraseMatcher = matcher;
+        // 顺手预热跨包等级索引，点击词组时词组卡即时可显示等级与释义。
+        void KeyPhraseLibrary.getPhraseIndex().catch(() => {});
         this._rerenderEnglishParagraphs();
         this._applyPhraseMarkingToTitle(article);
       } catch (error) {

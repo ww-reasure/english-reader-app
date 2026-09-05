@@ -133,6 +133,10 @@ function main() {
   const inputPath = parseArg('input');
   const track = normalizeTrack(parseArg('track'));
   const outDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', parseArg('out') || 'public/data/key-phrases');
+  const derivedFrom = (parseArg('derived-from') || '')
+    .split(',')
+    .map(value => normalizeTrack(value))
+    .filter(Boolean);
   if (!inputPath || !existsSync(inputPath)) {
     console.error('用法：node scripts/build-key-phrases.mjs --input <资料文件> [--track general]');
     process.exit(1);
@@ -170,12 +174,24 @@ function main() {
   writeFileSync(shardPath, `${JSON.stringify({ schemaVersion: 1, track, phrases }, null, 2)}\n`, 'utf8');
 
   const tracks = {};
+  // 重建 manifest 时继承既有的 derivedFrom 标记，--derived-from 只覆盖当前 track。
+  let previousTracks = {};
+  const manifestPath = resolve(outDir, 'manifest.json');
+  try {
+    previousTracks = JSON.parse(readFileSync(manifestPath, 'utf8'))?.tracks || {};
+  } catch {
+    previousTracks = {};
+  }
   for (const file of existsSync(outDir) ? readShardFiles(outDir) : []) {
     const shardTrack = file.replace(/\.json$/, '');
     if (shardTrack === 'manifest') continue;
     const shard = JSON.parse(readFileSync(resolve(outDir, file), 'utf8'));
-    tracks[shardTrack] = { path: `${shardTrack}.json`, phraseCount: shard.phrases.length };
+    const meta = { path: `${shardTrack}.json`, phraseCount: shard.phrases.length };
+    const previousDerived = previousTracks[shardTrack]?.derivedFrom;
+    if (previousDerived) meta.derivedFrom = previousDerived;
+    tracks[shardTrack] = meta;
   }
+  if (derivedFrom.length) tracks[track].derivedFrom = derivedFrom;
   const packVersion = new Date().toISOString().slice(0, 10);
   writeFileSync(
     resolve(outDir, 'manifest.json'),

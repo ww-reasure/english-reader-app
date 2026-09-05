@@ -40,9 +40,11 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 - 数据：`public/data/key-phrases/`（manifest + 按 track 分片，schemaVersion/packVersion 校验）。**2026-09-04 已导入用户资料**（`D:\资料\english\词组` 四份清单 CSV）：cet4 1510 条（四级核心+扩展）、kaoyan 1302 条（考研核心+扩展）、general 2104 条（并集兜底，cet6/未设目标时使用）。条目含来源类型前缀（usage./idm./phrv./collocation.）与中文释义。
 - 实现：`src/components/word-marking.mjs` 新增词组最长匹配层（规范化 + 常规屈折折叠 + 连接符约束，`renderPhraseAwareMarking`/`matchKeyPhraseAt`/`buildKeyPhraseMatcherIndex`，单词标记签名不变）；`src/key-phrase-library.mjs` 词组库运行时（manifest 校验、track 解析 kaoyan1/2→kaoyan、未知 track 回落 general、memoize）；`reading-word-lookup.js` 词组优先分支（keydown 同步）；reading.js 首帧后惰性加载 matcher 并重渲染（`_scheduleAfterFirstPaint` 既有模式），词组 span 嵌在 `.reading-sentence` 内部、续读定位结构不变。
 - 已知限制：不规则动词变形不折叠（如 made/went 无法命中 make a contribution）；跨句不匹配；词组只按表面序列完整匹配。
-- 通配符匹配：资料中约 1/3 条目含 sth/sb/one's/A/B/do 占位符，运行时将其记为通配位（匹配任意单个词），如 "respond to sth" 命中 "respond to the challenge"；通配开头条目按第二个词建桶索引（24k 字符渲染 ~5ms）。
+- 词组卡：点击词组弹卡片，显示词组、**等级徽章（四级/考研/两者都有）**与释义（目标 track 释义优先）。等级来自跨包索引：`getPhraseIndex` 加载全部非派生包建 id→tracks 映射（general 标记 `derivedFrom: ['cet4','kaoyan']` 不参与等级），阅读页首帧后预热。
+- 通配符匹配：资料中约 1/3 条目含 sth/sb/one's/do 占位符，运行时将其记为通配位（匹配任意单个词），如 "respond to sth" 命中 "respond to the challenge"；通配开头条目按第二个词建桶索引（24k 字符渲染 ~5ms）。**'a'/'b' 不作通配**（"many a"、"a range of sth" 的 a 是冠词，通配会误吞跨词）。
+- 后台标签页修复：`_scheduleAfterFirstPaint` 的双 rAF 在后台标签被冻结，首帧后增强（词汇索引+词组库）永不执行；已加 1.2s 超时兜底（前台行为不变， intensive-throttling 后台页在下一次定时器唤醒时补齐）。
 - 顺手修正：`tests/build-apk-script.test.mjs` 的构建链断言仍是合并前旧值（上次合并验证时序缺口），已同步为无 release-artifact 的新链。
-- 验证：`node --test tests/*.test.mjs` 1269/1269 通过；`npm run build` 通过。版本保持 1.9.5/41。
+- 验证：`node --test tests/*.test.mjs` 1273/1273 通过；`npm run build` 通过。浏览器实测：词组高亮、等级卡（四级+考研双徽章）、释义显示全部正常。版本保持 1.9.5/41。
 
 ## 范围与限制
 

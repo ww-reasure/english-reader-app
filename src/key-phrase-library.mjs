@@ -31,6 +31,10 @@ export function assertKeyPhrasePack(value, { track }) {
 const KAOYAN_TRACKS = new Set(['kaoyan', 'kaoyan1', 'kaoyan2', 'kaoyan-general']);
 const KNOWN_TRACKS = new Set(['general', 'cet4', 'cet6']);
 
+function normalizePhraseId(value) {
+  return String(value || '').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
+}
+
 export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '/data' } = {}) {
   if (typeof fetchFn !== 'function') throw new TypeError('重点词组库需要 fetchFn');
   const baseUrl = String(dataUrl || '/data').replace(/\/$/, '');
@@ -79,12 +83,43 @@ export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '
     return promise;
   }
 
+  // 跨包等级索引：id → { phrase, byTrack }。派生包（general 等并集）不参与等级。
+  let phraseIndexPromise;
+  function getPhraseIndex() {
+    phraseIndexPromise ||= (async () => {
+      const manifest = await loadManifest();
+      const index = new Map();
+      const sourceTracks = Object.entries(manifest.tracks || {})
+        .filter(([, meta]) => !meta?.derivedFrom)
+        .map(([track]) => track);
+      for (const track of sourceTracks) {
+        const pack = await loadPack(track).catch(() => null);
+        if (!pack) continue;
+        for (const row of pack.phrases) {
+          const id = normalizePhraseId(row?.p);
+          if (!id) continue;
+          const existing = index.get(id);
+          if (existing) existing.byTrack[track] = String(row?.g || '');
+          else index.set(id, { phrase: String(row?.p || ''), byTrack: { [track]: String(row?.g || '') } });
+        }
+      }
+      return index;
+    })().catch(error => {
+      phraseIndexPromise = undefined;
+      throw error;
+    });
+    return phraseIndexPromise;
+  }
+
   async function getPhraseById(phraseId, { targetTrack = '', track } = {}) {
-    const resolved = track || resolveTargetTrack(targetTrack);
     try {
-      const matcher = await getMatcher({ track: resolved });
-      const key = String(phraseId || '').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
-      return matcher.byId.get(key) || null;
+      const index = await getPhraseIndex();
+      const entry = index.get(normalizePhraseId(phraseId));
+      if (!entry) return null;
+      const resolved = track || resolveTargetTrack(targetTrack);
+      const tracks = Object.keys(entry.byTrack);
+      const glossZh = entry.byTrack[resolved] ?? entry.byTrack[tracks[0]] ?? '';
+      return { phrase: entry.phrase, glossZh, tracks };
     } catch {
       return null;
     }
@@ -94,6 +129,7 @@ export function createKeyPhraseLibrary({ fetchFn = globalThis.fetch, dataUrl = '
     loadManifest,
     resolveTargetTrack,
     getMatcher,
+    getPhraseIndex,
     getPhraseById
   });
 }

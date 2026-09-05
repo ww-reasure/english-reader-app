@@ -20,6 +20,9 @@ export const Tooltip = {
   vocabularyMembershipRevision: null,
   vocabularyMembershipIndex: new Set(),
 
+  // 重点词组的等级标签（tracks 来自 key-phrase-library 的跨包查询）。
+  KEY_PHRASE_TRACK_LABELS: { cet4: '四级', cet6: '六级', kaoyan: '考研' },
+
   beginLookup(x, y) {
     const lookupId = this.session.begin();
     this.showLoading(x, y);
@@ -82,14 +85,18 @@ export const Tooltip = {
     return true;
   },
 
-  // 重点词组卡：复用单词卡的定位/关闭/自动收起，内容只有词组与释义。
-  showPhrase(lookupId, x, y, { phrase, glossZh = '' } = {}) {
+  // 重点词组卡：复用单词卡的定位/关闭/自动收起；标题行带等级徽章，正文为释义。
+  showPhrase(lookupId, x, y, { phrase, glossZh = '', tracks = [] } = {}) {
     if (!this.isCurrent(lookupId)) return false;
     const tooltip = document.getElementById('wordTooltip');
+    const trackBadges = (Array.isArray(tracks) ? tracks : [])
+      .map(track => this.KEY_PHRASE_TRACK_LABELS[track] || track)
+      .map(label => `<span class="key-phrase-track-badge">${esc(label)}</span>`)
+      .join('');
     tooltip.innerHTML = `<div class="tooltip-word tooltip-key-phrase" data-tooltip-density="compact">
       <div class="tooltip-word-title">
         <span class="key-phrase-title">${esc(phrase)}</span>
-        <span class="tooltip-word-meta" aria-label="重点词组">词组</span>
+        <span class="tooltip-word-meta" aria-label="词组等级">${trackBadges || '<span class="key-phrase-track-badge">词组</span>'}</span>
       </div>
       <div class="tooltip-word-controls">
         <button class="tooltip-close" type="button" aria-label="关闭词组释义" title="关闭">×</button>

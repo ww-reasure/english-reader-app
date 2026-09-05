@@ -8,7 +8,11 @@
     },
     "general": {
       "path": "general.json",
-      "phraseCount": 2104
+      "phraseCount": 2104,
+      "derivedFrom": [
+        "cet4",
+        "kaoyan"
+      ]
     },
     "kaoyan": {
       "path": "kaoyan.json",

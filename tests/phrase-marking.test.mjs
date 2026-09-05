@@ -112,9 +112,20 @@ test('capture one\u2019s attention style possessive placeholders are wildcards',
 });
 
 test('a phrase whose first token is a wildcard still matches from any position', () => {
-  const matcher = buildKeyPhraseMatcherIndex([{ id: 'a ban on sth', phrase: 'a ban on sth', glossZh: '' }]);
-  assert.match(renderPhraseAwareMarking('a ban on smoking', matcher, {}), /data-key-phrase-id="a ban on sth"/);
-  assert.match(renderPhraseAwareMarking('the ban on smoking', matcher, {}), /data-key-phrase-id="a ban on sth"/);
+  const matcher = buildKeyPhraseMatcherIndex([{ id: 'sb else', phrase: 'sb else', glossZh: '' }]);
+  assert.match(renderPhraseAwareMarking('somebody else', matcher, {}), /data-key-phrase-id="sb else"/);
+  assert.match(renderPhraseAwareMarking('anyone else', matcher, {}), /data-key-phrase-id="sb else"/);
+});
+
+test('the articles a/an/b stay literal so "many a" cannot jump across words', () => {
+  const matcher = buildKeyPhraseMatcherIndex([
+    { id: 'many a', phrase: 'many a', glossZh: '' },
+    { id: 'a range of sth', phrase: 'a range of sth', glossZh: '' }
+  ]);
+  assert.match(renderPhraseAwareMarking('many a study', matcher, {}), /data-key-phrase-id="many a"/);
+  assert.doesNotMatch(renderPhraseAwareMarking('Many aging clocks', matcher, {}), /data-key-phrase-id="many a"/);
+  assert.match(renderPhraseAwareMarking('a range of topics', matcher, {}), /data-key-phrase-id="a range of sth"/);
+  assert.doesNotMatch(renderPhraseAwareMarking('broad range of topics', matcher, {}), /data-key-phrase-id="a range of sth"/);
 });
 
 test('longest match still wins with wildcard candidates present', () => {

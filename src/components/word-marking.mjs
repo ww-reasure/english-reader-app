@@ -103,11 +103,12 @@ export function renderExactWordMarking(text, index, className = 'learning-word',
 // 词组内部只允许空白和连字符类连接符，禁止跨句号等句子标点。
 const PHRASE_TOKEN_GAP_PATTERN = /^[\s'’\-,&]*$/;
 
-// 词组资料里的占位符（sth/sb/one's/A/B/do 等）：匹配任意单个词。
-// 'a'/'b' 来自 "exchange A for B" 这类模板；作为冠词/字母时宽松匹配通常也正是想要的。
+// 词组资料里的占位符（sth/sb/one's/do 等）：匹配任意单个词。
+// 注意 'a'/'b' 不作通配：资料里 "many a"、"a range of sth" 的 a 是实义冠词，
+// 通配会产生 "many aging" 这类跨词误报。
 const PHRASE_WILDCARD_TOKENS = new Set([
   'sth', 'sb', 'somebody', 'someone', 'something', 'anything', 'anyone',
-  "one's", 'ones', 'do', 'a', 'b'
+  "one's", 'ones', 'do'
 ]);
 
 function phraseWildcardToken(normalized) {

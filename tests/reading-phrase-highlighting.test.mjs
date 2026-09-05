@@ -20,8 +20,10 @@ test('word lookup binding prefers key phrases over single-word lookup', async ()
 
 test('tooltip exposes a phrase card reusing the word-card chrome', async () => {
   const source = await read('../src/components/tooltip.js');
-  assert.match(source, /showPhrase\(lookupId, x, y, \{ phrase, glossZh = '' \} = \{\}\)/);
+  assert.match(source, /showPhrase\(lookupId, x, y, \{ phrase, glossZh = '', tracks = \[\] \} = \{\}\)/);
   assert.match(source, /tooltip-key-phrase/);
+  assert.match(source, /key-phrase-track-badge/);
+  assert.match(source, /TRACK_LABELS/);
   assert.match(source, /this\.bindCloseButton\(tooltip\);/);
 });
 
@@ -59,4 +61,13 @@ test('phrase spans stay inside the sentence spans that reading progress depends 
   assert.ok(paragraphRenderer, 'paragraph renderer not found');
   assert.match(paragraphRenderer[0], /data-sentence-index=/);
   assert.match(paragraphRenderer[0], /this\._renderMarkedText\(segment\.text\)/);
+});
+
+test('post-paint enhancements survive background-tab rAF freezing via timeout fallback', async () => {
+  const source = await read('../src/views/reading.js');
+  // 词组 matcher 在 _scheduleAfterFirstPaint 之后加载；后台标签页 rAF 被冻结时必须由超时兜底触发。
+  const scheduler = source.match(/_scheduleAfterFirstPaint\(callback\) \{[\s\S]*?\n  \},/);
+  assert.ok(scheduler, 'scheduler not found');
+  assert.match(scheduler[0], /setTimeout\?\.\(run, 1200\)/);
+  assert.match(scheduler[0], /started = true/);
 });

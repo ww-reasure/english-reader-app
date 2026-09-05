@@ -136,7 +136,8 @@ export function bindLearningTextLookup({
           if (typeof tooltipApi.showPhrase === 'function') {
             tooltipApi.showPhrase(phraseLookupId, x, y, {
               phrase: phraseData.phrase || phraseId,
-              glossZh: phraseData.glossZh || phraseData.g || ''
+              glossZh: phraseData.glossZh || phraseData.g || '',
+              tracks: phraseData.tracks || []
             });
           } else {
             tooltipApi.hide();
