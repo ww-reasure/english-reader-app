@@ -119,7 +119,11 @@
       "g": "usage....的方式"
     },
     {
-      "p": "a pay raise/rise",
+      "p": "a pay raise",
+      "g": "collocation.加薪,涨工资"
+    },
+    {
+      "p": "a pay rise",
       "g": "collocation.加薪,涨工资"
     },
     {
@@ -223,7 +227,11 @@
       "g": "usage. ...的趋势,...的倾向"
     },
     {
-      "p": "a variation in/of sth",
+      "p": "a variation in sth",
+      "g": "usage. ...的差异,...的变化"
+    },
+    {
+      "p": "a variation of sth",
       "g": "usage. ...的差异,...的变化"
     },
     {
@@ -347,7 +355,11 @@
       "g": "usage. (时间或空间) 在...前usage. 比...提前;领先于"
     },
     {
-      "p": "aim at/for sth",
+      "p": "aim at sth",
+      "g": "usage. 力求达到"
+    },
+    {
+      "p": "aim for sth",
       "g": "usage. 力求达到"
     },
     {
@@ -379,7 +391,7 @@
       "g": "usage. 使...可能phrv. 考虑到,把...算在内"
     },
     {
-      "p": "along/down the line",
+      "p": "along the line",
       "g": "idm. 在某一环节,在某一时刻"
     },
     {
@@ -431,7 +443,11 @@
       "g": "usage. 与...的偶遇,与...的邂逅usage. 和...的冲突;接触,经历"
     },
     {
-      "p": "an explanation of/for sth",
+      "p": "an explanation for sth",
+      "g": "usage. 对...的解释,...的理由"
+    },
+    {
+      "p": "an explanation of sth",
       "g": "usage. 对...的解释,...的理由"
     },
     {
@@ -607,12 +623,20 @@
       "g": "usage. 分配 (或分派) 某物给某人"
     },
     {
-      "p": "assist in/with sth",
+      "p": "assist in sth",
+      "g": "usage. 协助做某事"
+    },
+    {
+      "p": "assist with sth",
       "g": "usage. 协助做某事"
     },
     {
       "p": "associate... with...",
       "g": "usage. 把...和...联系起来"
+    },
+    {
+      "p": "at a distance",
+      "g": "idm. 从远处,久远地"
     },
     {
       "p": "at a glance",
@@ -715,6 +739,10 @@
       "g": "collocation. 此刻,目前,眼下"
     },
     {
+      "p": "at the outset",
+      "g": "usage. 在开始时"
+    },
+    {
       "p": "at the sight of",
       "g": "collocation. 看见...时"
     },
@@ -737,14 +765,6 @@
     {
       "p": "at... intervals",
       "g": "idm. 每隔...时间;每隔...距离"
-    },
-    {
-      "p": "at/from a distance",
-      "g": "idm. 从远处,久远地"
-    },
-    {
-      "p": "at/from the outset",
-      "g": "usage. 在开始时"
     },
     {
       "p": "attach importance to sth",
@@ -899,6 +919,10 @@
       "g": "usage.能胜任...的,有...能力的"
     },
     {
+      "p": "be carried away",
+      "g": "idm. 变得很激动,失去自制力"
+    },
+    {
       "p": "be cautious about sth",
       "g": "usage. 对...谨慎的,对...慎重的"
     },
@@ -935,7 +959,11 @@
       "g": "usage. 为...所共有的"
     },
     {
-      "p": "be comparable to/with",
+      "p": "be comparable to",
+      "g": "usage. 可与...比较的,与...类似的"
+    },
+    {
+      "p": "be comparable with",
       "g": "usage. 可与...比较的,与...类似的"
     },
     {
@@ -1047,7 +1075,11 @@
       "g": "usage.与...相等的,与...相同的"
     },
     {
-      "p": "be essential to/for sth",
+      "p": "be essential for sth",
+      "g": "usage.对...来说是必不可少的"
+    },
+    {
+      "p": "be essential to sth",
       "g": "usage.对...来说是必不可少的"
     },
     {
@@ -1075,11 +1107,19 @@
       "g": "usage.因...而著名的"
     },
     {
-      "p": "be fascinated by/with sth",
+      "p": "be fascinated by sth",
       "g": "usage.对...入迷的,对...极感兴趣的"
     },
     {
-      "p": "be favorable for/to",
+      "p": "be fascinated with sth",
+      "g": "usage.对...入迷的,对...极感兴趣的"
+    },
+    {
+      "p": "be favorable for",
+      "g": "usage. 有利于...的,适宜...的"
+    },
+    {
+      "p": "be favorable to",
       "g": "usage. 有利于...的,适宜...的"
     },
     {
@@ -1119,7 +1159,11 @@
       "g": "usage. 对做某事有帮助,有助于做某事"
     },
     {
-      "p": "be identical to/with",
+      "p": "be identical to",
+      "g": "usage. 与...完全相同的"
+    },
+    {
+      "p": "be identical with",
       "g": "usage. 与...完全相同的"
     },
     {
@@ -1191,7 +1235,11 @@
       "g": "usage. 可能做某事,易于做某事"
     },
     {
-      "p": "be linked to/with sth",
+      "p": "be linked to sth",
+      "g": "usage. 与...相关联的,与...有联系的"
+    },
+    {
+      "p": "be linked with sth",
       "g": "usage. 与...相关联的,与...有联系的"
     },
     {
@@ -1275,7 +1323,11 @@
       "g": "usage. 对...悲观的"
     },
     {
-      "p": "be popular with/among sb",
+      "p": "be popular among sb",
+      "g": "usage. 受某人喜爱的,受某人欢迎的"
+    },
+    {
+      "p": "be popular with sb",
       "g": "usage. 受某人喜爱的,受某人欢迎的"
     },
     {
@@ -1351,7 +1403,11 @@
       "g": "usage. 与...相似的"
     },
     {
-      "p": "be split on/over sth",
+      "p": "be split on sth",
+      "g": "usage. 对...有分歧,对...无法达成一致"
+    },
+    {
+      "p": "be split over sth",
       "g": "usage. 对...有分歧,对...无法达成一致"
     },
     {
@@ -1383,7 +1439,11 @@
       "g": "idm.应该做,预计是idm.一般认为,人们普遍觉得"
     },
     {
-      "p": "be sure of/about sth",
+      "p": "be sure about sth",
+      "g": "usage. 对...确信的,对...有把握的"
+    },
+    {
+      "p": "be sure of sth",
       "g": "usage. 对...确信的,对...有把握的"
     },
     {
@@ -1391,7 +1451,11 @@
       "g": "usage. 一定会做(或发生某事) idm. 务必做某事,一定要做某事"
     },
     {
-      "p": "be surprised at/by",
+      "p": "be surprised at",
+      "g": "usage. 对...感到惊讶的 (或意外的)"
+    },
+    {
+      "p": "be surprised by",
       "g": "usage. 对...感到惊讶的 (或意外的)"
     },
     {
@@ -1419,6 +1483,10 @@
       "g": "idm. 对(坏事)负有责任"
     },
     {
+      "p": "be to do with",
+      "g": "idm. 关于,与...有关"
+    },
+    {
       "p": "be tolerant of",
       "g": "usage. 对...宽容的,能容忍...的"
     },
@@ -1427,7 +1495,11 @@
       "g": "usage. 适用于,对...适用"
     },
     {
-      "p": "be uncertain about/of sth",
+      "p": "be uncertain about sth",
+      "g": "usage. 对...不确定的,对...没把握的"
+    },
+    {
+      "p": "be uncertain of sth",
       "g": "usage. 对...不确定的,对...没把握的"
     },
     {
@@ -1439,7 +1511,11 @@
       "g": "idm. 由某人决定,是某人的职责"
     },
     {
-      "p": "be used to sth/doing sth",
+      "p": "be used to doing sth",
+      "g": "usage.习惯于...的"
+    },
+    {
+      "p": "be used to sth sth",
       "g": "usage.习惯于...的"
     },
     {
@@ -1479,14 +1555,6 @@
       "g": "usage. ...有毛病,...出问题"
     },
     {
-      "p": "be/get carried away",
-      "g": "idm. 变得很激动,失去自制力"
-    },
-    {
-      "p": "be/have to do with",
-      "g": "idm. 关于,与...有关"
-    },
-    {
       "p": "bear in mind",
       "g": "idm. 把 (某事) 记在心里"
     },
@@ -1515,7 +1583,11 @@
       "g": "collocation. 应在 (某处),适合 (某种情形)"
     },
     {
-      "p": "benefit from/by sth",
+      "p": "benefit by sth",
+      "g": "usage. 得益于"
+    },
+    {
+      "p": "benefit from sth",
       "g": "usage. 得益于"
     },
     {
@@ -1531,7 +1603,11 @@
       "g": "usage. 因...而责怪...,把...归咎于..."
     },
     {
-      "p": "boast about/of sth",
+      "p": "boast about sth",
+      "g": "usage. 自吹自擂,自夸"
+    },
+    {
+      "p": "boast of sth",
       "g": "usage. 自吹自擂,自夸"
     },
     {
@@ -1667,6 +1743,10 @@
       "g": "collocation. 偶然,碰巧,意外"
     },
     {
+      "p": "by comparison",
+      "g": "idm. 比较起来,相比之下;相比较"
+    },
+    {
       "p": "by contrast",
       "g": "collocation. 相比之下"
     },
@@ -1709,10 +1789,6 @@
     {
       "p": "by way of sth",
       "g": "idm.路经,经过,经由idm.作为...的形式,作为...的手段"
-    },
-    {
-      "p": "by/in comparison",
-      "g": "idm. 比较起来,相比之下;相比较"
     },
     {
       "p": "call for sth",
@@ -1987,11 +2063,19 @@
       "g": "usage.强迫某人做某事"
     },
     {
-      "p": "compete with/against",
+      "p": "compete against",
       "g": "usage. 与...竞争,与...对抗"
     },
     {
-      "p": "complain about/of",
+      "p": "compete with",
+      "g": "usage. 与...竞争,与...对抗"
+    },
+    {
+      "p": "complain about",
+      "g": "usage. 抱怨..."
+    },
+    {
+      "p": "complain of",
       "g": "usage. 抱怨..."
     },
     {
@@ -2251,7 +2335,7 @@
       "g": "usage. 区分 A 和 B"
     },
     {
-      "p": "distinguishoneself",
+      "p": "distinguish oneself",
       "g": "usage. 表现突出"
     },
     {
@@ -2273,6 +2357,10 @@
     {
       "p": "donate sth to...",
       "g": "usage.把...捐赠给(慈善机构)usage.向...献(血),向...捐献(器官)"
+    },
+    {
+      "p": "down the line",
+      "g": "idm. 在某一环节,在某一时刻"
     },
     {
       "p": "doze off",
@@ -2337,6 +2425,10 @@
     {
       "p": "early on",
       "g": "idm. 在初期,在开始阶段,早先"
+    },
+    {
+      "p": "earn a living",
+      "g": "collocation. 谋生"
     },
     {
       "p": "easier said than done",
@@ -2443,7 +2535,11 @@
       "g": "idm. 每隔一..."
     },
     {
-      "p": "excel in/at sth",
+      "p": "excel at sth",
+      "g": "usage. 擅长 (某事)"
+    },
+    {
+      "p": "excel in sth",
       "g": "usage. 擅长 (某事)"
     },
     {
@@ -2551,7 +2647,11 @@
       "g": "n. 联邦政府"
     },
     {
-      "p": "feed on/off sth",
+      "p": "feed off sth",
+      "g": "phrv. 因...而壮大,从...中得到滋养 phrv. (动物) 以...为食"
+    },
+    {
+      "p": "feed on sth",
       "g": "phrv. 因...而壮大,从...中得到滋养 phrv. (动物) 以...为食"
     },
     {
@@ -2699,6 +2799,10 @@
       "g": "idm. 有所好转"
     },
     {
+      "p": "for the foreseeable future",
+      "g": "idm. 在可预见的将来"
+    },
+    {
       "p": "for the moment",
       "g": "idm. 目前,暂时"
     },
@@ -2715,10 +2819,6 @@
       "g": "idm. 暂时,目前"
     },
     {
-      "p": "for/in the foreseeable future",
-      "g": "idm. 在可预见的将来"
-    },
-    {
       "p": "forbid sb to do",
       "g": "usage. 禁止某人做某事"
     },
@@ -2731,8 +2831,12 @@
       "g": "collocation. 免费的"
     },
     {
-      "p": "frighten...away/off",
+      "p": "frighten...away",
       "g": "phrv.把...吓跑,吓得...不敢做"
+    },
+    {
+      "p": "from a distance",
+      "g": "idm. 从远处,久远地"
     },
     {
       "p": "from a... perspective",
@@ -2745,6 +2849,10 @@
     {
       "p": "from scratch",
       "g": "idm. 从头开始,白手起家"
+    },
+    {
+      "p": "from the outset",
+      "g": "usage. 在开始时"
     },
     {
       "p": "function as",
@@ -2775,6 +2883,10 @@
       "g": "phrv. 走在前面,领先"
     },
     {
+      "p": "get along with sb",
+      "g": "phrv.(与某人)和睦相处,关系良好"
+    },
+    {
       "p": "get around",
       "g": "phrv. 传播,流传,各处走动 phrv. 解决,克服;笼络或哄骗"
     },
@@ -2785,6 +2897,10 @@
     {
       "p": "get by",
       "g": "phrv. 维持生计,勉强应付"
+    },
+    {
+      "p": "get carried away",
+      "g": "idm. 变得很激动,失去自制力"
     },
     {
       "p": "get hold of sth",
@@ -2803,12 +2919,12 @@
       "g": "phrv.(使某人)离开,出发,动身phrv.下车(或飞机、火车等);下班"
     },
     {
-      "p": "get on with sth",
-      "g": "phrv. (问及工作情况) 进展,进步 phrv. (尤指中断后) 继续做某事"
+      "p": "get on with sb",
+      "g": "phrv.(与某人)和睦相处,关系良好"
     },
     {
-      "p": "get on/along with sb",
-      "g": "phrv.(与某人)和睦相处,关系良好"
+      "p": "get on with sth",
+      "g": "phrv. (问及工作情况) 进展,进步 phrv. (尤指中断后) 继续做某事"
     },
     {
       "p": "get out",
@@ -2991,7 +3107,11 @@
       "g": "phrv. 把 (权力或责任) 移交phrv. 把...正式交给 (某人)"
     },
     {
-      "p": "hang about/around",
+      "p": "hang about",
+      "g": "phrv. (在某处附近) 等待,逗留,闲荡"
+    },
+    {
+      "p": "hang around",
       "g": "phrv. (在某处附近) 等待,逗留,闲荡"
     },
     {
@@ -3043,6 +3163,10 @@
       "g": "collocation. 厚颜无耻地做某事"
     },
     {
+      "p": "have to do with",
+      "g": "idm. 关于,与...有关"
+    },
+    {
       "p": "have trouble doing sth",
       "g": "usage.做...有困难"
     },
@@ -3051,7 +3175,11 @@
       "g": "idm. 心中有适当人选 (或想做的事等)"
     },
     {
-      "p": "head for/towards",
+      "p": "head for",
+      "g": "collocation. 朝...行进"
+    },
+    {
+      "p": "head towards",
       "g": "collocation. 朝...行进"
     },
     {
@@ -3115,7 +3243,11 @@
       "g": "idm.要是...就好了,但愿"
     },
     {
-      "p": "ignorance of/about sth",
+      "p": "ignorance about sth",
+      "g": "usage. 对...的无知 (或不了解)"
+    },
+    {
+      "p": "ignorance of sth",
       "g": "usage. 对...的无知 (或不了解)"
     },
     {
@@ -3229,6 +3361,10 @@
     {
       "p": "in common with",
       "g": "idm. 与...相同"
+    },
+    {
+      "p": "in comparison",
+      "g": "idm. 比较起来,相比之下;相比较"
     },
     {
       "p": "in conjunction with",
@@ -3531,6 +3667,10 @@
       "g": "idm. 当初,一开始;(用于句首) 第一"
     },
     {
+      "p": "in the foreseeable future",
+      "g": "idm. 在可预见的将来"
+    },
+    {
       "p": "in the form of",
       "g": "collocation. 以...的形式"
     },
@@ -3539,7 +3679,11 @@
       "g": "collocation. 有做某事的习惯"
     },
     {
-      "p": "in the hope of/that...",
+      "p": "in the hope of",
+      "g": "idm. 抱着...的希望"
+    },
+    {
+      "p": "in the hope that...",
       "g": "idm. 抱着...的希望"
     },
     {
@@ -3751,16 +3895,16 @@
       "g": "phrv. 参加,加入(活动)"
     },
     {
-      "p": "judging by/from sth",
+      "p": "judging by sth",
+      "g": "usage.依据...来判断"
+    },
+    {
+      "p": "judging from sth",
       "g": "usage.依据...来判断"
     },
     {
       "p": "jump the lights",
       "g": "idm. 闯红灯"
-    },
-    {
-      "p": "keep (on) doing sth",
-      "g": "usage. 继续,重复做某事"
     },
     {
       "p": "keep a diary",
@@ -3779,12 +3923,20 @@
       "g": "idm. 照看,留神,留意"
     },
     {
+      "p": "keep doing sth",
+      "g": "usage. 继续,重复做某事"
+    },
+    {
       "p": "keep fit",
       "g": "collocation. 保持健康"
     },
     {
       "p": "keep in touch",
       "g": "idm.保持联系;了解...的最新情况"
+    },
+    {
+      "p": "keep on doing sth",
+      "g": "usage. 继续,重复做某事"
     },
     {
       "p": "keep pace with",
@@ -3871,7 +4023,11 @@
       "g": "usage. 导致,引起"
     },
     {
-      "p": "lean on/against",
+      "p": "lean against",
+      "g": "usage. 靠在...,倚在..."
+    },
+    {
+      "p": "lean on",
       "g": "usage. 靠在...,倚在..."
     },
     {
@@ -3903,7 +4059,11 @@
       "g": "idm.放弃,摒弃(想法、态度或控制)idm.放开,松手"
     },
     {
-      "p": "level off/out",
+      "p": "level off",
+      "g": "phrv.(停止升降而)保持水平;平稳发展"
+    },
+    {
+      "p": "level out",
       "g": "phrv.(停止升降而)保持水平;平稳发展"
     },
     {
@@ -4027,6 +4187,10 @@
       "g": "collocation.养成...的习惯"
     },
     {
+      "p": "make a living",
+      "g": "collocation. 谋生"
+    },
+    {
       "p": "make a mess of sth",
       "g": "collocation.把...搞得一团糟"
     },
@@ -4039,7 +4203,7 @@
       "g": "collocation. 盈利,获利"
     },
     {
-      "p": "make animpression",
+      "p": "make an impression",
       "g": "collocation. 留下深刻印象,留下好印象"
     },
     {
@@ -4105,10 +4269,6 @@
     {
       "p": "make way for",
       "g": "idm. 让...通过,给...让路"
-    },
-    {
-      "p": "make/earn a living",
-      "g": "collocation. 谋生"
     },
     {
       "p": "manage to do",
@@ -4295,6 +4455,10 @@
       "g": "phrv. (想法或主意) 被想到"
     },
     {
+      "p": "off",
+      "g": "phrv.把...吓跑,吓得...不敢做"
+    },
+    {
       "p": "off campus",
       "g": "collocation. 在校外"
     },
@@ -4305,6 +4469,10 @@
     {
       "p": "on account of",
       "g": "idm. 由于,因为"
+    },
+    {
+      "p": "on arrival",
+      "g": "usage.到达时"
     },
     {
       "p": "on average",
@@ -4443,10 +4611,6 @@
       "g": "idm. 在...上面,在...顶部;除...之外idm. 紧挨着,紧靠着;控制着,掌握着"
     },
     {
-      "p": "on/upon arrival",
-      "g": "usage.到达时"
-    },
-    {
       "p": "once again",
       "g": "idm. 再一次,再次"
     },
@@ -4499,6 +4663,10 @@
       "g": "usage. 应该,应当"
     },
     {
+      "p": "out from nowhere",
+      "g": "idm.突然发生,突然出现"
+    },
+    {
       "p": "out of breath",
       "g": "idm. 喘不上气,透不过气来"
     },
@@ -4517,6 +4685,10 @@
     {
       "p": "out of hand",
       "g": "idm. 难以控制,无法控制idm. 不假思索地 (拒绝等)"
+    },
+    {
+      "p": "out of nowhere",
+      "g": "idm.突然发生,突然出现"
     },
     {
       "p": "out of order",
@@ -4541,10 +4713,6 @@
     {
       "p": "out of work",
       "g": "collocation. 处于失业状态"
-    },
-    {
-      "p": "out of/from nowhere",
-      "g": "idm.突然发生,突然出现"
     },
     {
       "p": "over and over",
@@ -4687,7 +4855,11 @@
       "g": "usage.推迟做某事"
     },
     {
-      "p": "postpone sth to/until...",
+      "p": "postpone sth to",
+      "g": "usage. 把某事推迟到..."
+    },
+    {
+      "p": "postpone sth until...",
       "g": "usage. 把某事推迟到..."
     },
     {
@@ -4703,12 +4875,12 @@
       "g": "usage. 更喜欢...而不是..."
     },
     {
-      "p": "prejudice sb against...",
-      "g": "usage. 使某人对...有偏见"
+      "p": "prejudice against",
+      "g": "usage. 对...的偏见"
     },
     {
-      "p": "prejudiceagainst",
-      "g": "usage. 对...的偏见"
+      "p": "prejudice sb against...",
+      "g": "usage. 使某人对...有偏见"
     },
     {
       "p": "pretend to do",
@@ -4719,7 +4891,7 @@
       "g": "idm. 几乎,差不多"
     },
     {
-      "p": "prevail against/over sb",
+      "p": "prevail against sb",
       "g": "usage. 战胜某人"
     },
     {
@@ -4727,7 +4899,15 @@
       "g": "usage. 在...盛行,普遍存在于"
     },
     {
-      "p": "prevent... (from) doing sth",
+      "p": "prevail over sb",
+      "g": "usage. 战胜某人"
+    },
+    {
+      "p": "prevent... doing sth",
+      "g": "usage. 阻止某人做某事,防止...发生"
+    },
+    {
+      "p": "prevent... from doing sth",
       "g": "usage. 阻止某人做某事,防止...发生"
     },
     {
@@ -4959,7 +5139,11 @@
       "g": "usage.要求某人做某事"
     },
     {
-      "p": "research into/on",
+      "p": "research into",
+      "g": "usage.关于...的研究(或调查)usage.对...做研究(或调查)"
+    },
+    {
+      "p": "research on",
       "g": "usage.关于...的研究(或调查)usage.对...做研究(或调查)"
     },
     {
@@ -5135,7 +5319,11 @@
       "g": "phrv. 使...推迟,耽误,阻碍;使花费"
     },
     {
-      "p": "set foot in/on sth",
+      "p": "set foot in sth",
+      "g": "idm. 进入,访问,参观 (某地)"
+    },
+    {
+      "p": "set foot on sth",
       "g": "idm. 进入,访问,参观 (某地)"
     },
     {
@@ -5475,7 +5663,11 @@
       "g": "usage.转变为,改为"
     },
     {
-      "p": "tailor sth to/for...",
+      "p": "tailor sth for...",
+      "g": "usage. 为...量身打造..."
+    },
+    {
+      "p": "tailor sth to",
       "g": "usage. 为...量身打造..."
     },
     {
@@ -5491,7 +5683,7 @@
       "g": "idm. 对...产生恶果,造成重大损失"
     },
     {
-      "p": "take accountof sth",
+      "p": "take account of sth",
       "g": "idm. 考虑到,顾及"
     },
     {
@@ -5611,16 +5803,20 @@
       "g": "phrv. 撕毁,撕碎 (文件等)"
     },
     {
-      "p": "tell (the) time",
-      "g": "idm. (从钟表上) 看时间"
-    },
-    {
       "p": "tell A and B apart",
       "g": "usage. 把A和B区分开"
     },
     {
       "p": "tell A from B",
       "g": "usage. 区分A和B"
+    },
+    {
+      "p": "tell the time",
+      "g": "idm. (从钟表上) 看时间"
+    },
+    {
+      "p": "tell time",
+      "g": "idm. (从钟表上) 看时间"
     },
     {
       "p": "tempt sb to do",
@@ -5655,7 +5851,11 @@
       "g": "usage. ...的关键"
     },
     {
-      "p": "the necessity of/for sth",
+      "p": "the necessity for sth",
+      "g": "usage. ...的必要性"
+    },
+    {
+      "p": "the necessity of sth",
       "g": "usage. ...的必要性"
     },
     {
@@ -5899,6 +6099,10 @@
       "g": "collocation. 到...时,直到...为止"
     },
     {
+      "p": "upon arrival",
+      "g": "usage.到达时"
+    },
+    {
       "p": "ups and downs",
       "g": "idm. 起伏,兴衰"
     },
@@ -5931,7 +6135,7 @@
       "g": "phrv.开始意识到"
     },
     {
-      "p": "wanderaround",
+      "p": "wander around",
       "g": "collocation. 闲逛,四处游荡"
     },
     {
@@ -5939,7 +6143,7 @@
       "g": "phrv. 避开,抵御(危险、疾病等)"
     },
     {
-      "p": "warn (sb) of sth",
+      "p": "warn of sth",
       "g": "usage. 提醒 (某人) 某事"
     },
     {
@@ -5949,6 +6153,10 @@
     {
       "p": "warn sb not to do",
       "g": "usage. 告诫某人不要做某事"
+    },
+    {
+      "p": "warn sb of sth",
+      "g": "usage. 提醒 (某人) 某事"
     },
     {
       "p": "wash up",

@@ -129,14 +129,82 @@ function assertShardShape(value, track) {
   return value?.schemaVersion === 1 && value?.track === track && Array.isArray(value?.phrases);
 }
 
+// 已知 OCR 粘连词修正表（源自不背单词 App 导出资料的 PDF 提取缺陷）。
+// 键为规范化（小写+空白折叠）后的粘连形态，值为修正后的词组。
+const OCR_PHRASE_FIXUPS = new Map(Object.entries({
+  'ascribe sthto...': 'ascribe sth to...',
+  'attribute sthto sb': 'attribute sth to sb',
+  'attribute sthto sth': 'attribute sth to sth',
+  'be accessibleto sb': 'be accessible to sb',
+  'be admittedto sth': 'be admitted to sth',
+  'be advisableto do': 'be advisable to do',
+  'be applicableto': 'be applicable to',
+  "be at yourwits' end": "be at your wits' end",
+  'be beneficialto': 'be beneficial to',
+  'be cautiousabout sth': 'be cautious about sth',
+  'be committedto sth': 'be committed to sth',
+  'be concernedabout sth': 'be concerned about sth',
+  'distinguishoneself': 'distinguish oneself',
+  'have aninfluence on': 'have an influence on',
+  'make animpression': 'make an impression',
+  'prejudiceagainst': 'prejudice against',
+  'put sth inteffect': 'put sth into effect',
+  'revolvearound': 'revolve around',
+  'take accountof sth': 'take account of sth',
+  'wanderaround': 'wander around',
+  'work throughsth': 'work through sth'
+}));
+
+// 斜杠替代表展开："aim at/for sth" → ["aim at sth", "aim for sth"]。
+// 匹配引擎只认相邻 token，斜杠原样入库的词组永远无法命中（约 73 条）。
+const MAX_SLASH_VARIANTS = 8;
+
+function expandSlashVariants(phrase) {
+  if (!phrase.includes('/')) return [phrase];
+  let variants = [''];
+  for (const token of phrase.split(' ')) {
+    const options = token.includes('/') ? token.split('/').filter(Boolean) : [token];
+    const next = [];
+    for (const prefix of variants) {
+      for (const option of options) {
+        next.push(prefix ? `${prefix} ${option}` : option);
+      }
+    }
+    if (next.length > MAX_SLASH_VARIANTS) return [phrase];
+    variants = next;
+  }
+  return variants.filter(Boolean);
+}
+
+// 括号可选词展开："keep (on) doing sth" → ["keep doing sth", "keep on doing sth"]。
+// 匹配引擎无法表达可选 token，括号原样入库的词组同样永远无法命中。
+function expandParentheticalVariants(phrase) {
+  if (!/\([^)]*\)/.test(phrase)) return [phrase];
+  let variants = [''];
+  for (const token of phrase.split(' ')) {
+    const optional = /^\((.*)\)$/u.exec(token);
+    const options = optional ? [optional[1], ''] : [token];
+    const next = [];
+    for (const prefix of variants) {
+      for (const option of options) {
+        next.push(option ? (prefix ? `${prefix} ${option}` : option) : prefix);
+      }
+    }
+    if (next.length > MAX_SLASH_VARIANTS) return [phrase];
+    variants = next;
+  }
+  return variants.filter(Boolean);
+}
+
 function main() {
   const inputPath = parseArg('input');
   const track = normalizeTrack(parseArg('track'));
   const outDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', parseArg('out') || 'public/data/key-phrases');
   const derivedFrom = (parseArg('derived-from') || '')
     .split(',')
-    .map(value => normalizeTrack(value))
-    .filter(Boolean);
+    .map(value => value.trim())
+    .filter(Boolean)
+    .map(value => normalizeTrack(value));
   if (!inputPath || !existsSync(inputPath)) {
     console.error('用法：node scripts/build-key-phrases.mjs --input <资料文件> [--track general]');
     process.exit(1);
@@ -149,20 +217,34 @@ function main() {
   const rows = extractRows(readFileSync(inputPath, 'utf8'), { isCsv: inputPath.toLowerCase().endsWith('.csv') });
   const shardPath = resolve(outDir, `${track}.json`);
   const merged = readExistingShard(shardPath, track);
+  // 修正表覆盖的粘连条目从既有分片中移除，随后以修正形态重新入库。
+  for (const glued of OCR_PHRASE_FIXUPS.keys()) {
+    if (merged.delete(glued)) console.log(`  ↺ 移除粘连条目：${glued}`);
+  }
+  // 斜杠/括号条目在匹配引擎里永远不可命中：从既有分片清除，由本次输入的展开变体重建。
+  for (const [id, entry] of [...merged]) {
+    if (entry.phrase.includes('/') || /[()]/u.test(entry.phrase)) {
+      merged.delete(id);
+      console.log(`  ↺ 移除不可命中条目：${id}`);
+    }
+  }
   let added = 0;
   let updated = 0;
   for (const row of rows) {
-    const phrase = normalizeText(row?.phrase);
-    if (!phrase) continue;
-    const id = normalizeId(phrase);
+    const rawPhrase = normalizeText(row?.phrase);
+    if (!rawPhrase) continue;
+    const phrase = OCR_PHRASE_FIXUPS.get(normalizeId(rawPhrase)) || rawPhrase;
     const gloss = normalizeText(row?.gloss || '');
-    const existing = merged.get(id);
-    if (!existing) {
-      merged.set(id, { phrase, gloss });
-      added += 1;
-    } else if (gloss && gloss !== existing.gloss) {
-      merged.set(id, { phrase, gloss });
-      updated += 1;
+    for (const variant of expandSlashVariants(phrase).flatMap(expandParentheticalVariants)) {
+      const id = normalizeId(variant);
+      const existing = merged.get(id);
+      if (!existing) {
+        merged.set(id, { phrase: variant, gloss });
+        added += 1;
+      } else if (gloss && gloss !== existing.gloss) {
+        merged.set(id, { phrase: variant, gloss });
+        updated += 1;
+      }
     }
   }
 
