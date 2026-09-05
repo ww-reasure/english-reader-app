@@ -1,4 +1,4 @@
-# English Reader main 线交接（2026-08-30 功能移植 + 2026-08-31 统一点词合并）
+# English Reader main 线交接（2026-08-30 功能移植 + 2026-08-31 统一点词合并 + 2026-09 词组高亮）
 
 ## 本轮结果
 
@@ -6,7 +6,9 @@
 main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工作树干净，未推送。
 
 2026-08-31 又以真正的 git merge 把 `feat/app-wide-word-lookup`（fa02328 + `021cfcc` 全局取词功能）合并进 main：
-历史统一，但按既定原则解决冲突——真题代码不落地，main 继续无真题。版本保持 1.9.5/41。
+历史统一，但按既定原则解决冲突——真题代码不落地，main 继续无真题。
+
+2026-09-05 发布 **1.9.6（versionCode 42）**：重点词组高亮 + 等级释义卡 + 用户词组资料打包（详见下方专节）。
 
 ## 提交清单（自旧到新）
 
@@ -44,11 +46,12 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**，共 9 个提交，工�
 - 通配符匹配：资料中约 1/3 条目含 sth/sb/one's/do 占位符，运行时将其记为通配位（匹配任意单个词），如 "respond to sth" 命中 "respond to the challenge"；通配开头条目按第二个词建桶索引（24k 字符渲染 ~5ms）。**'a'/'b' 不作通配**（"many a"、"a range of sth" 的 a 是冠词，通配会误吞跨词）。
 - 后台标签页修复：`_scheduleAfterFirstPaint` 的双 rAF 在后台标签被冻结，首帧后增强（词汇索引+词组库）永不执行；已加 1.2s 超时兜底（前台行为不变， intensive-throttling 后台页在下一次定时器唤醒时补齐）。
 - 顺手修正：`tests/build-apk-script.test.mjs` 的构建链断言仍是合并前旧值（上次合并验证时序缺口），已同步为无 release-artifact 的新链。
-- 验证：`node --test tests/*.test.mjs` 1273/1273 通过；`npm run build` 通过。浏览器实测：词组高亮、等级卡（四级+考研双徽章）、释义显示全部正常。版本保持 1.9.5/41。
+- 验证：`node --test tests/*.test.mjs` 1273/1273 通过；`npm run build` 通过。浏览器实测：词组高亮、等级卡（四级+考研双徽章）、释义显示全部正常。
+- 发布：`npm run version:patch` 升至 **1.9.6 / versionCode 42**；`build-apk.js` 对已剥离 release-artifact/verify-apk 模块的引用改为 www 产物存在性检查；APK `EnglishReader-private-qa-v1.9.6-42-debug.apk`（SHA-256 见 .sha256 伴随文件）已复制到共享根 `E:\play\claude\`。
 
 ## 范围与限制
 
 - 真题训练（题包、练习、错题复习、翻译训练、真题学习概览、题包安装器与校验）按约定**不包含**；日报的 exam 事实段为恒空存根，schema 兼容。开发线 `feat/app-wide-word-lookup` 上的真题相关改动同样未带入。
 - DB 迁移链 v14→v23 为代码级移植；老用户数据（v14）升级前建议先备份实测一次。
 - 未做任何远程推送；main 领先 origin/main 的提交数随本轮继续增加。
-- 版本仍为 1.9.5/41：下次从 main 出 APK 时再递增（建议 1.9.6/42）。
+- 版本 1.9.6/42（2026-09-05 发布）。

@@ -98,13 +98,12 @@ async function buildApk({ flavor = PRIVATE_QA_FLAVOR } = {}) {
   }
   const releaseMetadata = preflightBuildReleaseMetadata();
   const projectDirectory = getProjectDirectory();
-  const artifactModule = await import('./release-artifact.mjs');
-  const artifactResult = artifactModule.assertReleaseArtifact({
-    artifactDir: path.join(projectDirectory, 'www'),
-    flavor,
-    expectedVersion: releaseMetadata.version,
-    expectedVersionCode: releaseMetadata.versionCode
-  });
+  // main 线无真题发布管线：release-artifact / verify-apk-artifact 校验已随真题剥离移除，
+  // 保留版本一致性校验（preflight）与 www 产物存在性检查。
+  const webIndexPath = path.join(projectDirectory, 'www', 'index.html');
+  if (!fs.existsSync(webIndexPath)) {
+    throw new Error('www/index.html 不存在：请先执行 npm run build:private-qa');
+  }
   const { command, args } = getGradleCommand();
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -118,14 +117,6 @@ async function buildApk({ flavor = PRIVATE_QA_FLAVOR } = {}) {
       else reject(new Error(`Android Debug 构建失败（退出码 ${code ?? 'unknown'}）`));
     });
   });
-
-  const verifyApkModule = await import('./verify-apk-artifact.mjs');
-  await verifyApkModule.verifyApk(
-    getGradleApkPath(),
-    flavor,
-    releaseMetadata.version,
-    releaseMetadata.versionCode
-  );
 
   const outputPath = getReleaseApkPath({
     projectDirectory,
@@ -141,7 +132,6 @@ async function buildApk({ flavor = PRIVATE_QA_FLAVOR } = {}) {
     versionCode: releaseMetadata.versionCode,
     flavor
   });
-  process.stdout.write(`Release artifact PASS: ${JSON.stringify(artifactResult)}\n`);
   process.stdout.write(`APK evidence: ${JSON.stringify(evidence)}\n`);
   return evidence;
 }
