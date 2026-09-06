@@ -67,4 +67,13 @@ main 从 1.9.4 前进到 **1.9.5（versionCode 41）**：截至发布提交 faf9
 - 真题训练（题包、练习、错题复习、翻译训练、真题学习概览、题包安装器与校验）按约定**不包含**；日报的 exam 事实段为恒空存根，schema 兼容。开发线 `feat/app-wide-word-lookup` 上的真题相关改动同样未带入。
 - DB 迁移链 v14→v23 为代码级移植；老用户数据（v14）升级前建议先备份实测一次。
 - 已推送 origin（github.com/ww-reasure/english-reader-app）：2026-09-05 将 main 推至 3cd9650（1.9.7/43），快进无冲突；推送范围核查无私有题包数据。
-- 版本 1.9.6/42（2026-09-05 发布）。
+- 版本基线 1.9.7 / versionCode 43（2026-09-05 发布；本地聊天页改进尚未升版本，见下节）。
+
+## 2026-09-06 聊天页：发送即时反馈 + 流式回复 + 两个 agent 写库工具
+
+针对用户反馈"发图片后卡一下过一会莫名其妙就回答了"，三轮提交（版本保持 1.9.7/43，待实测后再打包递增）：
+
+- **74a3d20 发送即时反馈**：`submitComposer` 重排——用户气泡（缩略图直接取 IndexedDB 本地 blob）先出、上传在后；`prepareForSend` 加 `onProgress`，多张图上传时 thinking 显示"正在上传图片 2/3…"；上传失败/被新请求打断时收回未完成的气泡并还原草稿条；发送键在请求期间变"■ 停止"态（点击取消当前请求，不再静默顶替）；thinking 指示加打字点动画 + 已等待秒数；顺手修 `updateImageSendState` 丢弃 rows 的死三元。
+- **186b259 agent 写库工具**：`save_reading_card`（新 `article-import-tool.js`）复用粘贴导入纯函数链（normalize → validate → `prepareImportedArticle` → 指纹查重 → `DB.saveArticle`），artifact 走既有 article 卡片渲染，重复内容直接给已有文章卡片；chat-service 将其列入串行写工具并短路返回（saved/duplicate 两种文案，失败回模型循环）。`prepare_word_import`（新 `word-import-plan-tool.js`）用 `WordImportService.createPlan(source:'chat')` 出计划 artifact，聊天页确认卡（分类计数 + 词 chips + 确认/暂不）确认后才 `execute` 写库——不动 SRS 调度，执行后 `word-library-changed` 自动刷新词汇页；卡片 kind 持久化并可跨会话恢复。系统提示词同步写入两个工具的使用规则。
+- **38ffe3d 流式回复**：`createSseReader` 加 onEvent 钩子，Responses 客户端把 `response.output_text.delta` 转成 `onDelta`（`response.completed` 仍是权威结果）；api.js 新增 `chatCompletionStream`（复用 fetchStream），ChatService 从 delta 组装 content 与按 index 的 tool_calls 片段，流在首 delta 前失败自动回退整包请求一次（流中途失败则上抛，避免重复输出）；`ask` 增 `onDelta`/`onRoundEnd`，视图用 70ms 节流的流式预览气泡替换 thinking，工具轮清预览并显示"正在调用工具…"；手动停止时保留已流出部分并标注"（已停止）"。
+- 测试 1299 → 1335（+36 全绿）：chat-send-feedback 契约、article-import-tool / word-import-plan-tool、chat-service-agent-tool 扩展（短路/回模型）、chat-service-stream（delta 组装/回退/轮通知）、deepseek-responses onDelta、chat-stream 契约；`npx vite build` 通过。
