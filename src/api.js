@@ -425,13 +425,33 @@ ${personalizationGuidance}
     signal = null,
     temperature = 0.45,
     toolChoice = 'auto',
-    modelOverride = null
+    modelOverride = null,
+    onDelta = null
   } = {}) {
     if (!deepSeekResponsesClient) {
       const { createDeepSeekResponsesClient } = await import('./components/deepseek-responses.mjs');
       deepSeekResponsesClient = createDeepSeekResponsesClient({ config: Config });
     }
-    return deepSeekResponsesClient.completion(items, { tools, signal, temperature, toolChoice, modelOverride });
+    return deepSeekResponsesClient.completion(items, { tools, signal, temperature, toolChoice, modelOverride, onDelta });
+  },
+
+  // Streaming chat/completions request. Emits every parsed SSE event (delta
+  // chunks, usage) to onEvent and returns the finalized { usage,
+  // finishReason }; the caller assembles the assistant message from deltas.
+  async chatCompletionStream(messages, {
+    tools = [],
+    signal = null,
+    temperature = 0.45,
+    responseFormat = null,
+    modelOverride = null
+  } = {}, onEvent = null) {
+    const body = { messages, temperature };
+    if (tools.length) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+    }
+    if (responseFormat) body.response_format = responseFormat;
+    return this.fetchStream('/chat/completions', body, 60000, signal, onEvent);
   },
 
   async uploadVisionFile(blob, filename = 'image.jpg', { signal = null } = {}) {

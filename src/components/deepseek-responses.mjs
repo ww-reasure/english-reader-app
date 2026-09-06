@@ -274,7 +274,7 @@ export function buildNativeResearchArtifact(webSearchCalls = []) {
   };
 }
 
-function createSseReader(response, { idleTimeoutMs }) {
+function createSseReader(response, { idleTimeoutMs, onEvent = null } = {}) {
   const reader = response.body?.getReader?.();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -298,6 +298,9 @@ function createSseReader(response, { idleTimeoutMs }) {
         finalResponse = payload.response || payload;
       } else if (eventType === 'response.failed') {
         lastError = String(payload?.error?.message || payload?.error || '响应生成失败').slice(0, MAX_ERROR_LENGTH);
+      }
+      if (typeof onEvent === 'function') {
+        try { onEvent(eventType, payload); } catch {}
       }
     }
     eventType = '';
@@ -374,7 +377,8 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
       temperature = 0.45,
       maxOutputTokens = null,
       toolChoice = 'auto',
-      modelOverride = null
+      modelOverride = null,
+      onDelta = null
     } = {}) {
       const controller = new AbortController();
       const abortRequest = () => controller.abort();
@@ -404,7 +408,16 @@ export function createDeepSeekResponsesClient({ config = null, fetchImpl = null,
           const raw = await response.text().catch(() => '');
           throw new Error(`API error: ${response.status} - ${String(raw).slice(0, MAX_ERROR_LENGTH)}`);
         }
-        const readEvents = createSseReader(response, { idleTimeoutMs: timeoutMs });
+        const readEvents = createSseReader(response, {
+          idleTimeoutMs: timeoutMs,
+          // Text deltas are best-effort streaming feedback for the chat view;
+          // the authoritative result still comes from response.completed.
+          onEvent: (eventType, payload) => {
+            if (onDelta && eventType === 'response.output_text.delta' && typeof payload?.delta === 'string' && payload.delta) {
+              onDelta(payload.delta);
+            }
+          }
+        });
         const outcome = await readEvents();
         if (outcome.error) throw new Error(outcome.error);
         if (!outcome.response) throw new Error('联网响应未完成，请重试');

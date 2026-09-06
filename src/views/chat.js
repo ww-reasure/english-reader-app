@@ -830,12 +830,17 @@ export const ChatView = {
   },
 
   stopHomeChatRequest() {
+    const partialText = String(this._homeStreamState?.text || '').trim();
     chatService.cancel('home');
     this._imageRequestController?.abort();
     this._guidedRequestController?.abort();
     homeRequestGate.invalidate();
     this.removeThinking();
     this.removeArticleGenerationStatus();
+    this.clearHomeStreamPreview();
+    if (partialText) {
+      this.appendConversation({ role: 'assistant', kind: 'text', content: `${partialText}\n\n（已停止）` });
+    }
     this.resetGenerateButton();
   },
 
@@ -2422,6 +2427,47 @@ export const ChatView = {
         this.updateThinkingLabel('正在查看图片并整理学习重点…');
       }
       const session = conversationStore.getContextSession('home');
+      // Streaming reply preview: text deltas replace the thinking indicator as
+      // they arrive; tool-call rounds clear the preview and go back to waiting.
+      const streamState = { text: '', node: null, content: null, timer: null };
+      this._homeStreamState = streamState;
+      const container = () => document.getElementById('chatMessages');
+      const flushStreamPreview = () => {
+        streamState.timer = null;
+        if (!streamState.node || !container()?.contains(streamState.node)) return;
+        streamState.content.textContent = `${streamState.text}▍`;
+        container().scrollTop = container().scrollHeight;
+      };
+      const ensureStreamNode = () => {
+        if (streamState.node && container()?.contains(streamState.node)) return streamState.node;
+        const host = container();
+        if (!host) return null;
+        const node = document.createElement('div');
+        node.className = 'message ai-message chat-stream-preview';
+        node.dataset.streamPreview = 'true';
+        const content = document.createElement('div');
+        content.className = 'chat-ai-content';
+        node.appendChild(content);
+        host.appendChild(node);
+        streamState.node = node;
+        streamState.content = content;
+        return node;
+      };
+      const appendStreamDelta = text => {
+        if (!text || !isCurrentRequest()) return;
+        streamState.text += text;
+        this.removeThinking();
+        ensureStreamNode();
+        if (!streamState.timer) streamState.timer = setTimeout(flushStreamPreview, 70);
+      };
+      const handleStreamRoundEnd = reply => {
+        if (!isCurrentRequest()) return;
+        if (reply?.tool_calls?.length) {
+          this.clearHomeStreamPreview();
+          if (document.getElementById('chatThinking')) this.updateThinkingLabel('正在调用工具…');
+          else this.showThinking('正在调用工具…');
+        }
+      };
       const reply = await chatService.ask({
         sessionKey: 'home',
         session,
@@ -2431,11 +2477,14 @@ export const ChatView = {
         kind: 'home',
         pageContext: selectedExcerpt ? { selectedExcerpt, source: 'chat_reply' } : null,
         tools: HOME_LEARNING_TOOLS,
-        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, requestText, requestVersion)
+        executeTool: (name, args, context) => this.executeHomeTool(name, args, context, epoch, requestText, requestVersion),
+        onDelta: appendStreamDelta,
+        onRoundEnd: handleStreamRoundEnd
       });
       if (!isCurrentRequest()) return;
       this.removeThinking();
       this.removeArticleGenerationStatus();
+      this.clearHomeStreamPreview();
       if (!attachmentGroup && reply.toolSupport === 'unsupported' && classifyComposerIntent(requestText) === 'generate') {
         if (selectedExcerpt) this.clearChatFollowUp(selectedExcerpt);
         return this.handleGenerate({ prompt: requestText, alreadyAdded: true, requestVersion });
@@ -2479,6 +2528,7 @@ export const ChatView = {
       });
       this.removeThinking();
       this.removeArticleGenerationStatus();
+      this.clearHomeStreamPreview();
       this.resetGenerateButton();
       const rawMessage = String(error?.message || '').trim();
       const cancelled = /请求已取消|AbortError/i.test(rawMessage);
@@ -2527,6 +2577,8 @@ export const ChatView = {
       if (this._imageRequestController === imageRequestController) {
         this._imageRequestController = null;
       }
+      this.clearHomeStreamPreview();
+      this._homeStreamState = null;
     }
   },
 
@@ -3054,6 +3106,19 @@ export const ChatView = {
       this._thinkingElapsedTimer = null;
     }
     document.getElementById('chatThinking')?.remove();
+  },
+
+  clearHomeStreamPreview() {
+    const state = this._homeStreamState;
+    if (!state) return;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.node?.remove();
+    state.node = null;
+    state.content = null;
+    state.text = '';
   },
 
   showArticleGenerationStatus(label = '文章定制中…') {

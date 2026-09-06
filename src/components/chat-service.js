@@ -40,6 +40,34 @@ const assistantToolMessage = reply => ({
   tool_calls: reply?.tool_calls || []
 });
 
+// Assembles a chat-completions assistant message out of streaming delta
+// chunks (content plus index-keyed tool_calls fragments).
+const createStreamAssembler = () => {
+  let content = '';
+  const toolCalls = [];
+  return {
+    addContentDelta(text) {
+      content += String(text || '');
+    },
+    addToolCallFragments(rows) {
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const index = Math.max(0, Math.floor(Number(row?.index) || 0));
+        const slot = toolCalls[index] || (toolCalls[index] = { id: '', type: 'function', function: { name: '', arguments: '' } });
+        if (row?.id) slot.id = row.id;
+        if (typeof row?.function?.name === 'string') slot.function.name += row.function.name;
+        if (typeof row?.function?.arguments === 'string') slot.function.arguments += row.function.arguments;
+      }
+    },
+    finishMessage() {
+      return {
+        role: 'assistant',
+        content,
+        ...(toolCalls.length ? { tool_calls: toolCalls.filter(slot => slot.function.name || slot.function.arguments) } : {})
+      };
+    }
+  };
+};
+
 export class ChatService {
   constructor({ api, agent, builder, telemetry = null, webResearch = null }) {
     this.api = api;
@@ -67,7 +95,9 @@ export class ChatService {
     temperature = null,
     attachmentGroup = null,
     modelOverride = null,
-    webResearchEnabled = true
+    webResearchEnabled = true,
+    onDelta = null,
+    onRoundEnd = null
   }) {
     this.cancel(sessionKey);
     const controller = new AbortController();
@@ -101,6 +131,9 @@ export class ChatService {
       pageContext,
       toolResults: toolResults || []
     });
+    const notifyDelta = text => {
+      if (typeof onDelta === 'function' && text) onDelta(text);
+    };
     const call = async (messages, requestToolsForRound, phase, toolChoice = 'auto', requestModelOverride = modelOverride) => {
       if (plan.native) {
         if (typeof toItems !== 'function') throw new Error('当前联网配置缺少 Responses 消息转换器');
@@ -110,7 +143,8 @@ export class ChatService {
             tools: requestToolsForRound || [],
             signal: controller.signal,
             toolChoice,
-            ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
+            ...(requestModelOverride ? { modelOverride: requestModelOverride } : {}),
+            ...(typeof onDelta === 'function' ? { onDelta: notifyDelta } : {})
           }
         );
         if (kind === 'home' && completion?.usage) {
@@ -126,6 +160,31 @@ export class ChatService {
         ...(Number.isFinite(temperature) ? { temperature } : {}),
         ...(requestModelOverride ? { modelOverride: requestModelOverride } : {})
       };
+      if (typeof onDelta === 'function' && typeof this.api.chatCompletionStream === 'function') {
+        const assembler = createStreamAssembler();
+        let streamedAnything = false;
+        try {
+          const streamResult = await this.api.chatCompletionStream(messages, options, event => {
+            const delta = event?.choices?.[0]?.delta;
+            if (typeof delta?.content === 'string' && delta.content) {
+              streamedAnything = true;
+              assembler.addContentDelta(delta.content);
+              notifyDelta(delta.content);
+            }
+            if (Array.isArray(delta?.tool_calls)) assembler.addToolCallFragments(delta.tool_calls);
+          });
+          const message = assembler.finishMessage();
+          if (kind === 'home' && streamResult?.usage) {
+            this.telemetry?.record({ requestId, phase, usage: streamResult.usage });
+          }
+          return message;
+        } catch (error) {
+          // A failure before any visible delta can safely retry without
+          // streaming (gateways that reject stream:true); a mid-stream
+          // failure must surface instead of duplicating output.
+          if (streamedAnything || error?.name === 'AbortError' || controller.signal.aborted) throw error;
+        }
+      }
       const completion = typeof this.api.chatCompletion === 'function'
         ? await this.api.chatCompletion(messages, options)
         : { message: await this.api.chat(messages, options), usage: null };
@@ -134,20 +193,27 @@ export class ChatService {
       }
       return completion?.message || { role: 'assistant', content: '' };
     };
+    const callAndNotify = async (messages, requestToolsForRound, phase, toolChoice = 'auto', requestModelOverride = modelOverride) => {
+      const reply = await call(messages, requestToolsForRound, phase, toolChoice, requestModelOverride);
+      if (typeof onRoundEnd === 'function') {
+        try { onRoundEnd(reply); } catch {}
+      }
+      return reply;
+    };
 
     try {
       let reply;
       let toolSupport = null;
       let transcript = assembleChatMessages({ messages: buildMessages(), attachmentGroup });
       try {
-        reply = await call(transcript, requestTools, 'initial', forceFirstSearch ? { type: 'web_search' } : 'auto');
+        reply = await callAndNotify(transcript, requestTools, 'initial', forceFirstSearch ? { type: 'web_search' } : 'auto');
       } catch (error) {
         const canUsePureTextVisionFallback = !attachmentGroup
           && modelOverride === 'deepseek-v4-flash-vision-exp'
           && typeof this.api.isVisionModelUnavailable === 'function'
           && this.api.isVisionModelUnavailable(error);
         if (canUsePureTextVisionFallback) {
-          reply = await call(transcript, requestTools, 'vision_text_fallback', 'auto', 'deepseek-v4-flash');
+          reply = await callAndNotify(transcript, requestTools, 'vision_text_fallback', 'auto', 'deepseek-v4-flash');
         } else {
           if (!toolsUnsupported(error)) throw error;
           toolSupport = 'unsupported';
@@ -155,7 +221,7 @@ export class ChatService {
             messages: buildMessages([await this.agent.getLearningOverview()]),
             attachmentGroup
           });
-          reply = await call(transcript, [], 'fallback');
+          reply = await callAndNotify(transcript, [], 'fallback');
         }
       }
 
@@ -232,7 +298,7 @@ export class ChatService {
             content: safeToolContent(item.result)
           }))
         ];
-        reply = await call(transcript, activeTools, `tool_${round + 1}`);
+        reply = await callAndNotify(transcript, activeTools, `tool_${round + 1}`);
         pushResearchArtifact(reply, artifacts);
       }
 

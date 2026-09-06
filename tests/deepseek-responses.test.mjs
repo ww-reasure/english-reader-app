@@ -249,6 +249,25 @@ test('streaming client parses Responses SSE and returns the completed result', a
   assert.deepEqual(result.tool_calls, []);
 });
 
+test('streaming client emits output_text deltas to onDelta while the final result stays authoritative', async () => {
+  const text = sseText([
+    ['response.output_text.delta', { type: 'response.output_text.delta', delta: '新闻：' }],
+    ['response.output_text.delta', { type: 'response.output_text.delta', delta: '今天有活动。' }],
+    ['response.completed', { type: 'response.completed', response: completedResponse([{ type: 'message', content: [{ type: 'output_text', text: '新闻：今天有活动。' }] }]) }]
+  ]);
+  const client = createDeepSeekResponsesClient({
+    config: { get: key => ({ api_key: 'sk-test', model: 'deepseek-v4-flash', base_url: 'https://api.deepseek.com/v1' }[key] || '') },
+    fetchImpl: async () => ({ ok: true, body: sseStream(text), headers: { get: () => 'text/event-stream' } })
+  });
+  const deltas = [];
+  const result = await client.completion([{ role: 'user', content: '今天新闻' }], {
+    tools: [],
+    onDelta: value => deltas.push(value)
+  });
+  assert.deepEqual(deltas, ['新闻：', '今天有活动。']);
+  assert.equal(result.content, '新闻：今天有活动。');
+});
+
 test('streaming client surfaces web_search_call and function_call items from SSE', async () => {
   const webCall = { type: 'web_search_call', id: 'ws_2', status: 'completed', search_queries: [{ text: 'hot topic' }], search_results: [{ title: 'R', url: 'https://example.com/r' }] };
   const fnCall = { type: 'function_call', id: 'fc_2', call_id: 'call-2', name: 'generate_reading', arguments: '{}' };
