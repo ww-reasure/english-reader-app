@@ -186,9 +186,10 @@ export class ChatImageService {
       && Number(row.remoteExpiresAt) > now + REMOTE_REUSE_SAFETY_MS;
   }
 
-  async prepareForSend(groupId, { signal = null } = {}) {
+  async prepareForSend(groupId, { signal = null, onProgress = null } = {}) {
     const initial = sortAttachments(await this.db.getChatImageGroup(groupId));
     if (!initial.length) return groupFor(groupId, 'home', []);
+    const total = initial.length;
     const canInline = this.policy.canInlineImageBatch?.(initial)?.ok === true;
     const prepared = [];
     for (const row of initial) {
@@ -242,6 +243,9 @@ export class ChatImageService {
         throw serviceError('image_payload_unavailable');
       }
       prepared.push(inlineDataUrl ? { ...current, inlineDataUrl } : current);
+      if (typeof onProgress === 'function') {
+        try { onProgress({ uploaded: prepared.length, total }); } catch {}
+      }
     }
     return groupFor(groupId, prepared[0]?.conversationKey, prepared);
   }

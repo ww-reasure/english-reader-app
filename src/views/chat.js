@@ -814,12 +814,32 @@ export const ChatView = {
     return this.executeSingleGenerationJob(job, runtime);
   },
 
+  setGenerateButtonStop() {
+    const generateButton = document.getElementById('generateBtn');
+    if (!generateButton) return;
+    generateButton.disabled = false;
+    generateButton.innerHTML = '<i class="fa-solid fa-stop" aria-hidden="true"></i>';
+    generateButton.setAttribute('aria-label', '停止生成');
+    generateButton.dataset.generateMode = 'stop';
+  },
+
+  stopHomeChatRequest() {
+    chatService.cancel('home');
+    this._imageRequestController?.abort();
+    this._guidedRequestController?.abort();
+    homeRequestGate.invalidate();
+    this.removeThinking();
+    this.removeArticleGenerationStatus();
+    this.resetGenerateButton();
+  },
+
   resetGenerateButton() {
     const generateButton = document.getElementById('generateBtn');
     if (!generateButton) return;
     generateButton.disabled = false;
-    generateButton.textContent = '↑';
+    generateButton.innerHTML = '<i class="fa-solid fa-arrow-up" aria-hidden="true"></i>';
     generateButton.setAttribute('aria-label', '发送问题');
+    delete generateButton.dataset.generateMode;
   },
 
   ensureTargetTrackBeforeGeneration() {
@@ -1182,7 +1202,7 @@ export const ChatView = {
   updateImageSendState(rows = null) {
     const button = document.getElementById('generateBtn');
     if (!button) return;
-    const currentRows = rows || (this.imageDraftGroupId ? [] : []);
+    const currentRows = Array.isArray(rows) ? rows : [];
     const processing = this.imageDraftState === 'processing'
       || currentRows.some(row => ['processing', 'uploading'].includes(row.status));
     if (processing) {
@@ -1190,10 +1210,10 @@ export const ChatView = {
       button.setAttribute('aria-label', '图片处理中');
     } else if (!this.imageDraftGroupId) {
       button.disabled = false;
-      button.setAttribute('aria-label', '发送问题');
+      button.setAttribute('aria-label', button.dataset.generateMode === 'stop' ? '停止生成' : '发送问题');
     } else {
       button.disabled = false;
-      button.setAttribute('aria-label', '发送图片问题');
+      button.setAttribute('aria-label', button.dataset.generateMode === 'stop' ? '停止生成' : '发送图片问题');
     }
   },
 
@@ -1249,7 +1269,13 @@ export const ChatView = {
 
   // Bind event listeners
   bindEvents() {
-    document.getElementById('generateBtn').addEventListener('click', () => this.submitComposer());
+    document.getElementById('generateBtn').addEventListener('click', () => {
+      if (document.getElementById('generateBtn')?.dataset.generateMode === 'stop') {
+        this.stopHomeChatRequest();
+        return;
+      }
+      void this.submitComposer();
+    });
 
     document.getElementById('promptInput').addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this._guidedReplyTarget) {
@@ -2269,38 +2295,40 @@ export const ChatView = {
       payload: { route: learningRequest.route, hasImages, model: requestModel.model }
     });
     try {
+      const requestText = value || DEFAULT_IMAGE_LEARNING_PROMPT;
+      // Show the user bubble (thumbnails render from locally stored blobs)
+      // before any upload work so sending images feels immediate.
       if (draftGroupId) {
-        attachmentGroup = await this.getImageService().prepareForSend(draftGroupId, {
-          signal: imageRequestController.signal
-        });
+        const draftRows = await DB.getChatImageGroup(draftGroupId).catch(() => []);
         if (!isCurrentRequest()) return;
-        if (!attachmentGroup?.attachments?.length) throw new Error('image_payload_unavailable');
-        imageGroup = {
-          groupId: attachmentGroup.groupId,
-          attachmentIds: attachmentGroup.attachments.map(row => row.id),
-          count: attachmentGroup.attachments.length,
-          state: 'ready',
-          visualSummary: ''
-        };
-      } else if (useActiveImage) {
-        attachmentGroup = await this.getImageService().resolveContext({
-          groupId: activeImageGroupId,
-          mode: 'image',
-          userMessage: value,
-          signal: imageRequestController.signal
-        });
-        if (!isCurrentRequest()) return;
-        if (attachmentGroup?.attachments?.length) {
+        if (draftRows.length) {
           imageGroup = {
-            groupId: attachmentGroup.groupId,
-            attachmentIds: attachmentGroup.attachments.map(row => row.id),
-            count: attachmentGroup.attachments.length,
+            groupId: draftGroupId,
+            attachmentIds: draftRows.map(row => row.id),
+            count: draftRows.length,
             state: 'ready',
-            visualSummary: attachmentGroup.visualSummary || ''
+            visualSummary: draftRows.find(row => row.visualSummary)?.visualSummary || ''
+          };
+        }
+      } else if (useActiveImage) {
+        const activeRows = await DB.getChatImageGroup(activeImageGroupId).catch(() => []);
+        if (!isCurrentRequest()) return;
+        if (activeRows.length) {
+          imageGroup = {
+            groupId: activeImageGroupId,
+            attachmentIds: activeRows.map(row => row.id),
+            count: activeRows.length,
+            state: 'ready',
+            visualSummary: activeRows.find(row => row.visualSummary)?.visualSummary || ''
           };
         }
       }
-      const requestText = value || DEFAULT_IMAGE_LEARNING_PROMPT;
+      const pendingUploadDraftId = draftGroupId || null;
+      const discardPendingUploadMessage = () => {
+        if (!pendingUploadDraftId) return;
+        conversationStore.removeMessages('home', message => message.id === userMessageId);
+        document.querySelector(`[data-home-message-id="${CSS.escape(userMessageId)}"]`)?.remove();
+      };
       if (consumeComposer && !guidedReplyTarget) {
         this.skipPendingLearningChoices();
         this.pauseActiveGuidedSessions();
@@ -2354,7 +2382,31 @@ export const ChatView = {
         });
         return;
       }
-      this.showThinking(imageGroup ? '正在查看图片并整理学习重点…' : undefined);
+      this.setGenerateButtonStop();
+      this.showThinking(imageGroup ? '正在上传图片…' : undefined);
+      if (draftGroupId) {
+        attachmentGroup = await this.getImageService().prepareForSend(draftGroupId, {
+          signal: imageRequestController.signal,
+          onProgress: ({ uploaded, total }) => {
+            if (total > 1) this.updateThinkingLabel(`正在上传图片 ${uploaded}/${total}…`);
+          }
+        });
+        if (!isCurrentRequest()) {
+          discardPendingUploadMessage();
+          return;
+        }
+        if (!attachmentGroup?.attachments?.length) throw new Error('image_payload_unavailable');
+        this.updateThinkingLabel('正在查看图片并整理学习重点…');
+      } else if (useActiveImage) {
+        attachmentGroup = await this.getImageService().resolveContext({
+          groupId: activeImageGroupId,
+          mode: 'image',
+          userMessage: value,
+          signal: imageRequestController.signal
+        });
+        if (!isCurrentRequest()) return;
+        this.updateThinkingLabel('正在查看图片并整理学习重点…');
+      }
       const session = conversationStore.getContextSession('home');
       const reply = await chatService.ask({
         sessionKey: 'home',
@@ -2397,9 +2449,13 @@ export const ChatView = {
         }
         this.updateImageSendState();
       }
+      this.resetGenerateButton();
 
     } catch (error) {
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) {
+        discardPendingUploadMessage();
+        return;
+      }
       requestSpan?.end({ level: 'error', payload: { name: error?.name || 'Error' } });
       diagnosticLogger()?.record('chat.request_failed', {
         category: 'ai',
@@ -2409,8 +2465,27 @@ export const ChatView = {
       });
       this.removeThinking();
       this.removeArticleGenerationStatus();
+      this.resetGenerateButton();
       const rawMessage = String(error?.message || '').trim();
-      if (/请求已取消|AbortError/i.test(rawMessage)) {
+      const cancelled = /请求已取消|AbortError/i.test(rawMessage);
+      if (pendingUploadDraftId) {
+        // The user bubble went up before the upload finished: take it back and
+        // keep the draft strip so the images can be resent.
+        discardPendingUploadMessage();
+        await this.renderImageDraft(pendingUploadDraftId);
+        this.imageDraftState = 'error';
+        this.updateImageSendState();
+        if (cancelled) return;
+        console.error('[home-agent] image send failed', error);
+        const reason = redactAgentSecrets(rawMessage).slice(0, 240);
+        this.appendConversation({
+          role: 'assistant',
+          kind: 'error',
+          content: reason ? `图片发送失败：${reason}。图片已放回输入区，可重试。` : '图片发送失败，图片已放回输入区，可重试。'
+        });
+        return;
+      }
+      if (cancelled) {
         this.appendConversation({ role: 'assistant', kind: 'error', content: '请求已取消。' });
         return;
       }
@@ -2717,6 +2792,7 @@ export const ChatView = {
       generateButton.disabled = true;
       generateButton.textContent = '…';
       generateButton.setAttribute('aria-label', '正在生成阅读');
+      delete generateButton.dataset.generateMode;
     }
 
     // Clear input immediately
@@ -2921,12 +2997,38 @@ export const ChatView = {
     const thinking = document.createElement('div');
     thinking.id = 'chatThinking';
     thinking.className = 'message ai-message chat-thinking';
-    thinking.textContent = label;
+    thinking.innerHTML = `<span class="chat-thinking-label">${esc(label)}</span>`
+      + '<span class="chat-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>'
+      + '<span class="chat-thinking-elapsed"></span>';
     container.appendChild(thinking);
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const node = document.getElementById('chatThinking');
+      if (!node) {
+        clearInterval(timer);
+        return;
+      }
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      const elapsedNode = node.querySelector('.chat-thinking-elapsed');
+      if (elapsedNode) elapsedNode.textContent = elapsedSeconds >= 5 ? `${elapsedSeconds} 秒` : '';
+    }, 1000);
+    this._thinkingElapsedTimer = timer;
     container.scrollTop = container.scrollHeight;
   },
 
+  updateThinkingLabel(label) {
+    const node = document.getElementById('chatThinking');
+    if (!node) return;
+    const labelNode = node.querySelector('.chat-thinking-label');
+    if (labelNode) labelNode.textContent = label;
+    else node.textContent = label;
+  },
+
   removeThinking() {
+    if (this._thinkingElapsedTimer) {
+      clearInterval(this._thinkingElapsedTimer);
+      this._thinkingElapsedTimer = null;
+    }
     document.getElementById('chatThinking')?.remove();
   },
 

@@ -107,6 +107,18 @@ test('creates a recoverable ordered draft and uploads each image once', async ()
   assert.equal(db.records.every(row => row.blob instanceof Blob), true);
 });
 
+test('prepareForSend reports per-image upload progress to onProgress', async () => {
+  const { service } = createFixture();
+  const group = await service.createDraft([file('a'), file('b'), file('c')]);
+  const events = [];
+  await service.prepareForSend(group.groupId, { onProgress: event => events.push({ ...event }) });
+  assert.deepEqual(events, [
+    { uploaded: 1, total: 3 },
+    { uploaded: 2, total: 3 },
+    { uploaded: 3, total: 3 }
+  ]);
+});
+
 test('expired file IDs are re-uploaded from the local blob', async () => {
   const { service, api } = createFixture({ now: 200, records: [attachment({ remoteFileId: 'file-api-old', remoteExpiresAt: 100 })] });
   const group = await service.prepareForSend('group-1');

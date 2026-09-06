@@ -55,7 +55,7 @@ test('image submission resolves a request-level vision model before uploading', 
 
 test('image upload shares cancellation and stale-request guards with the home request', () => {
   assert.match(chatSource, /_imageRequestController\?\.abort\(\)/);
-  assert.match(chatSource, /prepareForSend\(draftGroupId,\s*\{\s*signal:\s*imageRequestController\.signal\s*\}\)/);
+  assert.match(chatSource, /prepareForSend\(draftGroupId,\s*\{\s*signal:\s*imageRequestController\.signal,\s*onProgress:/);
   assert.match(chatSource, /if\s*\(!isCurrentRequest\(\)\)\s*return/);
 });
 
