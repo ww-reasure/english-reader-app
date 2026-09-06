@@ -3,6 +3,7 @@ import { assembleChatMessages } from './multimodal-context.mjs';
 
 const toolsUnsupported = error => /tool|function|unsupported/i.test(String(error?.message || ''));
 const isReadingGenerationCall = call => call?.function?.name === 'generate_reading';
+const isReadingCardImportCall = call => call?.function?.name === 'save_reading_card';
 const isGuidedLearningCall = call => ['create_guided_learning', 'adapt_guided_learning'].includes(call?.function?.name);
 const TIMELY_QUERY_PATTERNS = [
   /新闻|时讯|资讯|热点|快讯|突发|头条|实时|时事|今日|今天|最新|最近|近日|近期|当前|进展|动态|大事|天气|预报/,
@@ -172,6 +173,8 @@ export class ChatService {
             if (controller.signal.aborted) throw error;
             if (isReadingGenerationCall(toolCall)) {
               handled = { result: { status: 'tool_error' }, artifact: generationToolFailure() };
+            } else if (isReadingCardImportCall(toolCall)) {
+              handled = { result: { status: 'import_failed', reason: String(error?.message || '').slice(0, 200) } };
             } else if (isGuidedLearningCall(toolCall)) {
               handled = { result: { status: 'tool_error' }, artifact: guidedLearningToolFailure() };
             } else {
@@ -186,11 +189,18 @@ export class ChatService {
         // request authorization boundary and prevents a failing read from
         // hiding an already-created article.
         const generationCall = reply.tool_calls.find(isReadingGenerationCall);
+        const importCall = reply.tool_calls.find(isReadingCardImportCall);
         const guidedLearningCall = reply.tool_calls.find(isGuidedLearningCall);
-        const writeCall = generationCall || guidedLearningCall;
+        const writeCall = importCall || generationCall || guidedLearningCall;
         const callsToRun = writeCall ? [writeCall] : reply.tool_calls;
         const toolResults = await Promise.all(callsToRun.map(runToolCall));
         if (artifacts.some(item => item.type === 'article')) {
+          const imported = artifacts.find(item => item.type === 'article' && item.source === 'import');
+          if (imported) {
+            return completeReply(imported.importStatus === 'duplicate'
+              ? '这篇文章已经在书库里，点击卡片可以直接阅读。'
+              : '已把文章保存为阅读卡片，点击卡片开始阅读。', artifacts, toolSupport);
+          }
           return completeReply('已生成一篇定制阅读，点击卡片开始阅读。', artifacts, toolSupport);
         }
         if (artifacts.some(item => item.type === 'generation_failure')) {
@@ -213,7 +223,7 @@ export class ChatService {
         }
         transcript = [
           ...transcript,
-          assistantToolMessage(generationCall ? { ...reply, tool_calls: callsToRun } : reply),
+          assistantToolMessage(writeCall ? { ...reply, tool_calls: callsToRun } : reply),
           ...(reply.web_search_calls || []).map(item => ({ type: 'web_search_call', ...item })),
           ...toolResults.map(item => ({
             role: 'tool',

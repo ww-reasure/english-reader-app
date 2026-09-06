@@ -31,6 +31,109 @@ test('returns article artifacts immediately after a generation tool call', async
   assert.deepEqual(reply.artifacts, [{ type: 'article', article: { id: 8, title: 'Practice' } }]);
 });
 
+test('returns a saved reading-card import immediately with its own reply text', async () => {
+  const { ChatService } = await loadChatService();
+  let chatCalls = 0;
+  const service = new ChatService({
+    api: { chat: async () => { chatCalls += 1; return { tool_calls: [{ function: { name: 'save_reading_card', arguments: '{}' } }] }; } },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '把这篇文章转成阅读卡片', kind: 'home',
+    tools: [{ function: { name: 'save_reading_card' } }],
+    executeTool: async () => ({
+      result: { status: 'saved', articleId: 12, title: 'Harbour' },
+      artifact: { type: 'article', source: 'import', importStatus: 'saved', article: { id: 12, title: 'Harbour' } }
+    })
+  });
+
+  assert.equal(chatCalls, 1);
+  assert.equal(reply.content, '已把文章保存为阅读卡片，点击卡片开始阅读。');
+  assert.equal(reply.artifacts[0].source, 'import');
+});
+
+test('tells the user an imported duplicate already exists in the library', async () => {
+  const { ChatService } = await loadChatService();
+  const service = new ChatService({
+    api: { chat: async () => ({ tool_calls: [{ function: { name: 'save_reading_card', arguments: '{}' } }] }) },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '保存这篇', kind: 'home',
+    tools: [{ function: { name: 'save_reading_card' } }],
+    executeTool: async () => ({
+      result: { status: 'duplicate', articleId: 3 },
+      artifact: { type: 'article', source: 'import', importStatus: 'duplicate', article: { id: 3, title: 'Existing' } }
+    })
+  });
+
+  assert.equal(reply.content, '这篇文章已经在书库里，点击卡片可以直接阅读。');
+});
+
+test('a failed import returns to the model instead of short-circuiting', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const service = new ChatService({
+    api: {
+      chat: async () => {
+        requests.push(true);
+        return requests.length === 1
+          ? { tool_calls: [{ id: 'import-1', type: 'function', function: { name: 'save_reading_card', arguments: '{}' } }] }
+          : { content: '正文太短了，请把完整文章发给我。' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '保存这篇', kind: 'home',
+    tools: [{ function: { name: 'save_reading_card' } }],
+    executeTool: async () => { throw new Error('db closed'); }
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(reply.content, '正文太短了，请把完整文章发给我。');
+  assert.deepEqual(reply.artifacts, []);
+});
+
+test('prepare_word_import runs through the ordinary tool loop with its plan artifact', async () => {
+  const { ChatService } = await loadChatService();
+  const requests = [];
+  const artifact = {
+    type: 'word_import_plan',
+    wordsText: 'amble quest',
+    words: ['amble', 'quest'],
+    counts: { recognized: 2, new: 1, externalReview: 1, todayIgnored: 0, invalid: 0 }
+  };
+  const service = new ChatService({
+    api: {
+      chat: async () => {
+        requests.push(true);
+        return requests.length === 1
+          ? { tool_calls: [{ id: 'plan-1', type: 'function', function: { name: 'prepare_word_import', arguments: '{"words":"amble quest"}' } }] }
+          : { content: '计划已准备好，点确认后才会写入词库。' };
+      }
+    },
+    agent: { getLearningOverview: async () => ({}) },
+    builder: { build: () => [] }
+  });
+
+  const reply = await service.ask({
+    sessionKey: 'home', session: { summary: '', messages: [] }, userMessage: '把这两个词加入单词库', kind: 'home',
+    tools: [{ function: { name: 'prepare_word_import' } }],
+    executeTool: async () => ({ result: { status: 'plan_ready', counts: artifact.counts }, artifact })
+  });
+
+  assert.equal(requests.length, 2, 'plan tool must not short-circuit the model reply');
+  assert.equal(reply.content, '计划已准备好，点确认后才会写入词库。');
+  assert.deepEqual(reply.artifacts, [artifact]);
+});
+
 test('returns a generation failure artifact without asking the model to continue', async () => {
   const { ChatService } = await loadChatService();
   let chatCalls = 0;

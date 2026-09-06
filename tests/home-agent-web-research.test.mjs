@@ -109,7 +109,7 @@ test('chat view wires search_web, research cards and research-backed generation'
   const generationBlock = chat.slice(chat.indexOf('async executeHomeTool('), chat.indexOf('buildGenerationContext('));
 
   assert.match(chat, /const SEARCH_WEB_TOOL/);
-  assert.match(chat, /SEARCH_WEB_TOOL, GENERATE_READING_TOOL\]/);
+  assert.match(chat, /SEARCH_WEB_TOOL, GENERATE_READING_TOOL, SAVE_READING_CARD_TOOL, PREPARE_WORD_IMPORT_TOOL\]/);
   assert.match(chat, /name === 'search_web'/);
   assert.match(generationBlock, /type: 'research_sources'/);
   assert.match(chat, /artifact\.type === 'research_sources'/);

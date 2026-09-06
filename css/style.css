@@ -1467,6 +1467,20 @@ body.word-study-detail-open,body.word-study-detail-info-open { overflow:hidden; 
 .app-action-link i { color:var(--pine); font-size:12px; transition:transform .18s ease; }
 .app-action-link:hover i,
 .app-action-link:focus-visible i { transform:translateX(3px); }
+.word-import-plan-message { width:min(100%, 460px); }
+.word-import-plan-card { display:grid; gap:9px; padding:12px; border:1px solid var(--line); border-left:3px solid var(--moss); background:var(--surface); box-shadow:0 8px 20px color-mix(in srgb, var(--ink) 6%, transparent); }
+.word-import-plan-card.is-done { border-left-color:var(--pine); }
+.word-import-plan-head { display:flex; align-items:center; gap:8px; color:var(--ink); font-size:13px; }
+.word-import-plan-head i { color:var(--moss); }
+.word-import-plan-head span { margin-left:auto; color:var(--muted); font-size:11px; font-weight:700; }
+.word-import-plan-words { display:flex; flex-wrap:wrap; gap:6px; }
+.word-import-chip { padding:3px 9px; border:1px solid color-mix(in srgb, var(--moss) 34%, var(--line)); border-radius:999px; background:var(--surface-soft); color:var(--ink); font-size:11px; font-weight:700; }
+.word-import-chip.is-more { border-style:dashed; color:var(--muted); }
+.word-import-plan-note { margin:0; color:var(--muted); font-size:11.5px; line-height:1.5; }
+.word-import-plan-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.word-import-plan-actions .app-action-link { flex:1 1 100%; min-height:38px; font-size:12px; }
+.word-import-plan-card[data-word-import-state="done"] .word-import-plan-note,
+.word-import-plan-card[data-word-import-state="error"] .word-import-plan-note { color:var(--ink-soft); }
 
 /* Tablet shell: the drawer becomes a navigation rail once there is room for it. */
 @media (min-width: 600px) and (max-width: 839px) {

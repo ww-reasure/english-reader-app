@@ -26,6 +26,8 @@ import { renderLearningMarkdown } from '../components/rich-text.js';
 import { bindMessageCopy, createCopyButton } from '../components/message-actions.mjs';
 import { ChatSelectionActions, normalizeSelectedExcerpt } from '../components/chat-selection-actions.mjs';
 import { ArticleGenerationTool, GENERATE_READING_TOOL, admitArticle, normalizeTargetWords } from '../components/article-generation-tool.js';
+import { ArticleImportTool, SAVE_READING_CARD_TOOL } from '../components/article-import-tool.js';
+import { PREPARE_WORD_IMPORT_TOOL, WordImportPlanTool } from '../components/word-import-plan-tool.js';
 import { resolveGenerationRequest } from '../components/generation-request.js';
 import {
   createGenerationFailure as makeGenerationFailure,
@@ -137,6 +139,8 @@ const articleGenerationTool = new ArticleGenerationTool({
   inspectQuality: articleQualityService.inspectQuality
 });
 const wordImportService = new WordImportService({ db: DB, lookup: Dictionary.lookup.bind(Dictionary) });
+const articleImportTool = new ArticleImportTool({ db: DB, resolveDifficulty: () => Config.get('exam_level') });
+const wordImportPlanTool = new WordImportPlanTool({ service: wordImportService });
 const generationPolicyFor = challenge => buildArticleGenerationPolicy({
   calibrationStatus: Config.get('calibration_status'),
   challenge,
@@ -169,7 +173,7 @@ const RECENT_HOME_ACTIVITY_TOOL = {
     }
   }
 };
-const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_HOME_ACTIVITY_TOOL, SEARCH_WEB_TOOL, GENERATE_READING_TOOL];
+const HOME_LEARNING_TOOLS = [...LEARNING_TOOLS, ...APP_CAPABILITY_TOOLS, RECENT_HOME_ACTIVITY_TOOL, SEARCH_WEB_TOOL, GENERATE_READING_TOOL, SAVE_READING_CARD_TOOL, PREPARE_WORD_IMPORT_TOOL];
 const homeRequestGate = new HomeRequestGate();
 let generationFailureSequence = 0;
 const nextGenerationFailureId = () => `generation-failure-${Date.now()}-${++generationFailureSequence}`;
@@ -421,6 +425,8 @@ export const ChatView = {
           this.addGuidedLearningToDOM(message.session, message.id || message.createdAt);
         } else if (message.kind === 'guided_learning_failure') {
           this.addGuidedLearningFailureToDOM(message.failure, message);
+        } else if (message.kind === 'word_import_plan') {
+          this.addWordImportPlanToDOM(message.plan, messageId);
         } else {
           await this.addMessageToDOM(
             message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role,
@@ -1307,6 +1313,11 @@ export const ChatView = {
       void this.ensureLearningTextLookup(messages);
     }
     const onGuidedAction = event => {
+      const wordImportAction = event.target.closest('[data-word-import-action]');
+      if (wordImportAction) {
+        void this.handleWordImportPlanAction(wordImportAction);
+        return;
+      }
       const learningMode = event.target.closest('[data-learning-mode]');
       if (learningMode) {
         void this.handleLearningModeChoice(learningMode);
@@ -1960,6 +1971,9 @@ export const ChatView = {
       }
       if (artifact.type === 'app_actions' && artifact.actions?.length) {
         this.addAppActions(artifact.actions);
+      }
+      if (artifact.type === 'word_import_plan') {
+        this.addWordImportPlan(artifact);
       }
       if (artifact.type === 'daily_learning_report') {
         await this.publishDailyReportArtifact(artifact);
@@ -2630,6 +2644,14 @@ export const ChatView = {
     if (name === 'list_recent_learning_reports' || name === 'get_learning_activity_detail') {
       return { result: await learningAgent.execute(name, args) };
     }
+    if (name === 'save_reading_card') {
+      if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
+      return articleImportTool.execute(args);
+    }
+    if (name === 'prepare_word_import') {
+      if (!this.isHomeRequestActive(epoch, requestVersion) || signal?.aborted) throw cancelledRequest();
+      return wordImportPlanTool.execute(args);
+    }
     if (name !== 'generate_reading') {
       return { result: await learningAgent.execute(name, args) };
     }
@@ -2948,6 +2970,8 @@ export const ChatView = {
       this.addGuidedLearningToDOM(message.session, messageId);
     } else if (message.kind === 'guided_learning_failure') {
       this.addGuidedLearningFailureToDOM(message.failure, { ...message, id: messageId });
+    } else if (message.kind === 'word_import_plan') {
+      this.addWordImportPlanToDOM(message.plan, messageId);
     } else {
       const type = message.kind === 'notice' ? 'system' : message.kind === 'error' ? 'error' : message.role;
       void this.addMessageToDOM(type, message.content, {
@@ -3123,6 +3147,105 @@ export const ChatView = {
 
   addAppActions(actions = []) {
     this.appendConversation({ role: 'assistant', kind: 'app_actions', actions });
+  },
+
+  addWordImportPlan(plan = {}) {
+    this.appendConversation({ role: 'assistant', kind: 'word_import_plan', plan });
+  },
+
+  wordImportPlanSummaryText(plan = {}) {
+    const counts = plan.counts || {};
+    const parts = [];
+    if (Number(counts.new) > 0) parts.push(`${counts.new} 个新词`);
+    if (Number(counts.externalReview) > 0) parts.push(`${counts.externalReview} 个已学词`);
+    if (Number(counts.todayIgnored) > 0) parts.push(`${counts.todayIgnored} 个今天已处理`);
+    if (Number(counts.invalid) > 0) parts.push(`${counts.invalid} 个无法识别`);
+    return parts.join(' · ') || '没有可导入的词';
+  },
+
+  addWordImportPlanToDOM(plan = {}, messageId = '') {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'message ai-message word-import-plan-message';
+    if (messageId) div.dataset.homeMessageId = String(messageId);
+    const words = Array.isArray(plan.words) ? plan.words : [];
+    const chips = words.slice(0, 24).map(word => `<span class="word-import-chip">${esc(word)}</span>`).join('');
+    const moreCount = words.length > 24 ? `<span class="word-import-chip is-more">+${words.length - 24}</span>` : '';
+    const done = plan.state === 'done';
+    const dismissed = plan.state === 'dismissed';
+    const note = done ? (plan.resultText || '已写入词库。') : dismissed ? '已暂不导入。' : '确认后才会写入我的词库。';
+    div.innerHTML = `
+      <section class="word-import-plan-card${done ? ' is-done' : ''}" data-word-import-state="${done ? 'done' : dismissed ? 'dismissed' : 'pending'}" aria-label="加入单词库计划">
+        <div class="word-import-plan-head">
+          <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+          <strong>加入单词库</strong>
+          <span>${esc(this.wordImportPlanSummaryText(plan))}</span>
+        </div>
+        ${words.length ? `<div class="word-import-plan-words">${chips}${moreCount}</div>` : ''}
+        <p class="word-import-plan-note">${esc(note)}</p>
+        <div class="word-import-plan-actions">
+          <a class="app-action-link" href="#/vocab"><span>去复习词库</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+          ${done || dismissed ? '' : '<button class="btn btn-primary btn-sm" type="button" data-word-import-action="confirm">确认导入</button><button class="btn btn-outline btn-sm" type="button" data-word-import-action="dismiss">暂不导入</button>'}
+        </div>
+      </section>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  },
+
+  setWordImportPlanState(host, state, noteText = '') {
+    const card = host.querySelector('.word-import-plan-card');
+    if (card) {
+      card.dataset.wordImportState = state;
+      if (state === 'done') card.classList.add('is-done');
+    }
+    if (noteText) {
+      const note = host.querySelector('.word-import-plan-note');
+      if (note) note.textContent = noteText;
+    }
+    if (state === 'done' || state === 'dismissed') {
+      host.querySelectorAll('[data-word-import-action]').forEach(node => { node.remove(); });
+    }
+  },
+
+  async handleWordImportPlanAction(actionButton) {
+    const action = actionButton.dataset.wordImportAction;
+    const host = actionButton.closest('.word-import-plan-message');
+    if (!host) return;
+    if (action === 'dismiss') {
+      this.setWordImportPlanState(host, 'dismissed', '已暂不导入，需要时再让我整理。');
+      return;
+    }
+    if (action !== 'confirm' || host.dataset.wordImportBusy === 'true') return;
+    const messageId = host.dataset.homeMessageId || '';
+    const message = this.homeConversationMessages().find(item => this.homeMessageIdentity(item) === messageId);
+    const plan = message?.plan;
+    if (!plan?.wordsText) {
+      this.setWordImportPlanState(host, 'error', '找不到这批单词，请让我重新整理。');
+      return;
+    }
+    host.dataset.wordImportBusy = 'true';
+    actionButton.disabled = true;
+    try {
+      const freshPlan = await wordImportService.createPlan(plan.wordsText, { source: 'chat' });
+      const result = await wordImportService.execute(freshPlan);
+      const summary = result?.summary || {};
+      const parts = [];
+      if (Number(summary.new) > 0) parts.push(`${summary.new} 个新词`);
+      if (Number(summary.externalReview) > 0) parts.push(`${summary.externalReview} 个已学词安排了提前复习`);
+      if (Number(summary.todayIgnored) > 0) parts.push(`${summary.todayIgnored} 个词今天已处理过`);
+      if (Number(summary.failed) > 0) parts.push(`${summary.failed} 个失败`);
+      const text = parts.length ? `已写入词库：${parts.join('，')}。` : '本次没有需要写入的词。';
+      this.setWordImportPlanState(host, 'done', text);
+      conversationStore.replaceMessage('home', item => item.kind === 'word_import_plan' && this.homeMessageIdentity(item) === messageId, item => ({
+        ...item,
+        plan: { ...item.plan, state: 'done', resultText: text }
+      }));
+    } catch (error) {
+      host.dataset.wordImportBusy = 'false';
+      actionButton.disabled = false;
+      this.setWordImportPlanState(host, 'error', `导入失败：${String(error?.message || '请稍后重试').slice(0, 160)}`);
+    }
   },
 
   addAppActionsToDOM(actions = [], messageId = '') {
