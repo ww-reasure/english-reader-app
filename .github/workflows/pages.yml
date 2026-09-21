@@ -1,0 +1,79 @@
+name: Deploy public demo to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/pages.yml'
+      - 'css/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'public/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'version.json'
+      - 'vite.config.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build public artifact
+        run: npm run build:pages
+
+      - name: Verify public artifact boundary
+        shell: bash
+        run: |
+          test -f www/index.html
+          test ! -d www/exam-packs/private
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+
+          const manifest = JSON.parse(await readFile('www/release-manifest.json', 'utf8'));
+          if (manifest.flavor !== 'public' || manifest.privateExamPacksIncluded) {
+            throw new Error(`Unexpected public release manifest: ${JSON.stringify(manifest)}`);
+          }
+          NODE
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: './www'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

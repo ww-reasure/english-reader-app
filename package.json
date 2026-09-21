@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --mode private-qa",
     "build": "vite build --mode public && npx cap sync android",
+    "build:pages": "vite build --mode public --base ./",
     "build:private-qa": "vite build --mode private-qa && npx cap sync android",
     "build:apk": "npm run build:private-qa && node scripts/build-apk.js --flavor private-qa",
     "lexicon:fetch": "node scripts/fetch-lexicon-sources.mjs",
