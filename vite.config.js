@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { relative, resolve } from 'path';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 
 const PRIVATE_PACK_PREFIX = 'exam-packs/private/';
@@ -14,7 +14,7 @@ function copyDir(src, dest, relativeRoot = src, shouldCopy = () => true) {
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const srcPath = resolve(src, entry.name);
     const destPath = resolve(dest, entry.name);
-    const relativePath = resolve(relativeRoot, srcPath).replace(`${resolve(relativeRoot)}\\`, '').replaceAll('\\', '/');
+    const relativePath = relative(relativeRoot, srcPath).replaceAll('\\', '/');
     if (!shouldCopy(relativePath)) continue;
     if (entry.isDirectory()) {
       if (!existsSync(destPath)) mkdirSync(destPath, { recursive: true });

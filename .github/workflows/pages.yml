@@ -49,6 +49,8 @@ jobs:
         shell: bash
         run: |
           test -f www/index.html
+          grep -Eq 'src="(\./)?assets/|href="(\./)?assets/' www/index.html
+          ! grep -q 'src/app.js' www/index.html
           test ! -d www/exam-packs/private
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
