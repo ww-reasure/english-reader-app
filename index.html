@@ -29,6 +29,10 @@
             <option value="">加载模型列表…</option>
           </select>
           <input type="text" id="modelInput" name="customModel" placeholder="输入模型名称…" autocomplete="off" style="display:none">
+          <div class="model-discovery-controls">
+            <button class="btn btn-outline btn-sm" id="modelRefresh" type="button">刷新模型列表</button>
+            <span id="modelStatus" class="settings-form-status" role="status" aria-live="polite"></span>
+          </div>
         </div>
       </div>
       <div class="api-tutorial">

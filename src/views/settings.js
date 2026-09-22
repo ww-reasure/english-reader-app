@@ -13,10 +13,17 @@ import { createWebResearch } from '../components/web-research.mjs';
 import { createDeepSeekResponsesClient, isDeepSeekNativeSearchSupported } from '../components/deepseek-responses.mjs';
 import {
   DEFAULT_DEEPSEEK_MODEL,
-  DEEPSEEK_MODEL_IDS,
   listDeepSeekModelPresets
 } from '../components/deepseek-model-catalog.mjs';
 import { HOME_LEARNING_RESPONSE_MODES, normalizeHomeLearningResponseMode } from '../components/home-guided-learning.mjs';
+import { modelDiscovery } from '../components/model-discovery-client.mjs';
+import {
+  chooseRecommendedModel,
+  describeModelDiscoveryError,
+  populateModelSelect,
+  readSelectedModel,
+  syncCustomModelInput
+} from '../components/model-selector.mjs';
 
 function diagnosticLogger() {
   return globalThis.__englishReaderDiagnosticLogger || null;
@@ -54,6 +61,8 @@ function formatDiagnosticDetailStatus(status = {}) {
 
 export const SettingsView = {
   _diagnosticRefreshToken: 0,
+  _modelRefreshToken: 0,
+  _modelAbortController: null,
 
   // Render settings page
   render(container) {
@@ -126,7 +135,8 @@ export const SettingsView = {
       [HOME_LEARNING_RESPONSE_MODES.DETAILED]: '默认详细解析',
       [HOME_LEARNING_RESPONSE_MODES.GUIDED]: '默认互动教学'
     }[homeLearningResponseMode];
-    const customModelSelected = !DEEPSEEK_MODEL_IDS.includes(currentModel);
+    const staticModelIds = new Set(listDeepSeekModelPresets().map(preset => preset.id));
+    const customModelSelected = !staticModelIds.has(currentModel);
     const modelOptions = listDeepSeekModelPresets()
       .map(preset => `<option value="${preset.id}" ${currentModel === preset.id ? 'selected' : ''}>${preset.label}</option>`)
       .join('');
@@ -257,7 +267,14 @@ export const SettingsView = {
             <div class="form-group"><label for="settingsBaseUrl">Base URL</label><input type="text" id="settingsBaseUrl" value="${esc(Config.get('base_url'))}" placeholder="https://api.deepseek.com/v1"></div>
               <div class="form-group">
                 <label for="settingsModelPreset">模型</label>
-                <div class="model-select"><select id="settingsModelPreset" onchange="SettingsView.onModelChange()">${modelOptions}<option value="custom" ${customModelSelected ? 'selected' : ''}>自定义模型</option></select><input type="text" id="settingsModelInput" value="${customModelSelected ? esc(currentModel) : ''}" placeholder="输入模型名称" style="display:${customModelSelected ? 'block' : 'none'}"></div>
+                <div class="model-select">
+                  <select id="settingsModelPreset" onchange="SettingsView.onModelChange()">${modelOptions}<option value="custom" ${customModelSelected ? 'selected' : ''}>自定义模型</option></select>
+                  <input type="text" id="settingsModelInput" value="${customModelSelected ? esc(currentModel) : ''}" placeholder="输入模型名称" style="display:${customModelSelected ? 'block' : 'none'}">
+                  <div class="model-discovery-controls">
+                    <button class="btn btn-outline btn-sm" id="settingsModelRefresh" type="button">刷新模型列表</button>
+                    <span id="settingsModelStatus" class="settings-form-status" role="status" aria-live="polite"></span>
+                  </div>
+                </div>
               </div>
               <div class="api-tutorial">
                 <button type="button" class="api-tutorial-toggle" onclick="this.parentElement.classList.toggle('open')">如何获取 API Key？<i class="fa-solid fa-chevron-down api-tutorial-arrow" aria-hidden="true"></i></button>
@@ -385,9 +402,89 @@ export const SettingsView = {
     this.loadTitleTranslationCacheInfo();
     this.loadAudioCacheInfo();
     this.onWebResearchModeChange();
+    this._bindModelDiscoveryControls();
+    void this.refreshModelList({ auto: true });
     const diagnosticToggle = findInContainer('#settingsDiagnosticDetailed');
     diagnosticToggle?.addEventListener('change', event => this.setDiagnosticDetail(event.target.checked));
     void this.refreshDiagnosticStatus();
+  },
+
+  _setModelStatus(message, tone = '') {
+    const status = document.getElementById('settingsModelStatus');
+    if (!status) return;
+    status.textContent = String(message || '');
+    status.className = `settings-form-status${tone ? ` is-${tone}` : ''}`;
+  },
+
+  _cancelModelRefresh() {
+    this._modelRefreshToken += 1;
+    this._modelAbortController?.abort?.();
+    this._modelAbortController = null;
+  },
+
+  _bindModelDiscoveryControls() {
+    const refresh = document.getElementById('settingsModelRefresh');
+    const baseUrl = document.getElementById('settingsBaseUrl');
+    const apiKey = document.getElementById('settingsApiKey');
+    if (refresh) refresh.onclick = () => { void this.refreshModelList({ force: true }); };
+    [baseUrl, apiKey].forEach(input => {
+      if (!input) return;
+      input.oninput = () => {
+        this._cancelModelRefresh();
+        if (refresh) refresh.disabled = false;
+        this._setModelStatus('API 配置已变化，请刷新模型列表。');
+      };
+    });
+  },
+
+  async refreshModelList({ force = false } = {}) {
+    const select = document.getElementById('settingsModelPreset');
+    const input = document.getElementById('settingsModelInput');
+    const refresh = document.getElementById('settingsModelRefresh');
+    const baseUrlInput = document.getElementById('settingsBaseUrl');
+    const baseUrl = baseUrlInput ? baseUrlInput.value.trim() : Config.get('base_url');
+    const apiKey = document.getElementById('settingsApiKey')?.value.trim() || '';
+    const currentModel = readSelectedModel(select, input) || Config.get('model');
+    this._cancelModelRefresh();
+    const token = this._modelRefreshToken;
+    if (!apiKey) {
+      this._setModelStatus('输入 API Key 后可自动获取模型。');
+      if (refresh) refresh.disabled = false;
+      return;
+    }
+    const controller = new AbortController();
+    this._modelAbortController = controller;
+    if (refresh) refresh.disabled = true;
+    this._setModelStatus('正在获取模型列表…');
+    try {
+      const result = await modelDiscovery.load({ baseUrl, apiKey, force, signal: controller.signal });
+      if (token !== this._modelRefreshToken) return;
+      if (!result.models.length) {
+        this._setModelStatus('服务未返回可用模型，可手动输入模型名称。', 'error');
+        return;
+      }
+      const recommendation = chooseRecommendedModel({ models: result.models, currentModel });
+      const selectedModel = recommendation.model || currentModel;
+      populateModelSelect(select, { models: result.models, remote: true, selectedModel });
+      syncCustomModelInput(select, input, { value: currentModel });
+      if (recommendation.changed && currentModel && selectedModel !== currentModel) {
+        this._setModelStatus(`当前模型已不可用，已临时选择 ${selectedModel}；保存后生效。`, 'error');
+      } else {
+        this._setModelStatus(`已获取 ${result.models.length} 个模型${result.fromCache ? '（缓存）' : ''}。`, 'success');
+      }
+    } catch (error) {
+      if (token !== this._modelRefreshToken || error?.code === 'MODEL_LIST_CANCELLED') return;
+      this._setModelStatus(describeModelDiscoveryError(error), 'error');
+    } finally {
+      if (token === this._modelRefreshToken) {
+        this._modelAbortController = null;
+        if (refresh) refresh.disabled = false;
+      }
+    }
+  },
+
+  cleanup() {
+    this._cancelModelRefresh();
   },
 
   setDiagnosticDetail(enabled) {
@@ -486,9 +583,9 @@ export const SettingsView = {
 
   // Handle model preset change
   onModelChange() {
-    const preset = document.getElementById('settingsModelPreset')?.value;
+    const preset = document.getElementById('settingsModelPreset');
     const input = document.getElementById('settingsModelInput');
-    if (input) input.style.display = preset === 'custom' ? 'block' : 'none';
+    syncCustomModelInput(preset, input);
     Config.markModelSelectionExplicit();
   },
 

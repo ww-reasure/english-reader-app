@@ -259,6 +259,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .settings-form-status { margin:8px 0 0; font-size:13px; color:var(--muted); }
 .settings-form-status.is-success { color:var(--pine); }
 .settings-form-status.is-error { color:var(--danger, #b3261e); }
+.model-discovery-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:30px; }
+.model-discovery-controls .settings-form-status { flex:1 1 180px; min-width:0; margin:0; }
+.model-discovery-controls button:disabled { cursor:wait; opacity:.6; }
 .badge-research { background:var(--signal); color:var(--paper); }
 .api-tutorial-content { padding:0 0 12px; }
 .api-tutorial-step,.api-tutorial-note { font-size:13px; color:var(--ink-soft); line-height:1.65; }

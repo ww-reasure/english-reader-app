@@ -56,8 +56,8 @@ test('settings and API modal use the shared catalog instead of duplicate preset 
   ]);
   assert.match(settings, /deepseek-model-catalog/);
   assert.match(settings, /listDeepSeekModelPresets/);
-  assert.match(modal, /deepseek-model-catalog/);
-  assert.match(modal, /listDeepSeekModelPresets/);
+  assert.match(modal, /model-selector/);
+  assert.match(modal, /model-discovery/);
   assert.doesNotMatch(index, /value="deepseek-v4-flash"/);
   assert.doesNotMatch(index, /value="deepseek-v4-pro"/);
   assert.match(config, /model:\s*DEFAULT_DEEPSEEK_MODEL/);

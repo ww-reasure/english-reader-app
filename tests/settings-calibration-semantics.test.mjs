@@ -37,6 +37,14 @@ function createSettingsDependencies(values) {
     webResearch: dataModule('export const createWebResearch = () => ({ hasKey: () => false, search: async () => ({ status: "missing_key", sources: [] }), testConnection: async () => ({ ok: false, reason: "missing_key" }) });'),
     deepSeekResponses: dataModule('export const createDeepSeekResponsesClient = () => ({ test: async () => ({ ok: true }) }); export const isDeepSeekNativeSearchSupported = () => true;'),
     modelCatalog: dataModule(MODEL_CATALOG_SOURCE),
+    modelDiscovery: dataModule('export const modelDiscovery = { load: async () => ({ models: [], fromCache: false }) };'),
+    modelSelector: dataModule(`
+      export const chooseRecommendedModel = () => ({ model: '', changed: false });
+      export const describeModelDiscoveryError = () => '模型列表不可用';
+      export const populateModelSelect = () => {};
+      export const readSelectedModel = () => '';
+      export const syncCustomModelInput = () => {};
+    `),
     homeGuided: dataModule(HOME_GUIDED_SOURCE),
   };
 }
@@ -52,7 +60,9 @@ async function renderSettings(values) {
     .replace("from '../difficulty-profile.mjs'", `from '${dependencies.profile}'`)
     .replace("from '../components/web-research.mjs'", `from '${dependencies.webResearch}'`)
     .replace("from '../components/deepseek-responses.mjs'", `from '${dependencies.deepSeekResponses}'`)
-    .replace("from '../components/deepseek-model-catalog.mjs'", `from '${dependencies.modelCatalog}'`);
+    .replace("from '../components/deepseek-model-catalog.mjs'", `from '${dependencies.modelCatalog}'`)
+    .replace("from '../components/model-discovery-client.mjs'", `from '${dependencies.modelDiscovery}'`)
+    .replace("from '../components/model-selector.mjs'", `from '${dependencies.modelSelector}'`);
   const fullyAdapted = adapted
     .replace("from '../components/home-guided-learning.mjs'", `from '${dependencies.homeGuided}'`);
   const originalWindow = globalThis.window;

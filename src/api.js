@@ -43,6 +43,7 @@ const ARTICLE_MAX_TOKENS = 4096;
 const REVIEW_ARTICLE_MAX_TOKENS = 3072;
 const VISION_FILE_TIMEOUT_MS = 10 * 60 * 1000;
 const VISION_FILE_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
+const MODEL_LIST_TIMEOUT_MS = 15_000;
 
 const clipText = (value, limit) => String(value || '').trim().slice(0, limit);
 const CHINESE_TEXT = /[\u3400-\u9fff]/u;
@@ -89,6 +90,27 @@ function diagnosticLogger() {
 function diagnosticCorrelationId(prefix = 'api') {
   return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
+
+const modelListError = (code, status = 0) => Object.assign(new Error(code), {
+  code,
+  ...(Number(status) ? { status: Number(status) } : {})
+});
+
+const modelListHttpCode = status => {
+  if (status === 401 || status === 403) return 'MODEL_LIST_AUTH';
+  if (status === 404 || status === 405) return 'MODEL_LIST_UNSUPPORTED';
+  if (status === 429) return 'MODEL_LIST_RATE_LIMITED';
+  return 'MODEL_LIST_HTTP_ERROR';
+};
+
+const isValidModelListBaseUrl = value => {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+};
 
 const visionModelUnavailablePattern = /(?:model[\s\S]{0,80}(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)|(?:not found|not available|unavailable|does not exist|unsupported|unknown|invalid)[\s\S]{0,80}model)/i;
 
@@ -324,6 +346,78 @@ ${personalizationGuidance}
 - 逐段翻译，与英文段落结构完全对应
 - 中文表达自然流畅
 - 段落之间用双换行分隔（与英文一致）`;
+  },
+
+  // Read the models exposed by the configured OpenAI-compatible endpoint.
+  // This accepts unsaved credentials so the settings UI can validate a new
+  // provider without persisting its API key first.
+  async listModels({
+    baseUrl = Config.get('base_url'),
+    apiKey = Config.get('api_key'),
+    signal = null,
+    timeoutMs = MODEL_LIST_TIMEOUT_MS
+  } = {}) {
+    const normalizedBaseUrl = String(baseUrl || '').trim().replace(/\/+$/, '');
+    const normalizedApiKey = String(apiKey || '').trim();
+    if (!normalizedApiKey) throw modelListError('MODEL_LIST_MISSING_KEY');
+    if (!isValidModelListBaseUrl(normalizedBaseUrl)) throw modelListError('MODEL_LIST_INVALID_BASE_URL');
+
+    const controller = new AbortController();
+    let timedOut = false;
+    const abortRequest = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', abortRequest, { once: true });
+    }
+    const safeTimeout = Math.max(1, Number(timeoutMs) || MODEL_LIST_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, safeTimeout);
+
+    try {
+      const response = await fetch(apiUrl(normalizedBaseUrl, '/models'), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${normalizedApiKey}`
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) throw modelListError(modelListHttpCode(Number(response.status)), response.status);
+
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        throw modelListError('MODEL_LIST_INVALID_RESPONSE');
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload.data)) {
+        throw modelListError('MODEL_LIST_INVALID_RESPONSE');
+      }
+
+      const seen = new Set();
+      return payload.data.flatMap(record => {
+        const id = typeof record?.id === 'string' ? record.id.trim() : '';
+        if (!id || seen.has(id)) return [];
+        seen.add(id);
+        return [{
+          id,
+          ...(record.object ? { object: String(record.object) } : {}),
+          ...(record.owned_by ? { owned_by: String(record.owned_by) } : {}),
+          ...(Number.isFinite(Number(record.created)) ? { created: Number(record.created) } : {})
+        }];
+      });
+    } catch (error) {
+      if (String(error?.code || '').startsWith('MODEL_LIST_')) throw error;
+      if (error?.name === 'AbortError') {
+        throw modelListError(timedOut ? 'MODEL_LIST_TIMEOUT' : 'MODEL_LIST_CANCELLED');
+      }
+      throw modelListError('MODEL_LIST_NETWORK');
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abortRequest);
+    }
   },
 
   // Make API request with timeout
